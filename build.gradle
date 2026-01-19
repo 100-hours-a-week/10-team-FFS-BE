@@ -55,10 +55,10 @@ spotless {
         )
         // 사용하지 않는 import 제거
         removeUnusedImports()
+        // Palantir 자바 포맷 적용
+        palantirJavaFormat()
         // 어노테이션 정렬
         formatAnnotations()
-        // 구글 자바 포맷 적용
-        palantirJavaFormat()
         // 공백 제거
         trimTrailingWhitespace()
         // 끝부분 New Line 처리
