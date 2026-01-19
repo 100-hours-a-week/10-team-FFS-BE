@@ -2,7 +2,8 @@ spring:
   application:
     name: kloset-lab
   datasource:
-    url: jdbc:mysql://${MYSQL_URL}:${MYSQL_PORT}/${MYSQL_NAME}
+    # "useSSL=false&allowPublicKeyRetrieval=true" 부분은 로컬 환경에서만 적용
+    url: jdbc:mysql://${MYSQL_URL}:${MYSQL_PORT}/${MYSQL_NAME}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8&useSSL=false&allowPublicKeyRetrieval=true
     username: ${MYSQL_USER}
     password: ${MYSQL_PASSWORD}
 

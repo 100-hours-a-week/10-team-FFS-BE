@@ -39,3 +39,10 @@ out/
 ### Environment Variables ###
 .env
 .env.*
+
+### DB Local Setting ###
+docker-compose.yml
+mysql_data/
+
+### OS Files (Mac) ###
+.DS_Store
