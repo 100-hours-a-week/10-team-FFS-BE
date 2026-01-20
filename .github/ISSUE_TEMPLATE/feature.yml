@@ -4,7 +4,7 @@ title: "[FEAT] "
 labels:
   - feature
 projects:
-  - 100-hours-a-week/@TEAM 10
+  - 100-hours-a-week/Projects/@TEAM 10
 
 body:
   - type: textarea
