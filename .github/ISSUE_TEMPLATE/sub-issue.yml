@@ -34,7 +34,7 @@ body:
     attributes:
       label: 브랜치명
       description: 작업할 브랜치 이름 (feature/#{이슈번호}-설명)
-      placeholder: "feature/#45-login-api"
+      placeholder: "feat/#45-login-api"
     validations:
       required: false
 
