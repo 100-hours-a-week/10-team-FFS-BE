@@ -6,11 +6,15 @@ spring:
     url: jdbc:mysql://${MYSQL_URL}:${MYSQL_PORT}/${MYSQL_NAME}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8&useSSL=false&allowPublicKeyRetrieval=true
     username: ${MYSQL_USER}
     password: ${MYSQL_PASSWORD}
+  jpa:
+    database-platform: org.hibernate.dialect.MySQLDialect
+    open-in-view: false
+    show-sql: true
+    hibernate:
+      format_sql: true
+      ddl-auto: update
 
-    jpa:
-      database-platform: org.hibernate.dialect.MySQLDialect
-      open-in-view: false
-      show-sql: true
-      hibernate:
-        format_sql: true
-        ddl-auto: update
+jwt:
+  secret: ${JWT_SECRET}
+  access-token-expiration: 3600000      # 1시간 (ms)
+  refresh-token-expiration: 604800000   # 1주일 (ms)
