@@ -2,7 +2,7 @@ name: ✨ Feature
 description: 기능 추가 / 개선
 title: "[FEAT] "
 labels:
-  - feature
+  - part:backend
 projects:
   - 100-hours-a-week/314
 
