@@ -1,0 +1,49 @@
+name: 📌 Sub-issue
+description: 스프린트 백로그 서브이슈 작성
+title: "[BE] "
+labels:
+  - part:backend
+projects:
+  - "100-hours-a-week/314"
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### 📝 제목 작성 가이드
+        `[BE] feat: 기능 설명` 형식으로 작성해주세요
+        - feat: 새로운 기능
+        - fix: 버그 수정
+        - refactor: 코드 리팩토링
+        - docs: 문서 수정
+        - test: 테스트 추가/수정
+        - chore: 빌드, 설정, 의존성 관리
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 구체적인 내용
+      description: 이 서브이슈에서 수행할 작업을 설명해주세요
+      placeholder: |
+        예: JWT 토큰 재발급 API 엔드포인트 구현
+    validations:
+      required: true
+
+  - type: input
+    id: branch
+    attributes:
+      label: 브랜치명
+      description: 작업할 브랜치 이름 (feature/#{이슈번호}-설명)
+      placeholder: "feature/#45-login-api"
+    validations:
+      required: false
+
+  - type: textarea
+    id: etc
+    attributes:
+      label: 기타
+      description: 추가로 기록할 내용
+      placeholder: |
+        참고 사항이나 메모
+    validations:
+      required: false
