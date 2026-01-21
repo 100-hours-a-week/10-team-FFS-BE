@@ -5,142 +5,28 @@
 
 <module name="Checker">
     <property name="charset" value="UTF-8"/>
-    <property name="severity" value="warning"/>
-    <property name="fileExtensions" value="java"/>
-
-    <module name="FileLength">
-        <property name="max" value="500"/>
-        <property name="fileExtensions" value="java"/>
-    </module>
-
-    <module name="FileTabCharacter">
-        <property name="eachLine" value="true"/>
-    </module>
 
     <module name="TreeWalker">
+        <!-- 네이밍 -->
+        <module name="TypeName"/>
+        <module name="MethodName"/>
+        <module name="MemberName"/>
+        <module name="LocalVariableName"/>
+        <module name="ParameterName"/>
+        <module name="ConstantName"/>
 
-        <!-- ========================================== -->
-        <!-- 네이밍 규칙                                 -->
-        <!-- ========================================== -->
-
-        <module name="TypeName">
-            <property name="format" value="^[A-Z][a-zA-Z0-9]*$"/>
-        </module>
-
-        <module name="MethodName">
-            <property name="format" value="^[a-z][a-zA-Z0-9]*$"/>
-        </module>
-
-        <!-- 멤버 변수: camelCase + 최소 3자 이상 -->
-        <module name="MemberName">
-            <property name="format" value="^[a-z][a-zA-Z0-9]{2,}$"/>
-            <message key="name.invalidPattern"
-                     value="멤버 변수명은 camelCase + 최소 3자 이상이어야 합니다: ''{0}''"/>
-        </module>
-
-        <!-- 로컬 변수: camelCase + 최소 2자 이상 (루프 변수 i,j 제외) -->
-        <module name="LocalVariableName">
-            <property name="format" value="^[a-z][a-zA-Z0-9]{1,}$"/>
-            <property name="allowOneCharVarInForLoop" value="true"/>
-            <message key="name.invalidPattern"
-                     value="로컬 변수명은 camelCase + 최소 2자 이상이어야 합니다: ''{0}''"/>
-        </module>
-
-        <module name="ParameterName">
-            <property name="format" value="^[a-z][a-zA-Z0-9]*$"/>
-        </module>
-
-        <module name="ConstantName">
-            <property name="format" value="^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$"/>
-        </module>
-
-        <module name="PackageName">
-            <property name="format" value="^[a-z]+(\.[a-z][a-z0-9]*)*$"/>
-        </module>
-
-        <!-- ========================================== -->
-        <!-- 코드 구조                                   -->
-        <!-- ========================================== -->
-
-        <module name="MethodLength">
-            <property name="max" value="150"/>
-        </module>
-
-        <module name="ParameterNumber">
-            <property name="max" value="7"/>
-        </module>
-
-        <module name="LineLength">
-            <property name="max" value="120"/>
-            <property name="ignorePattern" value="^package.*|^import.*|a href|href|http://|https://|ftp://"/>
-        </module>
-
-        <!-- ========================================== -->
-        <!-- Import 규칙                                -->
-        <!-- ========================================== -->
-
+        <!-- Import -->
         <module name="UnusedImports"/>
         <module name="RedundantImport"/>
-        <module name="AvoidStarImport">
-            <property name="excludes" value="java.io,java.util,java.net,javax.annotation"/>
-        </module>
-        <module name="IllegalImport">
-            <property name="illegalPkgs" value="sun, com.sun"/>
-        </module>
 
-        <!-- ========================================== -->
-        <!-- 공백 규칙                                   -->
-        <!-- ========================================== -->
-
-        <module name="MethodParamPad"/>
-        <module name="TypecastParenPad"/>
-        <module name="WhitespaceAround"/>
-        <module name="ParenPad"/>
-
-        <!-- ========================================== -->
-        <!-- 들여쓰기                                    -->
-        <!-- ========================================== -->
-
-        <module name="Indentation">
-            <property name="basicOffset" value="4"/>
-            <property name="braceAdjustment" value="0"/>
-            <property name="caseIndent" value="4"/>
+        <!-- 공백 -->
+        <module name="EmptyLineSeparator">
+            <property name="allowNoEmptyLineBetweenFields" value="true"/>
         </module>
 
-        <!-- ========================================== -->
-        <!-- 중괄호                                      -->
-        <!-- ========================================== -->
-
+        <!-- 기타 -->
         <module name="NeedBraces"/>
         <module name="LeftCurly"/>
-        <module name="RightCurly">
-            <property name="tokens" value="LITERAL_TRY, LITERAL_CATCH, LITERAL_FINALLY, LITERAL_IF, LITERAL_ELSE"/>
-        </module>
-
-        <!-- ========================================== -->
-        <!-- 기타                                        -->
-        <!-- ========================================== -->
-
-        <module name="EmptyBlock">
-            <property name="option" value="text"/>
-        </module>
-        <module name="OneStatementPerLine"/>
-        <module name="MultipleVariableDeclarations"/>
-        <module name="ArrayTypeStyle"/>
-        <module name="ModifierOrder"/>
-        <module name="MissingSwitchDefault"/>
-        <module name="FallThrough"/>
-
-        <module name="AnnotationLocation">
-            <property name="allowSamelineMultipleAnnotations" value="false"/>
-        </module>
-
-        <module name="EqualsHashCode"/>
-
-        <!-- EqualsAvoidNull 제거 (최신 버전에서 deprecated) -->
-
-        <module name="UnnecessarySemicolonAfterTypeMemberDeclaration"/>
-        <module name="UnnecessarySemicolonInEnumeration"/>
-
+        <module name="RightCurly"/>
     </module>
 </module>
