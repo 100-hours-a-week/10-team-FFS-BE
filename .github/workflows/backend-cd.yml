@@ -35,7 +35,6 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: development
-      url: ${{ secrets.DEV_SERVER_URL }}
     timeout-minutes: 15
 
     steps:
@@ -245,27 +244,50 @@ jobs:
             cat deployment-info.json
 
       # ------------------------------------------------------
-      # 8. Discord 알림
+      # 8. Discord 알림 - 성공
       # ------------------------------------------------------
-      - name: 📢 Send Discord notification
-        if: always()
+      - name: 📢 Send Discord notification on success
+        if: success()
         uses: tsickert/discord-webhook@v5.3.0
         with:
           webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
           username: "Backend CD Bot"
           avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
-          embed-title: "${{ success() && '✅ Backend Dev 배포 성공' || '❌ Backend Dev 배포 실패' }}"
+          embed-title: "✅ Backend Dev 배포 성공"
           embed-description: |
             **환경:** Development
             **브랜치:** `${{ github.event.workflow_run.head_branch }}`
-            **커밋:** `$(echo ${{ github.event.workflow_run.head_sha }} | cut -c1-7)`
+            **커밋:** `${{ github.event.workflow_run.head_sha }}`
             **배포자:** ${{ github.event.workflow_run.head_commit.author.name }}
             
-            ${{ success() && '🎉 배포가 성공적으로 완료되었습니다!' || '⚠️ 배포 중 문제가 발생했습니다.' }}
+            🎉 배포가 성공적으로 완료되었습니다!
             
             [📋 CD 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-            [🌐 Dev 서버](${{ secrets.DEV_SERVER_URL }})
-          embed-color: ${{ success() && '3066993' || '15158332' }}
+          embed-color: 3066993
+          embed-footer-text: ${{ github.repository }}
+          embed-timestamp: ${{ github.event.workflow_run.updated_at }}
+
+      # ------------------------------------------------------
+      # 9. Discord 알림 - 실패
+      # ------------------------------------------------------
+      - name: 📢 Send Discord notification on failure
+        if: failure()
+        uses: tsickert/discord-webhook@v5.3.0
+        with:
+          webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          username: "Backend CD Bot"
+          avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
+          embed-title: "❌ Backend Dev 배포 실패"
+          embed-description: |
+            **환경:** Development
+            **브랜치:** `${{ github.event.workflow_run.head_branch }}`
+            **커밋:** `${{ github.event.workflow_run.head_sha }}`
+            **배포자:** ${{ github.event.workflow_run.head_commit.author.name }}
+            
+            ⚠️ 배포 중 문제가 발생했습니다.
+            
+            [📋 CD 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          embed-color: 15158332
           embed-footer-text: ${{ github.repository }}
           embed-timestamp: ${{ github.event.workflow_run.updated_at }}
 
@@ -672,48 +694,73 @@ jobs:
             fi
 
       # ------------------------------------------------------
-      # 11. Discord 알림
+      # 11. Discord 알림 - 성공
       # ------------------------------------------------------
-      - name: 📢 Send Discord notification
-        if: always()
+      - name: 📢 Send Discord notification on success
+        if: success()
         uses: tsickert/discord-webhook@v5.3.0
         with:
           webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
           username: "Backend CD Bot"
           avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
-          embed-title: "${{ success() && '✅ Backend Production 배포 성공' || '❌ Backend Production 배포 실패 (롤백 완료)' }}"
+          embed-title: "✅ Backend Production 배포 성공"
           embed-description: |
             **환경:** Production 🔴
             **브랜치:** `${{ github.event.workflow_run.head_branch }}`
-            **커밋:** `$(echo ${{ github.event.workflow_run.head_sha }} | cut -c1-7)`
+            **커밋:** `${{ github.event.workflow_run.head_sha }}`
             **배포자:** ${{ github.event.workflow_run.head_commit.author.name }}
             
-            ${{ success() && '🎉 프로덕션 배포가 성공적으로 완료되었습니다!' || '⚠️ 배포 실패로 자동 롤백되었습니다. 즉시 확인이 필요합니다!' }}
+            🎉 프로덕션 배포가 성공적으로 완료되었습니다!
             
             [📋 CD 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
             [🌐 Production 서비스](https://your-domain.com)
-          embed-color: ${{ success() && '3066993' || '15158332' }}
+          embed-color: 3066993
           embed-footer-text: ${{ github.repository }}
           embed-timestamp: ${{ github.event.workflow_run.updated_at }}
 
       # ------------------------------------------------------
-      # 12. Slack 알림 (Production 전용 - 선택사항)
+      # 12. Discord 알림 - 실패
       # ------------------------------------------------------
-      - name: 📢 Send Slack notification
-        if: always()
+      - name: 📢 Send Discord notification on failure
+        if: failure()
+        uses: tsickert/discord-webhook@v5.3.0
+        with:
+          webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          username: "Backend CD Bot"
+          avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
+          embed-title: "❌ Backend Production 배포 실패 (롤백 완료)"
+          embed-description: |
+            **환경:** Production 🔴
+            **브랜치:** `${{ github.event.workflow_run.head_branch }}`
+            **커밋:** `${{ github.event.workflow_run.head_sha }}`
+            **배포자:** ${{ github.event.workflow_run.head_commit.author.name }}
+            
+            ⚠️ 배포 실패로 자동 롤백되었습니다. 즉시 확인이 필요합니다!
+            
+            [📋 CD 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            [🌐 Production 서비스](https://your-domain.com)
+          embed-color: 15158332
+          embed-footer-text: ${{ github.repository }}
+          embed-timestamp: ${{ github.event.workflow_run.updated_at }}
+
+      # ------------------------------------------------------
+      # 13. Slack 알림 - 성공 (Production 전용 - 선택사항)
+      # ------------------------------------------------------
+      - name: 📢 Send Slack notification on success
+        if: success()
         uses: slackapi/slack-github-action@v1.26.0
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         with:
           payload: |
             {
-              "text": "${{ success() && '✅ Production 배포 성공' || '❌ Production 배포 실패' }}",
+              "text": "✅ Production 배포 성공",
               "blocks": [
                 {
                   "type": "header",
                   "text": {
                     "type": "plain_text",
-                    "text": "${{ success() && '✅ Backend Production 배포 성공' || '❌ Backend Production 배포 실패' }}"
+                    "text": "✅ Backend Production 배포 성공"
                   }
                 },
                 {
@@ -729,7 +776,73 @@ jobs:
                     },
                     {
                       "type": "mrkdwn",
-                      "text": "*커밋:*\n`$(echo ${{ github.event.workflow_run.head_sha }} | cut -c1-7)`"
+                      "text": "*커밋:*\n`${{ github.event.workflow_run.head_sha }}`"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*배포자:*\n${{ github.event.workflow_run.head_commit.author.name }}"
+                    }
+                  ]
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "📋 CI/CD 로그"
+                      },
+                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    },
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "🌐 서비스 확인"
+                      },
+                      "url": "https://your-domain.com"
+                    }
+                  ]
+                }
+              ]
+            }
+        continue-on-error: true
+
+      # ------------------------------------------------------
+      # 14. Slack 알림 - 실패 (Production 전용 - 선택사항)
+      # ------------------------------------------------------
+      - name: 📢 Send Slack notification on failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.26.0
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        with:
+          payload: |
+            {
+              "text": "❌ Production 배포 실패",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "❌ Backend Production 배포 실패"
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*환경:*\nProduction 🔴"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*브랜치:*\n`${{ github.event.workflow_run.head_branch }}`"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*커밋:*\n`${{ github.event.workflow_run.head_sha }}`"
                     },
                     {
                       "type": "mrkdwn",
