@@ -1,4 +1,4 @@
-package com.example.kloset_lab.global.dto;
+package com.example.kloset_lab.global.response;
 
 import lombok.Builder;
 import lombok.Getter;
@@ -16,6 +16,7 @@ public class ApiResponse<T> {
     private final String message;
     private final T data;
 
+    // TODO: 아래 4개의 메소드 사용 부분 제거 필요, ApiResponses 사용 으로 변경해주세요
     public static <T> ApiResponse<T> success(String message, T data) {
         return ApiResponse.<T>builder().code(200).message(message).data(data).build();
     }

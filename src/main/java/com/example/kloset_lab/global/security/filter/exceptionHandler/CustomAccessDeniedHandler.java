@@ -1,6 +1,6 @@
 package com.example.kloset_lab.global.security.filter.exceptionHandler;
 
-import com.example.kloset_lab.global.dto.ApiResponse;
+import com.example.kloset_lab.global.response.ApiResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;

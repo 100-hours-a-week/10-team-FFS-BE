@@ -1,9 +1,8 @@
 package com.example.kloset_lab.global.security.jwt;
 
 import com.example.kloset_lab.auth.entity.TokenType;
-import java.util.Collection;
-
 import com.example.kloset_lab.global.security.filter.JwtAuthenticationFilter;
+import java.util.Collection;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.core.GrantedAuthority;
 
