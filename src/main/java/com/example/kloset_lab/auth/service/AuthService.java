@@ -1,12 +1,19 @@
 package com.example.kloset_lab.auth.service;
 
+import com.example.kloset_lab.auth.dto.ExistingUserLoginResponse;
+import com.example.kloset_lab.auth.dto.KakaoLoginResponse;
+import com.example.kloset_lab.auth.dto.NewUserLoginResponse;
 import com.example.kloset_lab.auth.dto.TokenRefreshResponse;
 import com.example.kloset_lab.auth.entity.RefreshToken;
 import com.example.kloset_lab.auth.entity.TokenType;
-import com.example.kloset_lab.global.security.provider.JwtTokenProvider;
+import com.example.kloset_lab.auth.infrastructure.kakao.client.KakaoOAuthClient;
 import com.example.kloset_lab.auth.repository.RefreshTokenRepository;
 import com.example.kloset_lab.global.exception.InvalidTokenException;
+import com.example.kloset_lab.global.security.provider.JwtTokenProvider;
+import com.example.kloset_lab.user.entity.Provider;
 import com.example.kloset_lab.user.entity.User;
+import com.example.kloset_lab.user.entity.UserProfile;
+import com.example.kloset_lab.user.repository.UserProfileRepository;
 import com.example.kloset_lab.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,6 +28,95 @@ public class AuthService {
     private final JwtTokenProvider jwtTokenProvider;
     private final RefreshTokenRepository refreshTokenRepository;
     private final UserRepository userRepository;
+    private final UserProfileRepository userProfileRepository;
+    private final KakaoOAuthClient kakaoOAuthClient;
+
+    /**
+     * 카카오 로그인 결과
+     *
+     * @param response 로그인 응답 (기존 회원 또는 신규 회원)
+     * @param refreshToken 리프레시 토큰 (기존 회원만 존재, 신규 회원은 null)
+     */
+    public record KakaoLoginResult(KakaoLoginResponse response, String refreshToken) {}
+
+    /**
+     * 카카오 소셜로그인 처리
+     *
+     * 흐름:
+     * 1. Authorization Code로 카카오에서 providerId 조회
+     * 2. 기존 회원 여부 확인
+     * 3-A. 기존 회원: Access Token(ACTIVE) + Refresh Token 발급, nickname 포함 응답
+     * 3-B. 신규 회원: User 생성(PENDING) + Access Token(REGISTRATION) 발급
+     *
+     * @param authorizationCode 프론트엔드에서 전달받은 카카오 인가 코드
+     * @return KakaoLoginResult (기존 회원은 refreshToken 포함, 신규 회원은 null)
+     */
+    @Transactional
+    public KakaoLoginResult kakaoLogin(String authorizationCode) {
+        String providerId = kakaoOAuthClient.getProviderId(authorizationCode);
+
+        return userRepository
+                .findByProviderAndProviderId(Provider.KAKAO, providerId)
+                .map(this::handleExistingUser)
+                .orElseGet(() -> handleNewUser(providerId));
+    }
+
+    /**
+     * 기존 회원 로그인 처리
+     *
+     * - Access Token (ACTIVE) 발급: 일반 서비스 API 접근 가능
+     * - Refresh Token 발급 및 DB 저장
+     * - UserProfile에서 nickname 조회
+     */
+    private KakaoLoginResult handleExistingUser(User user) {
+        Long userId = user.getId();
+
+        String accessToken = jwtTokenProvider.generateAccessToken(userId, TokenType.ACTIVE);
+        String refreshToken = jwtTokenProvider.generateRefreshToken(userId);
+
+        refreshTokenRepository.deleteByUserId(userId);
+        refreshTokenRepository.save(
+                RefreshToken.builder().user(user).tokenString(refreshToken).build());
+
+        String nickname = userProfileRepository
+                .findByUserId(userId)
+                .map(UserProfile::getNickname)
+                .orElseThrow(() -> new IllegalStateException("기존 회원이지만 프로필이 없습니다. userId: " + userId));
+
+        log.info("기존 회원 카카오 로그인 완료 - userId: {}, nickname: {}", userId, nickname);
+
+        ExistingUserLoginResponse response = ExistingUserLoginResponse.builder()
+                .isRegistered(true)
+                .accessToken(accessToken)
+                .nickname(nickname)
+                .build();
+
+        return new KakaoLoginResult(response, refreshToken);
+    }
+
+    /**
+     * 신규 회원 처리
+     *
+     * - User 엔티티 생성 (status: PENDING)
+     * - Access Token (REGISTRATION) 발급: 회원가입 API만 접근 가능
+     * - Refresh Token은 발급하지 않음
+     */
+    private KakaoLoginResult handleNewUser(String providerId) {
+        User newUser =
+                User.builder().provider(Provider.KAKAO).providerId(providerId).build();
+        userRepository.save(newUser);
+
+        String accessToken = jwtTokenProvider.generateAccessToken(newUser.getId(), TokenType.REGISTRATION);
+
+        log.info("신규 회원 카카오 로그인 - userId: {}, 회원가입 필요", newUser.getId());
+
+        NewUserLoginResponse response = NewUserLoginResponse.builder()
+                .isRegistered(false)
+                .accessToken(accessToken)
+                .build();
+
+        return new KakaoLoginResult(response, null);
+    }
 
     /**
      * 토큰 갱신 (RTR: Refresh Token Rotation 적용)
