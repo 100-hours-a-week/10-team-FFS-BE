@@ -54,6 +54,7 @@ public enum ErrorCode {
 
     // 413 Payload Too Large
     CONTENT_TOO_LONG(HttpStatus.PAYLOAD_TOO_LARGE, "content_too_long"),
+    FILE_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "file_too_large"),
 
     // 422 Unprocessable Entity
     EMPTY_CLOSET(HttpStatus.UNPROCESSABLE_ENTITY, "empty_closet"),
@@ -65,6 +66,7 @@ public enum ErrorCode {
 
     // 500 Internal Server Error
     INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "internal_server_error"),
+    IMAGE_PROCESSING_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "image_processing_error"),
 
     // 502 Bad Gateway
     AI_ERROR(HttpStatus.BAD_GATEWAY, "ai_error"),
