@@ -16,19 +16,15 @@ public class ApiResponse<T> {
     private final String message;
     private final T data;
 
-    // TODO: 아래 4개의 메소드 사용 부분 제거 필요, ApiResponses 사용 으로 변경해주세요
-    public static <T> ApiResponse<T> success(String message, T data) {
-        return ApiResponse.<T>builder().code(200).message(message).data(data).build();
-    }
-
-    public static <T> ApiResponse<T> success(int code, String message, T data) {
-        return ApiResponse.<T>builder().code(code).message(message).data(data).build();
-    }
-
-    public static ApiResponse<Void> success(String message) {
-        return ApiResponse.<Void>builder().code(200).message(message).data(null).build();
-    }
-
+    /**
+     * Security Filter용 에러 응답 생성
+     * DispatcherServlet 이전에 동작하는 Security Filter에서는 ResponseEntity를 반환할 수 없으므로
+     * ApiResponse 객체를 직접 생성하여 HttpServletResponse에 작성해야 합니다.
+     *
+     * @param code 에러 코드
+     * @param message 에러 메시지
+     * @return ApiResponse 객체
+     */
     public static <T> ApiResponse<T> error(int code, String message) {
         return ApiResponse.<T>builder().code(code).message(message).data(null).build();
     }

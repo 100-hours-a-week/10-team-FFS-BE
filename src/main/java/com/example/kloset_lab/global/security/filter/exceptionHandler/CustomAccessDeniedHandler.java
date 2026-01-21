@@ -1,5 +1,6 @@
 package com.example.kloset_lab.global.security.filter.exceptionHandler;
 
+import com.example.kloset_lab.global.exception.ErrorCode;
 import com.example.kloset_lab.global.response.ApiResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.ServletException;
@@ -30,11 +31,12 @@ public class CustomAccessDeniedHandler implements AccessDeniedHandler {
 
         log.warn("접근 거부: {} - {}", request.getRequestURI(), accessDeniedException.getMessage());
 
-        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+        ErrorCode errorCode = ErrorCode.ACCESS_DENIED;
+        response.setStatus(errorCode.getStatus().value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding("UTF-8");
 
-        ApiResponse<Void> apiResponse = ApiResponse.error(403, "접근 권한이 없습니다.");
+        ApiResponse<Void> apiResponse = ApiResponse.error(errorCode.getStatus().value(), errorCode.getMessage());
         response.getWriter().write(objectMapper.writeValueAsString(apiResponse));
     }
 }

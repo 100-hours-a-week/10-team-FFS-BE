@@ -19,6 +19,8 @@ public enum ErrorCode {
     FILE_SIZE_EXCEEDS_10MB(HttpStatus.BAD_REQUEST, "file_size_exceeds_10mb"),
 
     // 401 Unauthorized
+    AUTHENTICATION_REQUIRED(HttpStatus.UNAUTHORIZED, "authentication_required"),
+    INVALID_TOKEN(HttpStatus.UNAUTHORIZED, "invalid_token"),
     ACCESS_TOKEN_EXPIRED(HttpStatus.UNAUTHORIZED, "access_token_expired"),
     REFRESH_TOKEN_EXPIRED(HttpStatus.UNAUTHORIZED, "refresh_token_expired"),
 

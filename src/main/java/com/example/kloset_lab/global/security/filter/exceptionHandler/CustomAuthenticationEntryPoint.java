@@ -1,5 +1,6 @@
 package com.example.kloset_lab.global.security.filter.exceptionHandler;
 
+import com.example.kloset_lab.global.exception.ErrorCode;
 import com.example.kloset_lab.global.response.ApiResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.ServletException;
@@ -32,11 +33,12 @@ public class CustomAuthenticationEntryPoint implements AuthenticationEntryPoint 
 
         log.warn("인증 실패: {} - {}", request.getRequestURI(), authException.getMessage());
 
-        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        ErrorCode errorCode = ErrorCode.AUTHENTICATION_REQUIRED;
+        response.setStatus(errorCode.getStatus().value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding("UTF-8");
 
-        ApiResponse<Void> apiResponse = ApiResponse.error(401, "인증이 필요합니다.");
+        ApiResponse<Void> apiResponse = ApiResponse.error(errorCode.getStatus().value(), errorCode.getMessage());
         response.getWriter().write(objectMapper.writeValueAsString(apiResponse));
     }
 }

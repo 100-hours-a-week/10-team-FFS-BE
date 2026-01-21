@@ -1,12 +1,14 @@
 package com.example.kloset_lab.auth.controller;
 
 import com.example.kloset_lab.auth.dto.KakaoLoginRequest;
+import com.example.kloset_lab.auth.dto.KakaoLoginResponse;
 import com.example.kloset_lab.auth.dto.TokenRefreshResponse;
 import com.example.kloset_lab.auth.service.AuthService;
 import com.example.kloset_lab.auth.service.AuthService.KakaoLoginResult;
 import com.example.kloset_lab.auth.service.AuthService.TokenRefreshResult;
 import com.example.kloset_lab.global.exception.InvalidTokenException;
 import com.example.kloset_lab.global.response.ApiResponse;
+import com.example.kloset_lab.global.response.ApiResponses;
 import com.example.kloset_lab.global.util.CookieUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -38,7 +40,7 @@ public class AuthController {
      * - 신규 회원: isRegistered=false, accessToken 반환 (회원가입 추가 정보 입력 필요)
      */
     @PostMapping("/kakao")
-    public ResponseEntity<ApiResponse<?>> kakaoLogin(
+    public ResponseEntity<ApiResponse<KakaoLoginResponse>> kakaoLogin(
             @RequestBody @Valid KakaoLoginRequest request, HttpServletResponse response) {
 
         KakaoLoginResult result = authService.kakaoLogin(request.authorizationCode());
@@ -46,7 +48,7 @@ public class AuthController {
         Optional.ofNullable(result.refreshToken())
                 .ifPresent(token -> CookieUtil.addRefreshTokenCookie(response, token));
 
-        return ResponseEntity.ok(ApiResponse.success(result.response().resultMessage(), result.response()));
+        return ApiResponses.ok(result.response().resultMessage(), result.response());
     }
 
     /**
@@ -67,7 +69,7 @@ public class AuthController {
         // 새 리프레시 토큰을 쿠키에 설정
         CookieUtil.addRefreshTokenCookie(response, result.newRefreshToken());
 
-        return ResponseEntity.ok(ApiResponse.success("accessToken_refreshed", result.response()));
+        return ApiResponses.ok("accessToken_refreshed", result.response());
     }
 
     /**
@@ -83,6 +85,6 @@ public class AuthController {
         // 리프레시 토큰 쿠키 만료 처리
         CookieUtil.expireRefreshTokenCookie(response);
 
-        return ResponseEntity.ok(ApiResponse.success("logout_success"));
+        return ApiResponses.ok("logout_success");
     }
 }
