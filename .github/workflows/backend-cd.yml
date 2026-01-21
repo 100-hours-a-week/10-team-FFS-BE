@@ -1,0 +1,876 @@
+name: Backend CD
+
+# ============================================================
+# 트리거 설정: CI 워크플로우 완료 후 자동 실행
+# ============================================================
+on:
+  workflow_run:
+    workflows: ["Backend CI"]
+    types:
+      - completed
+    branches:
+      - dev
+      - main
+
+permissions:
+  contents: read
+  actions: read
+
+# ============================================================
+# 환경 변수 설정
+# ============================================================
+env:
+  APP_DIR: /home/ubuntu/app/backend
+  BACKUP_DIR: /home/ubuntu/backups/backend
+
+# ============================================================
+# Dev 환경 배포
+# ============================================================
+jobs:
+  deploy-dev:
+    name: Deploy to Development
+    if: |
+      github.event.workflow_run.conclusion == 'success' && 
+      github.event.workflow_run.head_branch == 'dev'
+    runs-on: ubuntu-latest
+    environment:
+      name: development
+    timeout-minutes: 15
+
+    steps:
+      # ------------------------------------------------------
+      # 1. 빌드 메타데이터 다운로드
+      # ------------------------------------------------------
+      - name: 📥 Download build metadata
+        uses: actions/download-artifact@v4
+        with:
+          name: build-metadata-${{ github.event.workflow_run.head_sha }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+        continue-on-error: true
+
+      - name: 📋 Display build metadata
+        run: |
+          if [ -f metadata.json ]; then
+            echo "### 📊 Build Metadata" >> $GITHUB_STEP_SUMMARY
+            cat metadata.json | jq '.' >> $GITHUB_STEP_SUMMARY
+            cat metadata.json
+          else
+            echo "⚠️ Build metadata not found"
+          fi
+
+      # ------------------------------------------------------
+      # 2. JAR 아티팩트 다운로드
+      # ------------------------------------------------------
+      - name: 📥 Download JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-jar-dev-${{ github.event.workflow_run.head_sha }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: 🔍 Verify downloaded artifact
+        run: |
+          echo "### 📦 Downloaded Files" >> $GITHUB_STEP_SUMMARY
+          ls -lh *.jar >> $GITHUB_STEP_SUMMARY
+          
+          # JAR 파일 검증
+          JAR_FILE=$(ls *.jar | head -1)
+          JAR_SIZE=$(stat -f%z "$JAR_FILE" 2>/dev/null || stat -c%s "$JAR_FILE")
+          
+          echo "JAR File: $JAR_FILE"
+          echo "JAR Size: $JAR_SIZE bytes"
+          
+          # 최소 크기 검증 (1MB)
+          if [ "$JAR_SIZE" -lt 1048576 ]; then
+            echo "::error::JAR file is too small (< 1MB). Build may have failed."
+            exit 1
+          fi
+          
+          echo "✅ JAR file verification passed"
+
+      # ------------------------------------------------------
+      # 3. 배포 전 서버 상태 확인
+      # ------------------------------------------------------
+      - name: 🔍 Check server status before deployment
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.DEV_SERVER_HOST }}
+          username: ${{ secrets.DEV_SERVER_USER }}
+          key: ${{ secrets.DEV_SERVER_SSH_KEY }}
+          script: |
+            echo "=== Server Status Check ==="
+            
+            # 디스크 공간 확인
+            echo "📊 Disk Usage:"
+            df -h ${{ env.APP_DIR }}
+            
+            DISK_USAGE=$(df ${{ env.APP_DIR }} | tail -1 | awk '{print $5}' | sed 's/%//')
+            if [ "$DISK_USAGE" -gt 90 ]; then
+              echo "::warning::Disk usage is high: ${DISK_USAGE}%"
+            fi
+            
+            # 메모리 확인
+            echo "💾 Memory Usage:"
+            free -h
+            
+            # 현재 실행 중인 프로세스 확인
+            echo "🔄 Current Process:"
+            if pgrep -f "app.jar" > /dev/null; then
+              echo "✅ Application is currently running"
+              PID=$(pgrep -f "app.jar")
+              echo "Current PID: $PID"
+            else
+              echo "⚠️ Application is not running"
+            fi
+            
+            # 디렉토리 준비
+            mkdir -p ${{ env.APP_DIR }}
+            mkdir -p ${{ env.BACKUP_DIR }}
+            mkdir -p /tmp/backend-deploy
+            
+            echo "✅ Server check completed"
+
+      # ------------------------------------------------------
+      # 4. JAR 파일 서버로 전송
+      # ------------------------------------------------------
+      - name: 📤 Transfer JAR to Dev Server
+        uses: appleboy/scp-action@v0.1.4
+        with:
+          host: ${{ secrets.DEV_SERVER_HOST }}
+          username: ${{ secrets.DEV_SERVER_USER }}
+          key: ${{ secrets.DEV_SERVER_SSH_KEY }}
+          source: "*.jar"
+          target: "/tmp/backend-deploy"
+          overwrite: true
+
+      # ------------------------------------------------------
+      # 5. 배포 스크립트 실행
+      # ------------------------------------------------------
+      - name: 🚀 Run deployment script
+        id: deploy
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.DEV_SERVER_HOST }}
+          username: ${{ secrets.DEV_SERVER_USER }}
+          key: ${{ secrets.DEV_SERVER_SSH_KEY }}
+          command-timeout: 300s
+          script: |
+            cd ${{ env.APP_DIR }}
+            
+            # JAR 파일 이동
+            echo "Moving JAR file..."
+            mv /tmp/backend-deploy/*.jar ./app-new.jar
+            
+            # 배포 스크립트 실행
+            if [ -f "./deploy.sh" ]; then
+              echo "Executing deploy.sh..."
+              chmod +x ./deploy.sh
+              bash ./deploy.sh
+            else
+              echo "ERROR: deploy.sh not found!"
+              exit 1
+            fi
+
+      # ------------------------------------------------------
+      # 6. 배포 후 검증
+      # ------------------------------------------------------
+      - name: 🏥 Post-deployment verification
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.DEV_SERVER_HOST }}
+          username: ${{ secrets.DEV_SERVER_USER }}
+          key: ${{ secrets.DEV_SERVER_SSH_KEY }}
+          script: |
+            echo "=== Post-Deployment Verification ==="
+            
+            # 프로세스 확인
+            if pgrep -f "app.jar" > /dev/null; then
+              PID=$(pgrep -f "app.jar")
+              echo "✅ Application is running (PID: $PID)"
+            else
+              echo "❌ Application is not running!"
+              exit 1
+            fi
+            
+            # 헬스체크
+            echo "Checking application health..."
+            sleep 5
+            
+            if curl -f -s http://localhost:8080/actuator/health > /dev/null 2>&1; then
+              echo "✅ Application is healthy"
+              curl -s http://localhost:8080/actuator/health | jq '.' || true
+            else
+              echo "❌ Application health check failed!"
+            
+              # 로그 출력
+              if [ -f "${{ env.APP_DIR }}/logs/application.log" ]; then
+                echo "=== Last 50 lines of log ==="
+                tail -50 ${{ env.APP_DIR }}/logs/application.log
+              fi
+            
+              exit 1
+            fi
+            
+            echo "✅ Deployment verification passed"
+
+      # ------------------------------------------------------
+      # 7. 배포 정보 기록
+      # ------------------------------------------------------
+      - name: 📝 Record deployment info
+        if: success()
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.DEV_SERVER_HOST }}
+          username: ${{ secrets.DEV_SERVER_USER }}
+          key: ${{ secrets.DEV_SERVER_SSH_KEY }}
+          script: |
+            cd ${{ env.APP_DIR }}
+            
+            cat > deployment-info.json <<EOF
+            {
+              "environment": "development",
+              "deployedAt": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
+              "commitSha": "${{ github.event.workflow_run.head_sha }}",
+              "commitShort": "$(echo ${{ github.event.workflow_run.head_sha }} | cut -c1-7)",
+              "branch": "${{ github.event.workflow_run.head_branch }}",
+              "deployedBy": "${{ github.event.workflow_run.head_commit.author.name }}",
+              "workflowRunId": "${{ github.run_id }}",
+              "workflowRunNumber": "${{ github.run_number }}"
+            }
+            EOF
+            
+            echo "✅ Deployment info recorded"
+            cat deployment-info.json
+
+      # ------------------------------------------------------
+      # 8. Discord 알림 - 성공
+      # ------------------------------------------------------
+      - name: 📢 Send Discord notification on success
+        if: success()
+        uses: tsickert/discord-webhook@v5.3.0
+        with:
+          webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          username: "Backend CD Bot"
+          avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
+          embed-title: "✅ Backend Dev 배포 성공"
+          embed-description: |
+            **환경:** Development
+            **브랜치:** `${{ github.event.workflow_run.head_branch }}`
+            **커밋:** `${{ github.event.workflow_run.head_sha }}`
+            **배포자:** ${{ github.event.workflow_run.head_commit.author.name }}
+            
+            🎉 배포가 성공적으로 완료되었습니다!
+            
+            [📋 CD 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          embed-color: 3066993
+          embed-footer-text: ${{ github.repository }}
+          embed-timestamp: ${{ github.event.workflow_run.updated_at }}
+
+      # ------------------------------------------------------
+      # 9. Discord 알림 - 실패
+      # ------------------------------------------------------
+      - name: 📢 Send Discord notification on failure
+        if: failure()
+        uses: tsickert/discord-webhook@v5.3.0
+        with:
+          webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          username: "Backend CD Bot"
+          avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
+          embed-title: "❌ Backend Dev 배포 실패"
+          embed-description: |
+            **환경:** Development
+            **브랜치:** `${{ github.event.workflow_run.head_branch }}`
+            **커밋:** `${{ github.event.workflow_run.head_sha }}`
+            **배포자:** ${{ github.event.workflow_run.head_commit.author.name }}
+            
+            ⚠️ 배포 중 문제가 발생했습니다.
+            
+            [📋 CD 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          embed-color: 15158332
+          embed-footer-text: ${{ github.repository }}
+          embed-timestamp: ${{ github.event.workflow_run.updated_at }}
+
+  # ============================================================
+  # Production 환경 배포
+  # ============================================================
+  deploy-prod:
+    name: Deploy to Production
+    if: |
+      github.event.workflow_run.conclusion == 'success' && 
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://your-domain.com
+    timeout-minutes: 20
+
+    steps:
+      # ------------------------------------------------------
+      # 1. 빌드 메타데이터 다운로드 및 검증
+      # ------------------------------------------------------
+      - name: 📥 Download build metadata
+        uses: actions/download-artifact@v4
+        with:
+          name: build-metadata-${{ github.event.workflow_run.head_sha }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+        continue-on-error: true
+
+      - name: 📋 Display and validate build metadata
+        run: |
+          if [ -f metadata.json ]; then
+            echo "### 📊 Build Metadata" >> $GITHUB_STEP_SUMMARY
+            cat metadata.json | jq '.' >> $GITHUB_STEP_SUMMARY
+          
+            # 커버리지 검증
+            COVERAGE=$(cat metadata.json | jq -r '.coverage // "0"')
+            echo "Test Coverage: ${COVERAGE}%"
+          
+            if [ "$COVERAGE" -lt 70 ]; then
+              echo "::warning::Test coverage (${COVERAGE}%) is below 70%. Proceed with caution."
+            fi
+          else
+            echo "⚠️ Build metadata not found"
+          fi
+
+      # ------------------------------------------------------
+      # 2. JAR 아티팩트 다운로드
+      # ------------------------------------------------------
+      - name: 📥 Download JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-jar-main-${{ github.event.workflow_run.head_sha }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: 🔍 Verify downloaded artifact
+        run: |
+          echo "### 📦 Downloaded Files" >> $GITHUB_STEP_SUMMARY
+          ls -lh *.jar >> $GITHUB_STEP_SUMMARY
+          
+          # JAR 파일 검증
+          JAR_FILE=$(ls *.jar | head -1)
+          JAR_SIZE=$(stat -f%z "$JAR_FILE" 2>/dev/null || stat -c%s "$JAR_FILE")
+          
+          echo "JAR File: $JAR_FILE"
+          echo "JAR Size: $JAR_SIZE bytes"
+          
+          # 최소 크기 검증 (1MB)
+          if [ "$JAR_SIZE" -lt 1048576 ]; then
+            echo "::error::JAR file is too small (< 1MB). Build may have failed."
+            exit 1
+          fi
+          
+          # SHA256 체크섬 계산
+          JAR_SHA256=$(sha256sum "$JAR_FILE" | cut -d' ' -f1)
+          echo "JAR SHA256: $JAR_SHA256"
+          
+          echo "✅ JAR file verification passed"
+
+      # ------------------------------------------------------
+      # 3. 배포 전 서버 상태 확인
+      # ------------------------------------------------------
+      - name: 🔍 Check server status before deployment
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.PROD_SERVER_HOST }}
+          username: ${{ secrets.PROD_SERVER_USER }}
+          key: ${{ secrets.PROD_SERVER_SSH_KEY }}
+          script: |
+            echo "=== Production Server Status Check ==="
+            
+            # 디스크 공간 확인
+            echo "📊 Disk Usage:"
+            df -h ${{ env.APP_DIR }}
+            
+            DISK_USAGE=$(df ${{ env.APP_DIR }} | tail -1 | awk '{print $5}' | sed 's/%//')
+            if [ "$DISK_USAGE" -gt 85 ]; then
+              echo "ERROR: Disk usage is critically high: ${DISK_USAGE}%"
+              exit 1
+            fi
+            
+            # 메모리 확인
+            echo "💾 Memory Usage:"
+            free -h
+            
+            # 현재 애플리케이션 상태 확인
+            echo "🔄 Current Application Status:"
+            if pgrep -f "app.jar" > /dev/null; then
+              PID=$(pgrep -f "app.jar")
+              echo "✅ Application is running (PID: $PID)"
+            
+              # 헬스체크
+              if curl -f -s http://localhost:8080/actuator/health > /dev/null 2>&1; then
+                echo "✅ Application is healthy"
+              else
+                echo "⚠️ Application is running but unhealthy"
+              fi
+            else
+              echo "⚠️ Application is not running"
+            fi
+            
+            # 디렉토리 준비
+            mkdir -p ${{ env.APP_DIR }}
+            mkdir -p ${{ env.BACKUP_DIR }}
+            mkdir -p /tmp/backend-deploy
+            
+            echo "✅ Production server check completed"
+
+      # ------------------------------------------------------
+      # 4. 현재 버전 백업
+      # ------------------------------------------------------
+      - name: 💾 Backup current version
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.PROD_SERVER_HOST }}
+          username: ${{ secrets.PROD_SERVER_USER }}
+          key: ${{ secrets.PROD_SERVER_SSH_KEY }}
+          script: |
+            cd ${{ env.APP_DIR }}
+            TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+            
+            # 현재 JAR 파일 백업
+            if [ -f "app.jar" ]; then
+              cp app.jar ${{ env.BACKUP_DIR }}/app_prod_$TIMESTAMP.jar
+              echo "✅ Production backup created: app_prod_$TIMESTAMP.jar"
+            
+              # 백업 파일 정보
+              BACKUP_SIZE=$(stat -c%s ${{ env.BACKUP_DIR }}/app_prod_$TIMESTAMP.jar)
+              BACKUP_SHA256=$(sha256sum ${{ env.BACKUP_DIR }}/app_prod_$TIMESTAMP.jar | cut -d' ' -f1)
+            
+              echo "Backup size: $BACKUP_SIZE bytes"
+              echo "Backup SHA256: $BACKUP_SHA256"
+            
+              # 배포 정보도 백업
+              if [ -f "deployment-info.json" ]; then
+                cp deployment-info.json ${{ env.BACKUP_DIR }}/deployment-info_$TIMESTAMP.json
+                echo "✅ Deployment info backed up"
+              fi
+            else
+              echo "⚠️ No existing JAR to backup (first deployment)"
+            fi
+            
+            # 오래된 백업 삭제 (최근 10개만 유지)
+            cd ${{ env.BACKUP_DIR }}
+            ls -t app_prod_*.jar 2>/dev/null | tail -n +11 | xargs -r rm -v
+            ls -t deployment-info_*.json 2>/dev/null | tail -n +11 | xargs -r rm -v
+            
+            echo "📦 Current backups:"
+            ls -lh app_prod_*.jar 2>/dev/null || echo "No backups found"
+
+      # ------------------------------------------------------
+      # 5. JAR 파일 서버로 전송
+      # ------------------------------------------------------
+      - name: 📤 Transfer JAR to Production Server
+        uses: appleboy/scp-action@v0.1.4
+        with:
+          host: ${{ secrets.PROD_SERVER_HOST }}
+          username: ${{ secrets.PROD_SERVER_USER }}
+          key: ${{ secrets.PROD_SERVER_SSH_KEY }}
+          source: "*.jar"
+          target: "/tmp/backend-deploy"
+          overwrite: true
+
+      # ------------------------------------------------------
+      # 6. 배포 스크립트 실행
+      # ------------------------------------------------------
+      - name: 🚀 Run deployment script
+        id: deploy
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.PROD_SERVER_HOST }}
+          username: ${{ secrets.PROD_SERVER_USER }}
+          key: ${{ secrets.PROD_SERVER_SSH_KEY }}
+          command-timeout: 300s
+          script: |
+            cd ${{ env.APP_DIR }}
+            
+            # JAR 파일 이동
+            echo "Moving JAR file..."
+            mv /tmp/backend-deploy/*.jar ./app-new.jar
+            
+            # JAR 파일 검증
+            JAR_SIZE=$(stat -c%s app-new.jar)
+            JAR_SHA256=$(sha256sum app-new.jar | cut -d' ' -f1)
+            echo "New JAR size: $JAR_SIZE bytes"
+            echo "New JAR SHA256: $JAR_SHA256"
+            
+            # 배포 스크립트 실행
+            if [ -f "./deploy.sh" ]; then
+              echo "Executing deploy.sh..."
+              chmod +x ./deploy.sh
+              bash ./deploy.sh
+            else
+              echo "ERROR: deploy.sh not found!"
+              exit 1
+            fi
+
+      # ------------------------------------------------------
+      # 7. 배포 후 검증
+      # ------------------------------------------------------
+      - name: 🏥 Post-deployment verification
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.PROD_SERVER_HOST }}
+          username: ${{ secrets.PROD_SERVER_USER }}
+          key: ${{ secrets.PROD_SERVER_SSH_KEY }}
+          script: |
+            echo "=== Post-Deployment Verification ==="
+            
+            # 프로세스 확인
+            if pgrep -f "app.jar" > /dev/null; then
+              PID=$(pgrep -f "app.jar")
+              echo "✅ Application is running (PID: $PID)"
+            else
+              echo "❌ Application is not running!"
+              exit 1
+            fi
+            
+            # 헬스체크 (여러 번 시도)
+            echo "Checking application health..."
+            MAX_RETRIES=30
+            RETRY_COUNT=0
+            
+            while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+              if curl -f -s http://localhost:8080/actuator/health > /dev/null 2>&1; then
+                echo "✅ Application is healthy"
+            
+                # 상세 정보 출력
+                echo "=== Health Details ==="
+                curl -s http://localhost:8080/actuator/health | jq '.' || true
+            
+                echo "=== Application Info ==="
+                curl -s http://localhost:8080/actuator/info | jq '.' || true
+            
+                exit 0
+              fi
+            
+              echo "Waiting for application to be ready... ($((RETRY_COUNT + 1))/$MAX_RETRIES)"
+              sleep 5
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+            done
+            
+            echo "❌ Application health check failed after $MAX_RETRIES attempts!"
+            
+            # 로그 출력
+            if [ -f "${{ env.APP_DIR }}/logs/application.log" ]; then
+              echo "=== Last 100 lines of log ==="
+              tail -100 ${{ env.APP_DIR }}/logs/application.log
+            fi
+            
+            exit 1
+
+      # ------------------------------------------------------
+      # 8. Smoke Test
+      # ------------------------------------------------------
+      - name: 🧪 Run smoke tests
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.PROD_SERVER_HOST }}
+          username: ${{ secrets.PROD_SERVER_USER }}
+          key: ${{ secrets.PROD_SERVER_SSH_KEY }}
+          script: |
+            echo "=== Production Smoke Tests ==="
+            
+            FAILED=0
+            
+            # Test 1: Health
+            echo "1. Testing health endpoint..."
+            if curl -f -s http://localhost:8080/actuator/health > /dev/null; then
+              echo "✅ Health check passed"
+            else
+              echo "❌ Health check failed"
+              FAILED=$((FAILED + 1))
+            fi
+            
+            # Test 2: Info
+            echo "2. Testing info endpoint..."
+            if curl -f -s http://localhost:8080/actuator/info > /dev/null; then
+              echo "✅ Info endpoint passed"
+            else
+              echo "❌ Info endpoint failed"
+              FAILED=$((FAILED + 1))
+            fi
+            
+            # Test 3: Metrics
+            echo "3. Testing metrics endpoint..."
+            if curl -f -s http://localhost:8080/actuator/metrics > /dev/null; then
+              echo "✅ Metrics endpoint passed"
+            else
+              echo "❌ Metrics endpoint failed"
+              FAILED=$((FAILED + 1))
+            fi
+            
+            # Test 4: Database connectivity
+            echo "4. Testing database connectivity..."
+            DB_STATUS=$(curl -s http://localhost:8080/actuator/health | jq -r '.components.db.status // "UNKNOWN"')
+            if [ "$DB_STATUS" = "UP" ]; then
+              echo "✅ Database connectivity passed"
+            else
+              echo "⚠️ Database status: $DB_STATUS"
+            fi
+            
+            # Test 5: Redis connectivity
+            echo "5. Testing Redis connectivity..."
+            REDIS_STATUS=$(curl -s http://localhost:8080/actuator/health | jq -r '.components.redis.status // "UNKNOWN"')
+            if [ "$REDIS_STATUS" = "UP" ]; then
+              echo "✅ Redis connectivity passed"
+            else
+              echo "⚠️ Redis status: $REDIS_STATUS"
+            fi
+            
+            if [ $FAILED -gt 0 ]; then
+              echo "❌ $FAILED smoke test(s) failed"
+              exit 1
+            fi
+            
+            echo "✅ All smoke tests passed"
+
+      # ------------------------------------------------------
+      # 9. 배포 정보 기록
+      # ------------------------------------------------------
+      - name: 📝 Record deployment info
+        if: success()
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.PROD_SERVER_HOST }}
+          username: ${{ secrets.PROD_SERVER_USER }}
+          key: ${{ secrets.PROD_SERVER_SSH_KEY }}
+          script: |
+            cd ${{ env.APP_DIR }}
+            
+            JAR_SHA256=$(sha256sum app.jar | cut -d' ' -f1)
+            
+            cat > deployment-info.json <<EOF
+            {
+              "environment": "production",
+              "deployedAt": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
+              "commitSha": "${{ github.event.workflow_run.head_sha }}",
+              "commitShort": "$(echo ${{ github.event.workflow_run.head_sha }} | cut -c1-7)",
+              "branch": "${{ github.event.workflow_run.head_branch }}",
+              "deployedBy": "${{ github.event.workflow_run.head_commit.author.name }}",
+              "workflowRunId": "${{ github.run_id }}",
+              "workflowRunNumber": "${{ github.run_number }}",
+              "jarSha256": "$JAR_SHA256"
+            }
+            EOF
+            
+            echo "✅ Deployment info recorded"
+            cat deployment-info.json
+
+      # ------------------------------------------------------
+      # 10. 롤백 처리 (실패 시)
+      # ------------------------------------------------------
+      - name: 🔄 Rollback on failure
+        if: failure()
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.PROD_SERVER_HOST }}
+          username: ${{ secrets.PROD_SERVER_USER }}
+          key: ${{ secrets.PROD_SERVER_SSH_KEY }}
+          script: |
+            echo "=== Starting Rollback ==="
+            cd ${{ env.APP_DIR }}
+            
+            if [ -f "./rollback.sh" ]; then
+              echo "🔄 Executing rollback script..."
+              chmod +x ./rollback.sh
+              bash ./rollback.sh
+            
+              # 롤백 후 헬스체크
+              echo "Waiting for rollback to complete..."
+              sleep 10
+            
+              if curl -f -s http://localhost:8080/actuator/health > /dev/null 2>&1; then
+                echo "✅ Rollback successful, application is healthy"
+              else
+                echo "❌ Rollback completed but application is unhealthy!"
+                echo "Manual intervention required!"
+              fi
+            else
+              echo "❌ rollback.sh not found!"
+              echo "Manual rollback required!"
+            fi
+
+      # ------------------------------------------------------
+      # 11. Discord 알림 - 성공
+      # ------------------------------------------------------
+      - name: 📢 Send Discord notification on success
+        if: success()
+        uses: tsickert/discord-webhook@v5.3.0
+        with:
+          webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          username: "Backend CD Bot"
+          avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
+          embed-title: "✅ Backend Production 배포 성공"
+          embed-description: |
+            **환경:** Production 🔴
+            **브랜치:** `${{ github.event.workflow_run.head_branch }}`
+            **커밋:** `${{ github.event.workflow_run.head_sha }}`
+            **배포자:** ${{ github.event.workflow_run.head_commit.author.name }}
+            
+            🎉 프로덕션 배포가 성공적으로 완료되었습니다!
+            
+            [📋 CD 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            [🌐 Production 서비스](https://your-domain.com)
+          embed-color: 3066993
+          embed-footer-text: ${{ github.repository }}
+          embed-timestamp: ${{ github.event.workflow_run.updated_at }}
+
+      # ------------------------------------------------------
+      # 12. Discord 알림 - 실패
+      # ------------------------------------------------------
+      - name: 📢 Send Discord notification on failure
+        if: failure()
+        uses: tsickert/discord-webhook@v5.3.0
+        with:
+          webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          username: "Backend CD Bot"
+          avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
+          embed-title: "❌ Backend Production 배포 실패 (롤백 완료)"
+          embed-description: |
+            **환경:** Production 🔴
+            **브랜치:** `${{ github.event.workflow_run.head_branch }}`
+            **커밋:** `${{ github.event.workflow_run.head_sha }}`
+            **배포자:** ${{ github.event.workflow_run.head_commit.author.name }}
+            
+            ⚠️ 배포 실패로 자동 롤백되었습니다. 즉시 확인이 필요합니다!
+            
+            [📋 CD 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            [🌐 Production 서비스](https://your-domain.com)
+          embed-color: 15158332
+          embed-footer-text: ${{ github.repository }}
+          embed-timestamp: ${{ github.event.workflow_run.updated_at }}
+
+      # ------------------------------------------------------
+      # 13. Slack 알림 - 성공 (Production 전용 - 선택사항)
+      # ------------------------------------------------------
+      - name: 📢 Send Slack notification on success
+        if: success()
+        uses: slackapi/slack-github-action@v1.26.0
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        with:
+          payload: |
+            {
+              "text": "✅ Production 배포 성공",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "✅ Backend Production 배포 성공"
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*환경:*\nProduction 🔴"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*브랜치:*\n`${{ github.event.workflow_run.head_branch }}`"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*커밋:*\n`${{ github.event.workflow_run.head_sha }}`"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*배포자:*\n${{ github.event.workflow_run.head_commit.author.name }}"
+                    }
+                  ]
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "📋 CI/CD 로그"
+                      },
+                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    },
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "🌐 서비스 확인"
+                      },
+                      "url": "https://your-domain.com"
+                    }
+                  ]
+                }
+              ]
+            }
+        continue-on-error: true
+
+      # ------------------------------------------------------
+      # 14. Slack 알림 - 실패 (Production 전용 - 선택사항)
+      # ------------------------------------------------------
+      - name: 📢 Send Slack notification on failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.26.0
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        with:
+          payload: |
+            {
+              "text": "❌ Production 배포 실패",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "❌ Backend Production 배포 실패"
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*환경:*\nProduction 🔴"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*브랜치:*\n`${{ github.event.workflow_run.head_branch }}`"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*커밋:*\n`${{ github.event.workflow_run.head_sha }}`"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*배포자:*\n${{ github.event.workflow_run.head_commit.author.name }}"
+                    }
+                  ]
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "📋 CI/CD 로그"
+                      },
+                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    },
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "🌐 서비스 확인"
+                      },
+                      "url": "https://your-domain.com"
+                    }
+                  ]
+                }
+              ]
+            }
+        continue-on-error: true

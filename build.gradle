@@ -3,6 +3,8 @@ plugins {
 	id 'org.springframework.boot' version '3.5.9'
 	id 'io.spring.dependency-management' version '1.1.7'
     id 'com.diffplug.spotless' version '6.25.0'
+    id 'checkstyle'
+    id 'jacoco'
 }
 
 group = 'com.example'
@@ -74,4 +76,36 @@ spotless {
 
 tasks.named('test') {
 	useJUnitPlatform()
+}
+
+checkstyle {
+    toolVersion = '10.12.4'
+    configFile = file("${rootDir}/config/checkstyle/checkstyle.xml")
+}
+
+jacoco {
+    toolVersion = "0.8.11"
+}
+
+jacocoTestReport {
+    dependsOn test
+
+    reports {
+        xml.required = true
+        html.required = true
+    }
+}
+
+jacocoTestCoverageVerification {
+    violationRules {
+        rule {
+            limit {
+                minimum = 0.70  // 70% 커버리지
+            }
+        }
+    }
+}
+
+test {
+    finalizedBy jacocoTestReport
 }
