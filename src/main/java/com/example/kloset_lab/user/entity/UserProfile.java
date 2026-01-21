@@ -44,7 +44,7 @@ public class UserProfile extends BaseTimeEntity {
     private LocalDate birthDate;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "gender", nullable = false, length = 10)
+    @Column(name = "gender", nullable = false, columnDefinition = "varchar(10)")
     private Gender gender;
 
     @Builder
