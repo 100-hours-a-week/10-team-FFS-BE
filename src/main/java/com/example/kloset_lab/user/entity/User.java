@@ -27,18 +27,18 @@ public class User extends BaseEntity {
     private Long id;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "role", nullable = false, length = 10)
+    @Column(name = "role", nullable = false, columnDefinition = "varchar(10)")
     private UserRole role;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "provider", nullable = false, length = 10)
+    @Column(name = "provider", nullable = false, columnDefinition = "varchar(10)")
     private Provider provider;
 
     @Column(name = "provider_id", nullable = false)
     private String providerId;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false, length = 10)
+    @Column(name = "status", nullable = false, columnDefinition = "varchar(10)")
     private UserStatus status;
 
     @Builder

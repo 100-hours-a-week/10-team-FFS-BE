@@ -46,7 +46,7 @@ public class Clothes extends BaseTimeEntity {
     private LocalDate boughtDate;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "category", nullable = false, length = 15)
+    @Column(name = "category", nullable = false, columnDefinition = "varchar(15)")
     private Category category;
 
     @Builder
