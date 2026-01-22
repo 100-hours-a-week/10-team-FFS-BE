@@ -101,7 +101,7 @@ public class MediaService {
 
         return mediaFiles.stream()
                 .map(MediaFile::getObjectKey)
-                .map(s3StorageService::getFullImageUrl)
+                .map(s3StorageService::generatePresignedViewUrl)
                 .toList();
     }
 
