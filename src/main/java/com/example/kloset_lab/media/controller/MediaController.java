@@ -10,10 +10,7 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api")
@@ -21,7 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class MediaController {
     private final MediaService mediaService;
 
-    @DeleteMapping("/v1/presigned-url")
+    @PostMapping("/v1/presigned-url")
     public ResponseEntity<ApiResponse<List<FileUploadResponse>>> logout(
             @AuthenticationPrincipal Long userId, @RequestBody FileUploadRequest fileUploadRequest) {
 
