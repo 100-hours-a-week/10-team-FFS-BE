@@ -165,8 +165,8 @@ jobs:
             # 배포 스크립트 실행
             if [ -f "./deploy.sh" ]; then
               echo "Executing deploy.sh..."
-              chmod +x ./deploy.sh
-              bash ./deploy.sh
+              sudo chmod +x ./deploy.sh
+              sudo bash ./deploy.sh
             else
               echo "ERROR: deploy.sh not found!"
               exit 1
