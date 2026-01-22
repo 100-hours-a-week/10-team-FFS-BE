@@ -19,7 +19,7 @@ public class MediaController {
     private final MediaService mediaService;
 
     @PostMapping("/v1/presigned-url")
-    public ResponseEntity<ApiResponse<List<FileUploadResponse>>> logout(
+    public ResponseEntity<ApiResponse<List<FileUploadResponse>>> generatePresignedUrl(
             @AuthenticationPrincipal Long userId, @RequestBody FileUploadRequest fileUploadRequest) {
 
         List<FileUploadResponse> fileUploadResponseList =

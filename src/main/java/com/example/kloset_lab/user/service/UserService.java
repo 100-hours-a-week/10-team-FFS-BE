@@ -4,7 +4,9 @@ import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
 import com.example.kloset_lab.global.response.Message;
 import com.example.kloset_lab.media.entity.MediaFile;
+import com.example.kloset_lab.media.entity.Purpose;
 import com.example.kloset_lab.media.repository.MediaFileRepository;
+import com.example.kloset_lab.media.service.MediaService;
 import com.example.kloset_lab.user.dto.NicknameValidationResult;
 import com.example.kloset_lab.user.dto.UserProfileDto;
 import com.example.kloset_lab.user.dto.UserProfileInfoResponse;
@@ -13,6 +15,7 @@ import com.example.kloset_lab.user.entity.User;
 import com.example.kloset_lab.user.entity.UserProfile;
 import com.example.kloset_lab.user.repository.UserProfileRepository;
 import com.example.kloset_lab.user.repository.UserRepository;
+import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -27,6 +30,7 @@ public class UserService {
     private final UserProfileRepository userProfileRepository;
     private final MediaFileRepository mediaFileRepository;
     private final NicknameValidationService nicknameValidationService;
+    private final MediaService mediaService;
 
     /**
      * 회원가입 후 추가 정보 저장
@@ -47,9 +51,7 @@ public class UserService {
         }
 
         MediaFile profileFile = Optional.ofNullable(request.profileFileId())
-                .map(fileId -> mediaFileRepository
-                        .findById(fileId)
-                        .orElseThrow(() -> new CustomException(ErrorCode.FILE_NOT_FOUND)))
+                .map(fileId -> findVerifiedProfileFile(userId, fileId))
                 .orElse(null);
 
         UserProfile userProfile = UserProfile.builder()
@@ -78,10 +80,14 @@ public class UserService {
                 .findByUserId(targetUserId)
                 .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
 
-        // TODO: S3 URL 생성 로직 추가 필요 (현재는 objectKey 반환)
         String profileImageUrl = Optional.ofNullable(userProfile.getProfileFile())
-                .map(MediaFile::getObjectKey)
+                .map(MediaFile::getId)
+                .map(List::of)
+                .map(mediaService::getFileFullUrl)
+                .filter(list -> !list.isEmpty())
+                .map(List::getFirst)
                 .orElse(null);
+
         boolean isMe = targetUserId.equals(currentUserId);
 
         UserProfileDto profileDto = new UserProfileDto(targetUserId, profileImageUrl, userProfile.getNickname());
@@ -99,5 +105,17 @@ public class UserService {
         boolean isAvailable = nicknameValidationService.isNicknameAvailable(nickname);
         String message = isAvailable ? Message.NICKNAME_CHECKED_UNIQUE : Message.NICKNAME_CHECKED_DUPLICATE;
         return new NicknameValidationResult(isAvailable, message);
+    }
+
+    /**
+     * 프로필 이미지 파일 검증 후 조회
+     *
+     * @param userId 회원 ID
+     * @param fileId 파일 ID
+     * @return 검증된 MediaFile 엔티티
+     */
+    private MediaFile findVerifiedProfileFile(Long userId, Long fileId) {
+        mediaService.confirmFileUpload(userId, Purpose.PROFILE, List.of(fileId));
+        return mediaFileRepository.findById(fileId).orElseThrow(() -> new CustomException(ErrorCode.FILE_NOT_FOUND));
     }
 }
