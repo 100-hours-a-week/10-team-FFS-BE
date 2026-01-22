@@ -3,6 +3,7 @@ package com.example.kloset_lab.media.service;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
 import com.example.kloset_lab.media.dto.PresignedUrlInfo;
+import com.example.kloset_lab.media.entity.FileType;
 import java.time.Duration;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -28,14 +29,14 @@ public class S3StorageService {
     private final S3Client s3Client;
     private final S3Presigner s3Presigner;
 
-    public PresignedUrlInfo generatePresignedUrl(String fileName, String fileType) {
+    public PresignedUrlInfo generatePresignedUrl(String fileName, FileType fileType) {
 
-        String objectKey = generateObjectKey(fileName);
+        String objectKey = generateObjectKey(fileName, fileType);
 
         PutObjectRequest objectRequest = PutObjectRequest.builder()
                 .bucket(bucketName)
                 .key(objectKey)
-                .contentType(fileType)
+                .contentType(fileType.getMimeType())
                 .build();
 
         PresignedPutObjectRequest presignedRequest = s3Presigner.presignPutObject(
@@ -47,7 +48,7 @@ public class S3StorageService {
                 .build();
     }
 
-    public void validateUpload(String objectKey, String expectedFileType) {
+    public void validateUpload(String objectKey, FileType expectedFileType) {
         try {
             HeadObjectRequest headObjectRequest = HeadObjectRequest.builder()
                     .bucket(bucketName)
@@ -57,12 +58,12 @@ public class S3StorageService {
             HeadObjectResponse response = s3Client.headObject(headObjectRequest);
 
             String actualFileType = response.contentType();
-            if (!expectedFileType.equals(actualFileType)) {
+            if (actualFileType == null || !expectedFileType.getMimeType().equals(actualFileType)) {
                 throw new CustomException(ErrorCode.UPLOADED_FILE_MISMATCH);
             }
             long actualFileSize = response.contentLength();
-            if (actualFileSize != MAX_IMAGE_SIZE_BYTES) {
-                throw new CustomException(ErrorCode.FILE_TOO_LARGE);
+            if (actualFileSize > MAX_IMAGE_SIZE_BYTES) {
+                throw new CustomException(ErrorCode.FILE_SIZE_EXCEEDS_10MB);
             }
         } catch (S3Exception e) {
             if (e.statusCode() == 404) {
@@ -76,17 +77,8 @@ public class S3StorageService {
         return "https://" + bucketName + ".s3." + region + ".amazonaws.com/" + objectKey;
     }
 
-    private String generateObjectKey(String fileName) {
+    private String generateObjectKey(String fileName, FileType fileType) {
         String uuid = UUID.randomUUID().toString();
-        String extension = extractExtension(fileName);
-        return uuid + "." + extension;
-    }
-
-    private String extractExtension(String fileName) {
-        int lastDotIndex = fileName.lastIndexOf('.');
-        if (lastDotIndex > 0 && lastDotIndex < fileName.length() - 1) {
-            return fileName.substring(lastDotIndex + 1);
-        }
-        return "";
+        return uuid + "." + fileType.getExtension();
     }
 }
