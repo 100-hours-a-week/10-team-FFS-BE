@@ -4,8 +4,6 @@ import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
 import com.example.kloset_lab.media.dto.PresignedUrlInfo;
 import com.example.kloset_lab.media.entity.FileType;
-
-import java.net.URL;
 import java.time.Duration;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -74,11 +72,9 @@ public class S3StorageService {
         }
     }
 
-    public String generatePresignedViewUrl(String objectKey){
-        GetObjectRequest getObjectRequest = GetObjectRequest.builder()
-                .bucket(bucketName)
-                .key(objectKey)
-                .build();
+    public String generatePresignedViewUrl(String objectKey) {
+        GetObjectRequest getObjectRequest =
+                GetObjectRequest.builder().bucket(bucketName).key(objectKey).build();
 
         GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
                 .signatureDuration(Duration.ofSeconds(3600))
