@@ -109,3 +109,8 @@ jacocoTestCoverageVerification {
 test {
     finalizedBy jacocoTestReport
 }
+
+tasks.named('jar') {
+    enabled = false
+}
+
