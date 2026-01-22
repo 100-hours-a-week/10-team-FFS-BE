@@ -1,38 +1,15 @@
 spring:
   application:
     name: kloset-lab
-  datasource:
-    # "useSSL=false&allowPublicKeyRetrieval=true" 부분은 로컬 환경에서만 적용
-    url: jdbc:mysql://${MYSQL_URL}:${MYSQL_PORT}/${MYSQL_NAME}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8&useSSL=false&allowPublicKeyRetrieval=true
-    username: ${MYSQL_USER}
-    password: ${MYSQL_PASSWORD}
+
   jpa:
     database-platform: org.hibernate.dialect.MySQLDialect
     open-in-view: false
     show-sql: true
-    hibernate:
-      format_sql: true
-      ddl-auto: update
+    properties:
+      hibernate:
+        format_sql: true
 
 jwt:
-  secret: ${JWT_SECRET}
   access-token-expiration: 3600000      # 1시간 (ms)
   refresh-token-expiration: 604800000   # 1주일 (ms)
-
-cloud:
-  aws:
-    credentials:
-      access-key: ${S3_ACCESS_KEY}
-      secret-key: ${S3_SECRET_KEY}
-    region:
-      static: ${S3_REGION}
-    s3:
-      bucket: ${S3_BUCKET_NAME}
-
-kakao:
-  client-id: ${KAKAO_CLIENT_ID}
-  client-secret: ${KAKAO_CLIENT_SECRET}
-  redirect-uri: ${KAKAO_REDIRECT_URI}
-  token-uri: https://kauth.kakao.com/oauth/token
-  jwks-uri: https://kauth.kakao.com/.well-known/jwks.json
-  issuer: https://kauth.kakao.com
