@@ -166,7 +166,7 @@ jobs:
             if [ -f "./deploy.sh" ]; then
               echo "Executing deploy.sh..."
               sudo chmod +x ./deploy.sh
-              sudo bash ./deploy.sh
+              sudo -E bash ./deploy.sh
             else
               echo "ERROR: deploy.sh not found!"
               exit 1
