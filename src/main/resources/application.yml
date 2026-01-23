@@ -3,7 +3,7 @@ spring:
     name: kloset-lab
 
   profiles:
-    active: ${SPRING_PROFILES_ACTIVE:local}
+    active: ${SPRING_PROFILE:local}
 
   jpa:
     database-platform: org.hibernate.dialect.MySQLDialect
