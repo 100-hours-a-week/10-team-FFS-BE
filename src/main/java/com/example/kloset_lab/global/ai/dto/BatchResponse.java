@@ -1,4 +1,3 @@
-// BatchResponse.java
 package com.example.kloset_lab.global.ai.dto;
 
 import java.util.List;
