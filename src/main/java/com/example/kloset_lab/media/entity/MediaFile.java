@@ -34,9 +34,6 @@ public class MediaFile extends BaseTimeEntity {
     @Column(name = "type", nullable = false, columnDefinition = "varchar(10)")
     private FileType fileType;
 
-    @Column(name = "size", nullable = false)
-    private Long size;
-
     @Column(name = "uploaded_at")
     private LocalDateTime uploadedAt;
 
