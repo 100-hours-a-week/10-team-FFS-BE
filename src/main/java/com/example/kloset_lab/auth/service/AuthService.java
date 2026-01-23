@@ -42,12 +42,6 @@ public class AuthService {
     /**
      * 카카오 소셜로그인 처리
      *
-     * 흐름:
-     * 1. Authorization Code로 카카오에서 providerId 조회
-     * 2. 기존 회원 여부 확인
-     * 3-A. 기존 회원: Access Token(ACTIVE) + Refresh Token 발급, nickname 포함 응답
-     * 3-B. 신규 회원: User 생성(PENDING) + Access Token(REGISTRATION) 발급
-     *
      * @param authorizationCode 프론트엔드에서 전달받은 카카오 인가 코드
      * @return KakaoLoginResult (기존 회원은 refreshToken 포함, 신규 회원은 null)
      */
@@ -57,8 +51,29 @@ public class AuthService {
 
         return userRepository
                 .findByProviderAndProviderId(Provider.KAKAO, providerId)
-                .map(this::handleExistingUser)
+                .map(user -> {
+                    if (!user.isRegistrationComplete()) {
+                        return handlePendingUser(user);
+                    }
+                    return handleExistingUser(user);
+                })
                 .orElseGet(() -> handleNewUser(providerId));
+    }
+
+    /**
+     * PENDING 상태 회원의 재진입 처리
+     *
+     * - 회원가입 도중 이탈 후 다시 인가 코드로 돌아온 경우
+     * - 기존 User 레코드를 재활용하여 새 REGISTRATION 토큰 발급
+     * - Refresh Token은 발급하지 않음
+     *
+     * @param user PENDING 상태의 기존 User
+     * @return 신규 회원과 동일한 응답 (isRegistered=false, REGISTRATION 토큰)
+     */
+    private KakaoLoginResult handlePendingUser(User user) {
+        String accessToken = jwtTokenProvider.generateAccessToken(user.getId(), TokenType.REGISTRATION);
+        log.info("PENDING 회원 재진입 - userId: {}, 회원가입 재시도", user.getId());
+        return createNewUserLoginResult(accessToken);
     }
 
     /**
@@ -85,13 +100,7 @@ public class AuthService {
 
         log.info("기존 회원 카카오 로그인 완료 - userId: {}, nickname: {}", userId, nickname);
 
-        ExistingUserLoginResponse response = ExistingUserLoginResponse.builder()
-                .isRegistered(true)
-                .accessToken(accessToken)
-                .nickname(nickname)
-                .build();
-
-        return new KakaoLoginResult(response, refreshToken);
+        return createExistingUserLoginResult(accessToken, refreshToken, nickname);
     }
 
     /**
@@ -107,15 +116,9 @@ public class AuthService {
         userRepository.save(newUser);
 
         String accessToken = jwtTokenProvider.generateAccessToken(newUser.getId(), TokenType.REGISTRATION);
-
         log.info("신규 회원 카카오 로그인 - userId: {}, 회원가입 필요", newUser.getId());
 
-        NewUserLoginResponse response = NewUserLoginResponse.builder()
-                .isRegistered(false)
-                .accessToken(accessToken)
-                .build();
-
-        return new KakaoLoginResult(response, null);
+        return createNewUserLoginResult(accessToken);
     }
 
     /**
@@ -179,4 +182,35 @@ public class AuthService {
      * 토큰 갱신 결과를 담는 내부 클래스
      */
     public record TokenRefreshResult(TokenRefreshResponse response, String newRefreshToken) {}
+
+    /**
+     * 신규/PENDING 회원용 응답 생성
+     *
+     * @param accessToken REGISTRATION 토큰
+     * @return KakaoLoginResult (refreshToken은 null)
+     */
+    private KakaoLoginResult createNewUserLoginResult(String accessToken) {
+        NewUserLoginResponse response = NewUserLoginResponse.builder()
+                .isRegistered(false)
+                .accessToken(accessToken)
+                .build();
+        return new KakaoLoginResult(response, null);
+    }
+
+    /**
+     * 기존 회원용 응답 생성
+     *
+     * @param accessToken ACTIVE 토큰
+     * @param refreshToken Refresh 토큰
+     * @param nickname 회원 닉네임
+     * @return KakaoLoginResult
+     */
+    private KakaoLoginResult createExistingUserLoginResult(String accessToken, String refreshToken, String nickname) {
+        ExistingUserLoginResponse response = ExistingUserLoginResponse.builder()
+                .isRegistered(true)
+                .accessToken(accessToken)
+                .nickname(nickname)
+                .build();
+        return new KakaoLoginResult(response, refreshToken);
+    }
 }

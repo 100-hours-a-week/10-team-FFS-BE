@@ -44,7 +44,10 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/**")
                         .permitAll()
                         // 회원가입 추가 정보 입력 API (REGISTRATION 토큰 필요 - 컨트롤러에서 TokenType 검증)
-                        .requestMatchers("/api/v1/users")
+                        .requestMatchers("/api/v1/users", "/api/v1/users/validation")
+                        .permitAll()
+                        // presigend-url 발급
+                        .requestMatchers("/api/v1/presigned-url")
                         .permitAll()
                         // 그 외 API는 인증 필요
                         .anyRequest()
