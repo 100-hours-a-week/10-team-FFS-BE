@@ -24,7 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class MediaService {
     private final UserRepository userRepository;
     private final MediaFileRepository mediaFileRepository;
-    private final S3StorageService s3StorageService;
+    private final StorageService storageService;
 
     @Transactional
     public List<FileUploadResponse> requestFileUpload(
@@ -37,24 +37,24 @@ public class MediaService {
         validateFileCount(purpose, fileUploadInfoList.size());
 
         for (FileUploadInfo f : fileUploadInfoList) {
-            FileType fileType = FileType.fromMimeType(f.getType())
+            FileType fileType = FileType.fromMimeType(f.type())
                     .orElseThrow(() -> new CustomException(ErrorCode.UNSUPPORTED_FILE_TYPE));
 
-            PresignedUrlInfo presignedUrlInfo = s3StorageService.generatePresignedUrl(f.getName(), fileType);
+            PresignedUrlInfo presignedUrlInfo = storageService.generatePresignedUrl(f.name(), fileType);
 
             Long fileId = mediaFileRepository
                     .save(MediaFile.builder()
                             .user(user)
                             .purpose(purpose)
-                            .objectKey(presignedUrlInfo.getObjectKey())
+                            .objectKey(presignedUrlInfo.objectKey())
                             .fileType(fileType)
                             .build())
                     .getId();
 
             fileUploadResponseList.add(FileUploadResponse.builder()
                     .fileId(fileId)
-                    .objectKey(presignedUrlInfo.getObjectKey())
-                    .presignedUrl(presignedUrlInfo.getPresignedUrl())
+                    .objectKey(presignedUrlInfo.objectKey())
+                    .presignedUrl(presignedUrlInfo.presignedUrl())
                     .build());
         }
         return fileUploadResponseList;
@@ -81,7 +81,7 @@ public class MediaService {
                 throw new CustomException(ErrorCode.NOT_PENDING_STATE);
             }
         }
-        mediaFileList.forEach(file -> s3StorageService.validateUpload(file.getObjectKey(), file.getFileType()));
+        mediaFileList.forEach(file -> storageService.validateUpload(file.getObjectKey(), file.getFileType()));
         mediaFileList.forEach(MediaFile::updateFileStatus);
         mediaFileRepository.saveAll(mediaFileList);
     }
@@ -101,7 +101,7 @@ public class MediaService {
 
         return mediaFiles.stream()
                 .map(MediaFile::getObjectKey)
-                .map(s3StorageService::getFullImageUrl)
+                .map(storageService::getFullImageUrl)
                 .toList();
     }
 

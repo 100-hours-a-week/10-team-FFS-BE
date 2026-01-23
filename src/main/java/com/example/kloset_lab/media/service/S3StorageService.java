@@ -8,6 +8,7 @@ import java.time.Duration;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.*;
@@ -16,7 +17,8 @@ import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequ
 
 @Service
 @RequiredArgsConstructor
-public class S3StorageService {
+@Profile("prod")
+public class S3StorageService implements StorageService {
 
     private static final long MAX_IMAGE_SIZE_BYTES = 10L * 1024 * 1024;
 
@@ -28,9 +30,8 @@ public class S3StorageService {
 
     private final S3Client s3Client;
     private final S3Presigner s3Presigner;
-
+    @Override
     public PresignedUrlInfo generatePresignedUrl(String fileName, FileType fileType) {
-
         String objectKey = generateObjectKey(fileName, fileType);
 
         PutObjectRequest objectRequest =
@@ -44,7 +45,7 @@ public class S3StorageService {
                 .objectKey(objectKey)
                 .build();
     }
-
+    @Override
     public void validateUpload(String objectKey, FileType expectedFileType) {
         try {
             HeadObjectRequest headObjectRequest = HeadObjectRequest.builder()
@@ -69,7 +70,7 @@ public class S3StorageService {
             throw new CustomException(ErrorCode.IMAGE_PROCESSING_ERROR);
         }
     }
-
+    @Override
     public String getFullImageUrl(String objectKey) {
         return "https://" + bucketName + ".s3." + region + ".amazonaws.com/" + objectKey;
     }
