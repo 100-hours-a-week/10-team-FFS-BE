@@ -124,7 +124,7 @@ jobs:
               echo "⚠️ Application is not running"
             fi
             
-            # 디렉토리 준비
+            # 디렉토리 준
             mkdir -p ${{ env.APP_DIR }}
             mkdir -p ${{ env.BACKUP_DIR }}
             mkdir -p /tmp/backend-deploy
@@ -165,8 +165,8 @@ jobs:
             # 배포 스크립트 실행
             if [ -f "./deploy.sh" ]; then
               echo "Executing deploy.sh..."
-              sudo chmod +x ./deploy.sh
-              sudo -E bash ./deploy.sh
+              chmod +x ./deploy.sh
+              bash ./deploy.sh
             else
               echo "ERROR: deploy.sh not found!"
               exit 1
