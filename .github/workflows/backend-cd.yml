@@ -169,7 +169,7 @@ jobs:
             if [ ! -x "./deploy.sh" ]; then
               echo "Making deploy.sh executable..."
               chmod +x ./deploy.sh
-            fi배ㅗ
+            fi
             
             # 배포 스크립트 실행
             if [ -f "./deploy.sh" ]; then
