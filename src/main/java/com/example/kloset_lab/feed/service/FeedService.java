@@ -7,11 +7,14 @@ import com.example.kloset_lab.feed.dto.FeedCreateRequest;
 import com.example.kloset_lab.feed.dto.FeedDetailResponse;
 import com.example.kloset_lab.feed.dto.FeedListItem;
 import com.example.kloset_lab.feed.dto.FeedUpdateRequest;
+import com.example.kloset_lab.feed.dto.LikeResponse;
 import com.example.kloset_lab.feed.entity.Feed;
 import com.example.kloset_lab.feed.entity.FeedClothesMapping;
 import com.example.kloset_lab.feed.entity.FeedImage;
+import com.example.kloset_lab.feed.entity.FeedLike;
 import com.example.kloset_lab.feed.repository.FeedClothesMappingRepository;
 import com.example.kloset_lab.feed.repository.FeedImageRepository;
+import com.example.kloset_lab.feed.repository.FeedLikeRepository;
 import com.example.kloset_lab.feed.repository.FeedRepository;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
@@ -30,6 +33,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -46,6 +50,7 @@ public class FeedService {
     private final FeedRepository feedRepository;
     private final FeedImageRepository feedImageRepository;
     private final FeedClothesMappingRepository feedClothesMappingRepository;
+    private final FeedLikeRepository feedLikeRepository;
     private final UserRepository userRepository;
     private final UserProfileRepository userProfileRepository;
     private final MediaFileRepository mediaFileRepository;
@@ -142,13 +147,64 @@ public class FeedService {
     }
 
     /**
+     * 피드 좋아요
+     *
+     * @param userId 현재 사용자 ID
+     * @param feedId 좋아요할 피드 ID
+     * @return 좋아요 응답 (좋아요 개수, 좋아요 여부)
+     */
+    @Transactional
+    public LikeResponse likeFeed(Long userId, Long feedId) {
+        Feed feed = feedRepository.findById(feedId).orElseThrow(() -> new CustomException(ErrorCode.FEED_NOT_FOUND));
+        User user = userRepository.findById(userId).orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
+
+        boolean alreadyLiked =
+                feedLikeRepository.findByFeedIdAndUserId(feedId, userId).isPresent();
+
+        if (!alreadyLiked) {
+            feedLikeRepository.save(FeedLike.builder().feed(feed).user(user).build());
+            feed.incrementLikeCount();
+        }
+
+        return LikeResponse.builder()
+                .likeCount(feed.getLikeCount())
+                .isLiked(true)
+                .build();
+    }
+
+    /**
+     * 피드 좋아요 취소
+     *
+     * @param userId 현재 사용자 ID
+     * @param feedId 좋아요 취소할 피드 ID
+     * @return 좋아요 응답 (좋아요 개수, 좋아요 여부)
+     */
+    @Transactional
+    public LikeResponse unlikeFeed(Long userId, Long feedId) {
+        Feed feed = feedRepository.findById(feedId).orElseThrow(() -> new CustomException(ErrorCode.FEED_NOT_FOUND));
+
+        Optional<FeedLike> existingLike = feedLikeRepository.findByFeedIdAndUserId(feedId, userId);
+
+        if (existingLike.isPresent()) {
+            feedLikeRepository.delete(existingLike.get());
+            feed.decrementLikeCount();
+        }
+
+        return LikeResponse.builder()
+                .likeCount(feed.getLikeCount())
+                .isLiked(false)
+                .build();
+    }
+
+    /**
      * 피드 홈 목록 조회
      *
-     * @param after 커서 (이전 페이지 마지막 피드 ID)
-     * @param limit 조회 개수
+     * @param userId 현재 사용자 ID
+     * @param after  커서 (이전 페이지 마지막 피드 ID)
+     * @param limit  조회 개수
      * @return 피드 목록 및 페이지 정보
      */
-    public PagedResponse<FeedListItem> getFeeds(Long after, int limit) {
+    public PagedResponse<FeedListItem> getFeeds(Long userId, Long after, int limit) {
         Slice<Feed> feedSlice = feedRepository.findByCursor(after, PageRequest.of(0, limit));
         List<Feed> feeds = feedSlice.getContent();
 
@@ -162,8 +218,12 @@ public class FeedService {
         Map<Long, UserProfile> userProfileMap = userProfileRepository.findByUserIdIn(userIds).stream()
                 .collect(Collectors.toMap(up -> up.getUser().getId(), Function.identity()));
 
+        Set<Long> likedFeedIds = feedLikeRepository.findByFeedIdInAndUserId(feedIds, userId).stream()
+                .map(fl -> fl.getFeed().getId())
+                .collect(Collectors.toSet());
+
         List<FeedListItem> items = feeds.stream()
-                .map(feed -> buildFeedListItem(feed, primaryImageMap, userProfileMap))
+                .map(feed -> buildFeedListItem(feed, primaryImageMap, userProfileMap, likedFeedIds))
                 .toList();
 
         Long nextCursor = feedSlice.hasNext() ? feeds.getLast().getId() : null;
@@ -176,7 +236,10 @@ public class FeedService {
      * 피드 목록 아이템 생성
      */
     private FeedListItem buildFeedListItem(
-            Feed feed, Map<Long, FeedImage> primaryImageMap, Map<Long, UserProfile> userProfileMap) {
+            Feed feed,
+            Map<Long, FeedImage> primaryImageMap,
+            Map<Long, UserProfile> userProfileMap,
+            Set<Long> likedFeedIds) {
 
         String primaryImageUrl = Optional.ofNullable(primaryImageMap.get(feed.getId()))
                 .map(fi -> mediaService
@@ -200,7 +263,7 @@ public class FeedService {
                 .likeCount(feed.getLikeCount())
                 .commentCount(feed.getCommentCount())
                 .userProfile(userProfileDto)
-                .isLiked(false) // feed 좋아요 개발 전까지 false 고정
+                .isLiked(likedFeedIds.contains(feed.getId()))
                 .build();
     }
 
@@ -273,6 +336,9 @@ public class FeedService {
                 new UserProfileDto(feed.getUser().getId(), profileImageUrl, userProfile.getNickname());
 
         boolean isOwner = feed.getUser().getId().equals(currentUserId);
+        boolean isLiked = feedLikeRepository
+                .findByFeedIdAndUserId(feed.getId(), currentUserId)
+                .isPresent();
 
         return FeedDetailResponse.builder()
                 .feedId(feed.getId())
@@ -284,7 +350,7 @@ public class FeedService {
                 .content(feed.getContent())
                 .userProfile(userProfileDto)
                 .isFollowing(false) // 팔로우 기능 미구현
-                .isLiked(false)
+                .isLiked(isLiked)
                 .isOwner(isOwner)
                 .build();
     }

@@ -4,6 +4,7 @@ import com.example.kloset_lab.feed.dto.FeedCreateRequest;
 import com.example.kloset_lab.feed.dto.FeedDetailResponse;
 import com.example.kloset_lab.feed.dto.FeedListItem;
 import com.example.kloset_lab.feed.dto.FeedUpdateRequest;
+import com.example.kloset_lab.feed.dto.LikeResponse;
 import com.example.kloset_lab.feed.service.FeedService;
 import com.example.kloset_lab.global.response.ApiResponse;
 import com.example.kloset_lab.global.response.ApiResponses;
@@ -47,14 +48,17 @@ public class FeedController {
     /**
      * 피드 홈 목록 조회 API
      *
-     * @param after 커서 (이전 페이지 마지막 피드 ID)
-     * @param limit 조회 개수
+     * @param userId 현재 로그인한 사용자 ID
+     * @param after  커서 (이전 페이지 마지막 피드 ID)
+     * @param limit  조회 개수
      * @return 피드 목록 및 페이지 정보
      */
     @GetMapping
     public ResponseEntity<ApiResponse<PagedResponse<FeedListItem>>> getFeeds(
-            @RequestParam(required = false) Long after, @RequestParam(defaultValue = "10") int limit) {
-        PagedResponse<FeedListItem> response = feedService.getFeeds(after, limit);
+            @AuthenticationPrincipal Long userId,
+            @RequestParam(required = false) Long after,
+            @RequestParam(defaultValue = "10") int limit) {
+        PagedResponse<FeedListItem> response = feedService.getFeeds(userId, after, limit);
         return ApiResponses.ok(Message.FEEDS_RETRIEVED, response);
     }
 
@@ -101,5 +105,33 @@ public class FeedController {
             @AuthenticationPrincipal Long userId, @PathVariable Long feedId) {
         feedService.deleteFeed(userId, feedId);
         return ApiResponses.ok(Message.FEED_DELETED, null);
+    }
+
+    /**
+     * 피드 좋아요 API
+     *
+     * @param userId 현재 로그인한 사용자 ID
+     * @param feedId 좋아요할 피드 ID
+     * @return 좋아요 응답 (좋아요 개수, 좋아요 여부)
+     */
+    @PostMapping("/{feedId}/likes")
+    public ResponseEntity<ApiResponse<LikeResponse>> likeFeed(
+            @AuthenticationPrincipal Long userId, @PathVariable Long feedId) {
+        LikeResponse response = feedService.likeFeed(userId, feedId);
+        return ApiResponses.created(Message.FEED_LIKED, response);
+    }
+
+    /**
+     * 피드 좋아요 취소 API
+     *
+     * @param userId 현재 로그인한 사용자 ID
+     * @param feedId 좋아요 취소할 피드 ID
+     * @return 좋아요 응답 (좋아요 개수, 좋아요 여부)
+     */
+    @DeleteMapping("/{feedId}/likes")
+    public ResponseEntity<ApiResponse<LikeResponse>> unlikeFeed(
+            @AuthenticationPrincipal Long userId, @PathVariable Long feedId) {
+        LikeResponse response = feedService.unlikeFeed(userId, feedId);
+        return ApiResponses.ok(Message.FEED_LIKE_CANCELLED, response);
     }
 }
