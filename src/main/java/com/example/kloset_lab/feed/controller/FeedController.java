@@ -1,11 +1,14 @@
 package com.example.kloset_lab.feed.controller;
 
+import static com.example.kloset_lab.global.constants.PaginationDefaults.FEED_LIST;
+import static com.example.kloset_lab.global.constants.PaginationDefaults.LIKE_USER_LIST;
+
 import com.example.kloset_lab.feed.dto.FeedCreateRequest;
 import com.example.kloset_lab.feed.dto.FeedDetailResponse;
 import com.example.kloset_lab.feed.dto.FeedLikeUserItem;
 import com.example.kloset_lab.feed.dto.FeedListItem;
 import com.example.kloset_lab.feed.dto.FeedUpdateRequest;
-import com.example.kloset_lab.feed.dto.LikeResponse;
+import com.example.kloset_lab.global.response.LikeResponse;
 import com.example.kloset_lab.feed.service.FeedService;
 import com.example.kloset_lab.global.response.ApiResponse;
 import com.example.kloset_lab.global.response.ApiResponses;
@@ -58,7 +61,7 @@ public class FeedController {
     public ResponseEntity<ApiResponse<PagedResponse<FeedListItem>>> getFeeds(
             @AuthenticationPrincipal Long userId,
             @RequestParam(required = false) Long after,
-            @RequestParam(defaultValue = "10") int limit) {
+            @RequestParam(defaultValue = FEED_LIST) int limit) {
         PagedResponse<FeedListItem> response = feedService.getFeeds(userId, after, limit);
         return ApiResponses.ok(Message.FEEDS_RETRIEVED, response);
     }
@@ -148,7 +151,7 @@ public class FeedController {
     public ResponseEntity<ApiResponse<PagedResponse<FeedLikeUserItem>>> getLikedUsers(
             @PathVariable Long feedId,
             @RequestParam(required = false) Long after,
-            @RequestParam(defaultValue = "20") int limit) {
+            @RequestParam(defaultValue = LIKE_USER_LIST) int limit) {
         PagedResponse<FeedLikeUserItem> response = feedService.getLikedUsers(feedId, after, limit);
         return ApiResponses.ok(Message.FEED_LIKES_RETRIEVED, response);
     }

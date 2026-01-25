@@ -1,4 +1,4 @@
-package com.example.kloset_lab.feed.dto;
+package com.example.kloset_lab.global.response;
 
 import lombok.Builder;
 
