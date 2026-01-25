@@ -1,6 +1,41 @@
 package com.example.kloset_lab.comment.repository;
 
 import com.example.kloset_lab.comment.entity.Comment;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
-public interface CommentRepository extends JpaRepository<Comment, Long> {}
+public interface CommentRepository extends JpaRepository<Comment, Long> {
+
+    /**
+     * 원댓글 목록 조회 (커서 기반 페이지네이션)
+     *
+     * @param feedId 피드 ID
+     * @param cursor 커서 (이전 페이지 마지막 댓글 ID)
+     * @param pageable 페이지 정보
+     * @return 원댓글 목록
+     */
+    @Query("SELECT c FROM Comment c JOIN FETCH c.user "
+            + "WHERE c.feed.id = :feedId AND c.parent IS NULL "
+            + "AND (:cursor IS NULL OR c.id < :cursor) "
+            + "ORDER BY c.id DESC")
+    Slice<Comment> findParentCommentsByCursor(
+            @Param("feedId") Long feedId, @Param("cursor") Long cursor, Pageable pageable);
+
+    /**
+     * 대댓글 목록 조회 (커서 기반 페이지네이션)
+     *
+     * @param parentId 부모 댓글 ID
+     * @param cursor 커서 (이전 페이지 마지막 대댓글 ID)
+     * @param pageable 페이지 정보
+     * @return 대댓글 목록
+     */
+    @Query("SELECT c FROM Comment c JOIN FETCH c.user "
+            + "WHERE c.parent.id = :parentId "
+            + "AND (:cursor IS NULL OR c.id < :cursor) "
+            + "ORDER BY c.id DESC")
+    Slice<Comment> findRepliesByCursor(
+            @Param("parentId") Long parentId, @Param("cursor") Long cursor, Pageable pageable);
+}
