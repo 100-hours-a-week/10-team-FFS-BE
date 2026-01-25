@@ -2,14 +2,12 @@ package com.example.kloset_lab.comment.service;
 
 import com.example.kloset_lab.comment.dto.*;
 import com.example.kloset_lab.comment.entity.Comment;
-import com.example.kloset_lab.comment.entity.CommentLike;
 import com.example.kloset_lab.comment.repository.CommentLikeRepository;
 import com.example.kloset_lab.comment.repository.CommentRepository;
 import com.example.kloset_lab.feed.entity.Feed;
 import com.example.kloset_lab.feed.repository.FeedRepository;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
-import com.example.kloset_lab.global.response.LikeResponse;
 import com.example.kloset_lab.global.response.PageInfo;
 import com.example.kloset_lab.user.dto.UserProfileDto;
 import com.example.kloset_lab.user.entity.User;
@@ -169,8 +167,6 @@ public class CommentService {
         comment.softDelete();
         comment.getFeed().decrementCommentCount();
     }
-
-
 
     /**
      * 댓글 조회 및 피드 소속 검증

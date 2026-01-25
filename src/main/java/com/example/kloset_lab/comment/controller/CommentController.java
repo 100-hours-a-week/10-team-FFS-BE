@@ -119,6 +119,4 @@ public class CommentController {
         commentService.deleteComment(userId, feedId, commentId);
         return ApiResponses.ok(Message.COMMENT_DELETED, null);
     }
-
-
 }
