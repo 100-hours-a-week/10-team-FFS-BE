@@ -1,6 +1,7 @@
 package com.example.kloset_lab.comment.repository;
 
 import com.example.kloset_lab.comment.entity.Comment;
+import java.util.List;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -38,4 +39,13 @@ public interface CommentRepository extends JpaRepository<Comment, Long> {
             + "ORDER BY c.id DESC")
     Slice<Comment> findRepliesByCursor(
             @Param("parentId") Long parentId, @Param("cursor") Long cursor, Pageable pageable);
+
+    /**
+     * 특정 피드의 모든 댓글 조회 (원댓글 + 대댓글 포함)
+     *
+     * @param feedId 피드 ID
+     * @return 해당 피드의 모든 댓글
+     */
+    @Query("SELECT c FROM Comment c WHERE c.feed.id = :feedId")
+    List<Comment> findByFeedId(@Param("feedId") Long feedId);
 }

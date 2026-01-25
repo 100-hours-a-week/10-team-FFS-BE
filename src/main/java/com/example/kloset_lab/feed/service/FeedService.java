@@ -2,6 +2,8 @@ package com.example.kloset_lab.feed.service;
 
 import com.example.kloset_lab.clothes.entity.Clothes;
 import com.example.kloset_lab.clothes.service.ClothesValidationService;
+import com.example.kloset_lab.comment.entity.Comment;
+import com.example.kloset_lab.comment.repository.CommentRepository;
 import com.example.kloset_lab.feed.dto.ClothesDto;
 import com.example.kloset_lab.feed.dto.FeedCreateRequest;
 import com.example.kloset_lab.feed.dto.FeedDetailResponse;
@@ -56,6 +58,7 @@ public class FeedService {
     private final UserRepository userRepository;
     private final UserProfileRepository userProfileRepository;
     private final MediaFileRepository mediaFileRepository;
+    private final CommentRepository commentRepository;
     private final ClothesValidationService clothesValidationService;
     private final MediaService mediaService;
     private final UserService userService;
@@ -145,6 +148,9 @@ public class FeedService {
         if (!feed.getUser().getId().equals(userId)) {
             throw new CustomException(ErrorCode.FEED_DELETE_DENIED);
         }
+
+        List<Comment> comments = commentRepository.findByFeedId(feedId);
+        comments.forEach(Comment::softDelete);
 
         feed.softDelete();
     }
