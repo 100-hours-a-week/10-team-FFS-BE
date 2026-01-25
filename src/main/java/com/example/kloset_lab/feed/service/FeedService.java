@@ -8,7 +8,7 @@ import com.example.kloset_lab.feed.dto.FeedDetailResponse;
 import com.example.kloset_lab.feed.dto.FeedLikeUserItem;
 import com.example.kloset_lab.feed.dto.FeedListItem;
 import com.example.kloset_lab.feed.dto.FeedUpdateRequest;
-import com.example.kloset_lab.feed.dto.LikeResponse;
+import com.example.kloset_lab.global.response.LikeResponse;
 import com.example.kloset_lab.feed.entity.Feed;
 import com.example.kloset_lab.feed.entity.FeedClothesMapping;
 import com.example.kloset_lab.feed.entity.FeedImage;
@@ -30,6 +30,7 @@ import com.example.kloset_lab.user.entity.User;
 import com.example.kloset_lab.user.entity.UserProfile;
 import com.example.kloset_lab.user.repository.UserProfileRepository;
 import com.example.kloset_lab.user.repository.UserRepository;
+import com.example.kloset_lab.user.service.UserService;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -57,6 +58,7 @@ public class FeedService {
     private final MediaFileRepository mediaFileRepository;
     private final ClothesValidationService clothesValidationService;
     private final MediaService mediaService;
+    private final UserService userService;
 
     /**
      * 피드 생성
@@ -298,15 +300,8 @@ public class FeedService {
                         .getFirst())
                 .orElseThrow(() -> new CustomException(ErrorCode.FILE_NOT_FOUND));
 
-        UserProfile userProfile = Optional.ofNullable(
-                        userProfileMap.get(feed.getUser().getId()))
-                .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
-        String profileImageUrl = Optional.ofNullable(userProfile.getProfileFile())
-                .map(pf -> mediaService.getFileFullUrl(List.of(pf.getId())).getFirst())
-                .orElse(null);
-
         UserProfileDto userProfileDto =
-                new UserProfileDto(feed.getUser().getId(), profileImageUrl, userProfile.getNickname());
+                userService.buildUserProfileDto(feed.getUser().getId(), userProfileMap);
 
         return FeedListItem.builder()
                 .feedId(feed.getId())
@@ -375,16 +370,8 @@ public class FeedService {
                 })
                 .toList();
 
-        UserProfile userProfile = userProfileRepository
-                .findByUserId(feed.getUser().getId())
-                .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
-
-        String profileImageUrl = Optional.ofNullable(userProfile.getProfileFile())
-                .map(pf -> mediaService.getFileFullUrl(List.of(pf.getId())).getFirst())
-                .orElse(null);
-
         UserProfileDto userProfileDto =
-                new UserProfileDto(feed.getUser().getId(), profileImageUrl, userProfile.getNickname());
+                userService.buildUserProfileDto(feed.getUser().getId());
 
         boolean isOwner = feed.getUser().getId().equals(currentUserId);
         boolean isLiked = feedLikeRepository
