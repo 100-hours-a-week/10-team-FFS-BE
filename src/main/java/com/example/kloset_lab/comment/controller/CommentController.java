@@ -7,6 +7,7 @@ import com.example.kloset_lab.comment.dto.*;
 import com.example.kloset_lab.comment.service.CommentService;
 import com.example.kloset_lab.global.response.ApiResponse;
 import com.example.kloset_lab.global.response.ApiResponses;
+import com.example.kloset_lab.global.response.LikeResponse;
 import com.example.kloset_lab.global.response.Message;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -120,5 +121,33 @@ public class CommentController {
         return ApiResponses.ok(Message.COMMENT_DELETED, null);
     }
 
+    /**
+     * 댓글 좋아요 API
+     *
+     * @param userId 현재 로그인한 사용자 ID
+     * @param feedId 피드 ID
+     * @param commentId 댓글 ID
+     * @return 좋아요 응답
+     */
+    @PostMapping("/{commentId}/likes")
+    public ResponseEntity<ApiResponse<LikeResponse>> likeComment(
+            @AuthenticationPrincipal Long userId, @PathVariable Long feedId, @PathVariable Long commentId) {
+        LikeResponse response = commentService.likeComment(userId, feedId, commentId);
+        return ApiResponses.created(Message.COMMENT_LIKED, response);
+    }
 
+    /**
+     * 댓글 좋아요 취소 API
+     *
+     * @param userId 현재 로그인한 사용자 ID
+     * @param feedId 피드 ID
+     * @param commentId 댓글 ID
+     * @return 좋아요 응답
+     */
+    @DeleteMapping("/{commentId}/likes")
+    public ResponseEntity<ApiResponse<LikeResponse>> unlikeComment(
+            @AuthenticationPrincipal Long userId, @PathVariable Long feedId, @PathVariable Long commentId) {
+        LikeResponse response = commentService.unlikeComment(userId, feedId, commentId);
+        return ApiResponses.ok(Message.COMMENT_LIKE_CANCELLED, response);
+    }
 }

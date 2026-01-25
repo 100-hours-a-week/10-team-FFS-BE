@@ -46,8 +46,8 @@ public class Message {
     public static final String COMMENT_CREATED = "comment_created";
     public static final String COMMENT_UPDATED = "comment_updated";
     public static final String COMMENT_DELETED = "comment_deleted";
-    public static final String COMMENT_LIKE_CREATED = "comment_like_created";
-    public static final String COMMENT_LIKE_DELETED = "comment_like_deleted";
+    public static final String COMMENT_LIKED = "like_comment";
+    public static final String COMMENT_LIKE_CANCELLED = "cancle_like_comment";
 
     // TPO
     public static final String RECENT_TPO_REQUESTS_RETRIEVED = "recent_tpo_requests_retrieved";

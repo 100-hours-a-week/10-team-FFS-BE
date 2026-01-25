@@ -170,6 +170,60 @@ public class CommentService {
         comment.getFeed().decrementCommentCount();
     }
 
+    /**
+     * 댓글 좋아요
+     *
+     * @param userId 현재 사용자 ID
+     * @param feedId 피드 ID
+     * @param commentId 댓글 ID
+     * @return 좋아요 응답
+     */
+    @Transactional
+    public LikeResponse likeComment(Long userId, Long feedId, Long commentId) {
+        Comment comment = getVerifiedComment(feedId, commentId);
+
+        User user = userRepository.findById(userId).orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
+
+        boolean alreadyLiked = commentLikeRepository
+                .findByCommentIdAndUserId(commentId, userId)
+                .isPresent();
+
+        if (!alreadyLiked) {
+            commentLikeRepository.save(
+                    CommentLike.builder().comment(comment).user(user).build());
+            comment.incrementLikeCount();
+        }
+
+        return LikeResponse.builder()
+                .likeCount(comment.getLikeCount())
+                .isLiked(true)
+                .build();
+    }
+
+    /**
+     * 댓글 좋아요 취소
+     *
+     * @param userId 현재 사용자 ID
+     * @param feedId 피드 ID
+     * @param commentId 댓글 ID
+     * @return 좋아요 응답
+     */
+    @Transactional
+    public LikeResponse unlikeComment(Long userId, Long feedId, Long commentId) {
+        Comment comment = getVerifiedComment(feedId, commentId);
+
+        Optional<CommentLike> existingLike = commentLikeRepository.findByCommentIdAndUserId(commentId, userId);
+
+        if (existingLike.isPresent()) {
+            commentLikeRepository.delete(existingLike.get());
+            comment.decrementLikeCount();
+        }
+
+        return LikeResponse.builder()
+                .likeCount(comment.getLikeCount())
+                .isLiked(false)
+                .build();
+    }
 
 
     /**
