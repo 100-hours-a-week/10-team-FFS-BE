@@ -1,7 +1,7 @@
 package com.example.kloset_lab.comment.entity;
 
 import com.example.kloset_lab.feed.entity.Feed;
-import com.example.kloset_lab.global.entity.BaseTimeEntity;
+import com.example.kloset_lab.global.entity.BaseEntity;
 import com.example.kloset_lab.user.entity.User;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -15,7 +15,7 @@ import org.hibernate.annotations.SQLRestriction;
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @SQLRestriction("deleted_at IS NULL")
-public class Comment extends BaseTimeEntity {
+public class Comment extends BaseEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -45,5 +45,26 @@ public class Comment extends BaseTimeEntity {
         this.feed = feed;
         this.parent = parent;
         this.content = content;
+    }
+
+    public void updateContent(String content) {
+        this.content = content;
+    }
+
+    public void incrementLikeCount() {
+        this.likeCount++;
+    }
+
+    public void decrementLikeCount() {
+        if (this.likeCount > 0) {
+            this.likeCount--;
+        }
+    }
+
+    /**
+     * @return 원댓글 여부 (대댓글이 아닌 경우 true)
+     */
+    public boolean isParentComment() {
+        return this.parent == null;
     }
 }

@@ -16,6 +16,7 @@ import com.example.kloset_lab.user.entity.UserProfile;
 import com.example.kloset_lab.user.repository.UserProfileRepository;
 import com.example.kloset_lab.user.repository.UserRepository;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -105,6 +106,45 @@ public class UserService {
         boolean isAvailable = nicknameValidationService.isNicknameAvailable(nickname);
         String message = isAvailable ? Message.NICKNAME_CHECKED_UNIQUE : Message.NICKNAME_CHECKED_DUPLICATE;
         return new NicknameValidationResult(isAvailable, message);
+    }
+
+    /**
+     * 유저 ID로 UserProfileDto 생성 (단건 조회용)
+     *
+     * @param userId 유저 ID
+     * @return UserProfileDto
+     */
+    public UserProfileDto buildUserProfileDto(Long userId) {
+        UserProfile userProfile = userProfileRepository
+                .findByUserId(userId)
+                .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
+
+        return buildUserProfileDtoFromProfile(userId, userProfile);
+    }
+
+    /**
+     * 유저 ID로 UserProfileDto 생성 (목록 조회용, 미리 조회한 Map 활용)
+     *
+     * @param userId 유저 ID
+     * @param userProfileMap 미리 조회한 UserProfile Map
+     * @return UserProfileDto
+     */
+    public UserProfileDto buildUserProfileDto(Long userId, Map<Long, UserProfile> userProfileMap) {
+        UserProfile userProfile = Optional.ofNullable(userProfileMap.get(userId))
+                .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
+
+        return buildUserProfileDtoFromProfile(userId, userProfile);
+    }
+
+    /**
+     * UserProfile로 UserProfileDto 생성
+     */
+    private UserProfileDto buildUserProfileDtoFromProfile(Long userId, UserProfile userProfile) {
+        String profileImageUrl = Optional.ofNullable(userProfile.getProfileFile())
+                .map(pf -> mediaService.getFileFullUrl(List.of(pf.getId())).getFirst())
+                .orElse(null);
+
+        return new UserProfileDto(userId, profileImageUrl, userProfile.getNickname());
     }
 
     /**
