@@ -1,2 +1,3 @@
+@Service
 public class ClothesService {
 }
