@@ -130,7 +130,9 @@ public class ClothesAnalysisService {
     }
 
     private ClothesPollingResponse.Analysis parseAnalysis(String analysisJson) {
-        if (analysisJson == null) return null;
+        if (analysisJson == null) {
+            return null;
+        }
         try {
             ClothesPollingResponse.Attributes attributes =
                     objectMapper.readValue(analysisJson, ClothesPollingResponse.Attributes.class);
