@@ -6,7 +6,8 @@ import lombok.Getter;
 public enum Purpose {
     FEED(5),
     PROFILE(1),
-    CLOTHES_TEMP(10);
+    CLOTHES_TEMP(10),
+    CLOTHES(1);
 
     private final int maxCount;
 
