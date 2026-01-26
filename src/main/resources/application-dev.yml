@@ -132,3 +132,7 @@ cors:
     - '*'
   allow-credentials: true
   max-age: 3600
+
+ai:
+  api:
+    base-url: ${AI_API_BASE_URL:http://localhost:8080}
