@@ -1,7 +1,5 @@
 package com.example.kloset_lab.ai.entity;
 
-import com.example.kloset_lab.comment.entity.Comment;
-import com.example.kloset_lab.feed.entity.Feed;
 import com.example.kloset_lab.global.entity.BaseTimeEntity;
 import com.example.kloset_lab.user.entity.User;
 import jakarta.persistence.*;
