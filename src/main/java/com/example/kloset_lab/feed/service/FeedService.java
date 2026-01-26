@@ -291,6 +291,42 @@ public class FeedService {
         return new PagedResponse<>(items, pageInfo);
     }
 
+    public PagedResponse<FeedListItem> getFeedsByUserId(Long currentUserId, Long targetUserId, Long after, int limit) {
+
+        if (!userRepository.existsById(targetUserId)) {
+            throw new CustomException(ErrorCode.TARGET_USER_NOT_FOUND);
+        }
+
+        Slice<Feed> feedSlice = feedRepository.findByUserIdAndCursor(targetUserId, after, PageRequest.of(0, limit));
+
+        List<Feed> feeds = feedSlice.getContent();
+        List<Long> feedIds = feeds.stream().map(Feed::getId).toList();
+
+        Map<Long, FeedImage> primaryImageMap = feedImageRepository.findByFeedIdInAndPrimaryTrue(feedIds).stream()
+                .collect(Collectors.toMap(fi -> fi.getFeed().getId(), Function.identity()));
+
+        List<Long> userIds =
+                feeds.stream().map(f -> f.getUser().getId()).distinct().toList();
+        Map<Long, UserProfile> userProfileMap = userProfileRepository.findByUserIdIn(userIds).stream()
+                .collect(Collectors.toMap(up -> up.getUser().getId(), Function.identity()));
+
+        // 현재 유저의 좋아요 여부
+        Set<Long> likedFeedIds = feedLikeRepository.findByFeedIdInAndUserId(feedIds, currentUserId).stream()
+                .map(fl -> fl.getFeed().getId())
+                .collect(Collectors.toSet());
+
+        // DTO 변환
+        List<FeedListItem> items = feeds.stream()
+                .map(feed -> buildFeedListItem(feed, primaryImageMap, userProfileMap, likedFeedIds))
+                .toList();
+
+        // 페이지 정보
+        Long nextCursor = feedSlice.hasNext() ? feeds.getLast().getId() : null;
+        PageInfo pageInfo = new PageInfo(feedSlice.hasNext(), nextCursor);
+
+        return new PagedResponse<>(items, pageInfo);
+    }
+
     /**
      * 피드 목록 아이템 생성
      */

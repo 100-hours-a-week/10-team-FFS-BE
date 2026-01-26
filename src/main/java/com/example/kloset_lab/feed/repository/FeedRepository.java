@@ -18,4 +18,22 @@ public interface FeedRepository extends JpaRepository<Feed, Long> {
      */
     @Query("SELECT f FROM Feed f JOIN FETCH f.user WHERE (:cursor IS NULL OR f.id < :cursor) ORDER BY f.id DESC")
     Slice<Feed> findByCursor(@Param("cursor") Long cursor, Pageable pageable);
+
+    /**
+     * 특정 유저의 피드 커서 기반 조회 (최신순)
+     *
+     * @param userId   대상 사용자 ID
+     * @param cursor   커서 (이전 페이지 마지막 피드 ID), null이면 처음부터
+     * @param pageable 페이징 정보
+     * @return 피드 Slice
+     */
+    @Query(
+            """
+            SELECT f FROM Feed f
+            JOIN FETCH f.user
+            WHERE f.user.id = :userId
+              AND (:cursor IS NULL OR f.id < :cursor)
+            ORDER BY f.id DESC
+            """)
+    Slice<Feed> findByUserIdAndCursor(@Param("userId") Long userId, @Param("cursor") Long cursor, Pageable pageable);
 }
