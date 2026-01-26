@@ -40,4 +40,8 @@ public class TpoResult extends BaseTimeEntity {
         this.cordiExplainText = cordiExplainText;
         this.reaction = Reaction.NONE;
     }
+
+    public void updateReaction(Reaction reaction) {
+        this.reaction = reaction;
+    }
 }

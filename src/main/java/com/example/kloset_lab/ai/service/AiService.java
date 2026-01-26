@@ -1,7 +1,9 @@
 package com.example.kloset_lab.ai.service;
 
+import com.example.kloset_lab.ai.dto.TpoFeedbackRequest;
 import com.example.kloset_lab.ai.dto.TpoOutfitsRequest;
 import com.example.kloset_lab.ai.dto.TpoOutfitsResponse;
+import com.example.kloset_lab.ai.dto.TpoRequestHistoryResponse;
 import com.example.kloset_lab.ai.entity.TpoRequest;
 import com.example.kloset_lab.ai.entity.TpoResult;
 import com.example.kloset_lab.ai.entity.TpoResultClothes;
@@ -21,6 +23,7 @@ import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -152,5 +155,44 @@ public class AiService {
                 + Optional.ofNullable(outfit.fallbackNotice())
                         .map(notice -> " " + notice)
                         .orElse("");
+    }
+
+    /**
+     * 최근 TPO 요청 기록 조회 (최근 3개)
+     *
+     * @param userId 현재 로그인한 사용자 ID
+     * @return TPO 요청 기록 리스트 (없으면 빈 리스트)
+     */
+    public TpoRequestHistoryResponse getRecentTpoRequests(Long userId) {
+        User user = userRepository.findById(userId).orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
+
+        List<TpoRequest> tpoRequests = tpoRequestRepository
+                .findByUserOrderByCreatedAtDesc(user, PageRequest.of(0, 3));
+
+        List<TpoRequestHistoryResponse.RequestHistory> requestHistories = tpoRequests.stream()
+                .map(tpoRequest -> TpoRequestHistoryResponse.RequestHistory.builder()
+                        .requestId(tpoRequest.getId())
+                        .content(tpoRequest.getRequestText())
+                        .build())
+                .toList();
+
+        return TpoRequestHistoryResponse.builder()
+                .requestHistories(requestHistories)
+                .build();
+    }
+
+    /**
+     * TPO 결과 피드백 등록
+     *
+     * @param resultId TPO 결과 ID
+     * @param request 피드백 요청 DTO
+     */
+    @Transactional
+    public void recordReaction(Long resultId, @Valid TpoFeedbackRequest request) {
+        TpoResult tpoResult = tpoResultRepository
+                .findById(resultId)
+                .orElseThrow(() -> new CustomException(ErrorCode.TPO_RESULT_NOT_FOUND));
+
+        tpoResult.updateReaction(request.reaction());
     }
 }
