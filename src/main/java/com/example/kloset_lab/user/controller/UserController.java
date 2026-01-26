@@ -1,20 +1,20 @@
 package com.example.kloset_lab.user.controller;
 
+import com.example.kloset_lab.feed.dto.FeedListItem;
+import com.example.kloset_lab.feed.service.FeedService;
 import com.example.kloset_lab.global.response.ApiResponse;
 import com.example.kloset_lab.global.response.ApiResponses;
 import com.example.kloset_lab.global.response.Message;
+import com.example.kloset_lab.global.response.PagedResponse;
 import com.example.kloset_lab.user.dto.*;
 import com.example.kloset_lab.user.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
+
+import static com.example.kloset_lab.global.constants.PaginationDefaults.FEED_LIST;
 
 @RestController
 @RequestMapping("/api/v1/users")
@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class UserController {
 
     private final UserService userService;
+    private final FeedService feedService;
 
     /**
      * 회원가입 후 추가 정보 저장 API
@@ -67,5 +68,26 @@ public class UserController {
             @PathVariable Long userId, @AuthenticationPrincipal Long currentUserId) {
         UserProfileInfoResponse response = userService.getUserProfile(userId, currentUserId);
         return ApiResponses.ok(Message.PROFILE_RETRIEVED, response);
+    }
+
+    /**
+     * 특정 유저의 피드 목록 조회 API
+     *
+     * @param currentUserId 현재 로그인한 사용자 ID
+     * @param userId        조회 대상 사용자 ID
+     * @param after         커서 (이전 페이지 마지막 피드 ID)
+     * @param limit         조회 개수
+     * @return 피드 목록 및 페이지 정보
+     */
+    @GetMapping("/{userId}/feeds")
+    public ResponseEntity<ApiResponse<PagedResponse<FeedListItem>>> getUserFeeds(
+            @AuthenticationPrincipal Long currentUserId,
+            @PathVariable Long userId,
+            @RequestParam(required = false) Long after,
+            @RequestParam(defaultValue = FEED_LIST) int limit) {
+
+        PagedResponse<FeedListItem> response =
+                feedService.getFeedsByUserId(currentUserId, userId, after, limit);
+        return ApiResponses.ok(Message.USER_FEEDS_RETRIEVED, response);
     }
 }
