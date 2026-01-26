@@ -37,12 +37,13 @@ public enum ErrorCode {
     COMMENT_DELETE_DENIED(HttpStatus.FORBIDDEN, "comment_delete_denied"),
     TPO_RESULT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "tpo_result_access_denied"),
     SHOP_RESULT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "shop_result_access_denied"),
+    CLOTHES_ANALYSIS_RESULT_DENIED(HttpStatus.FORBIDDEN, "clothes_analysis_result_denied"),
 
     // 404 Not Found
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "user_not_found"),
     TARGET_USER_NOT_FOUND(HttpStatus.NOT_FOUND, "target_user_not_found"),
     FILE_NOT_FOUND(HttpStatus.NOT_FOUND, "file_not_found"),
-    TASK_NOT_FOUND(HttpStatus.NOT_FOUND, "task_not_found"),
+    CLOTHES_ANALYSIS_RESULT_NOT_FOUND(HttpStatus.NOT_FOUND, "clothes_analysis_result_found"),
     CLOTHES_NOT_FOUND(HttpStatus.NOT_FOUND, "clothes_not_found"),
     CLOTHES_DETAIL_NOT_FOUND(HttpStatus.NOT_FOUND, "clothes_detail_not_found"),
     FEED_NOT_FOUND(HttpStatus.NOT_FOUND, "feed_not_found"),

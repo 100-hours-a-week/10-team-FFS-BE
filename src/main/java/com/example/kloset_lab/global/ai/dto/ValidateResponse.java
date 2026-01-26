@@ -11,4 +11,11 @@ public record ValidateResponse(
 
     @Builder
     public record ValidationResult(String originUrl, Boolean passed, ValidateError error) {}
+
+    public List<String> getPassedUrls() {
+        return validationResults.stream()
+                .filter(ValidationResult::passed)
+                .map(ValidationResult::originUrl)
+                .toList();
+    }
 }
