@@ -59,7 +59,9 @@ public class CommentService {
                 commentRepository.findParentCommentsByCursor(feedId, after, PageRequest.of(0, limit));
         List<Comment> comments = commentSlice.getContent();
 
-        return buildCommentPagedResponse(0L, comments, commentSlice.hasNext(), userId);
+        Map<Long, ReplyInfo> replyInfoMap = fetchReplyInfoMap(comments);
+
+        return buildCommentPagedResponse(null, comments, commentSlice.hasNext(), userId, replyInfoMap);
     }
 
     /**
@@ -93,7 +95,7 @@ public class CommentService {
         Slice<Comment> replySlice = commentRepository.findRepliesByCursor(commentId, after, PageRequest.of(0, limit));
         List<Comment> replies = replySlice.getContent();
 
-        return buildCommentPagedResponse(parentComment.getId(), replies, replySlice.hasNext(), userId);
+        return buildCommentPagedResponse(parentComment.getId(), replies, replySlice.hasNext(), userId, null);
     }
 
     /**
@@ -122,7 +124,11 @@ public class CommentService {
 
         feed.incrementCommentCount();
 
-        return buildCommentItem(comment, false);
+        ReplyInfo replyInfo = comment.isParentComment()
+                ? ReplyInfo.builder().hasReplies(false).replyCount(0L).build()
+                : null;
+
+        return buildCommentItem(comment, false, replyInfo);
     }
 
     /**
@@ -148,7 +154,14 @@ public class CommentService {
                 .findByCommentIdAndUserId(commentId, userId)
                 .isPresent();
 
-        return buildCommentItem(comment, isLiked);
+        ReplyInfo replyInfo = null;
+        if (comment.isParentComment()) {
+            long cnt = commentRepository.countRepliesByParentId(comment.getId());
+            replyInfo = ReplyInfo.builder().hasReplies(cnt > 0).replyCount(cnt).build();
+        }
+
+
+        return buildCommentItem(comment, isLiked, replyInfo);
     }
 
     /**
@@ -251,7 +264,7 @@ public class CommentService {
      * 댓글 페이징 응답 생성
      */
     private CommentPagedResponse<CommentItem> buildCommentPagedResponse(
-            Long parentId, List<Comment> comments, boolean hasNext, Long currentUserId) {
+            Long parentId, List<Comment> comments, boolean hasNext, Long currentUserId, Map<Long, ReplyInfo> replyInfoMap) {
 
         List<Long> commentIds = comments.stream().map(Comment::getId).toList();
 
@@ -268,7 +281,8 @@ public class CommentService {
                 .map(comment -> {
                     boolean isLiked = likedCommentIds.contains(comment.getId());
                     boolean isOwner = comment.getUser().getId().equals(currentUserId);
-                    return buildCommentItemWithProfile(comment, userProfileMap, isLiked, isOwner);
+                    ReplyInfo replyInfo = (replyInfoMap != null) ? replyInfoMap.get(comment.getId()) : null;
+                    return buildCommentItemWithProfile(comment, userProfileMap, isLiked, isOwner,replyInfo);
                 })
                 .toList();
 
@@ -281,7 +295,7 @@ public class CommentService {
     /**
      * 댓글 아이템 생성 (단건 조회용)
      */
-    private CommentItem buildCommentItem(Comment comment, boolean isLiked) {
+    private CommentItem buildCommentItem(Comment comment, boolean isLiked, ReplyInfo replyInfo) {
         UserProfileDto userProfileDto =
                 userService.buildUserProfileDto(comment.getUser().getId());
 
@@ -293,6 +307,7 @@ public class CommentService {
                 .userProfile(userProfileDto)
                 .isLiked(isLiked)
                 .isOwner(true)
+                .replyInfo(replyInfo)
                 .build();
     }
 
@@ -300,7 +315,7 @@ public class CommentService {
      * 댓글 아이템 생성 (목록 조회용, 프로필 맵 사용)
      */
     private CommentItem buildCommentItemWithProfile(
-            Comment comment, Map<Long, UserProfile> userProfileMap, boolean isLiked, boolean isOwner) {
+            Comment comment, Map<Long, UserProfile> userProfileMap, boolean isLiked, boolean isOwner, ReplyInfo replyInfo) {
         UserProfileDto userProfileDto =
                 userService.buildUserProfileDto(comment.getUser().getId(), userProfileMap);
 
@@ -312,6 +327,7 @@ public class CommentService {
                 .userProfile(userProfileDto)
                 .isLiked(isLiked)
                 .isOwner(isOwner)
+                .replyInfo(replyInfo)
                 .build();
     }
 
@@ -336,5 +352,29 @@ public class CommentService {
         }
 
         return parentComment;
+    }
+
+    private Map<Long, ReplyInfo> fetchReplyInfoMap(List<Comment> parentComments) {
+        if (parentComments.isEmpty()) return Map.of();
+
+        List<Long> parentIds = parentComments.stream().map(Comment::getId).toList();
+
+        List<Object[]> rows = commentRepository.countRepliesByParentIds(parentIds);
+
+        Map<Long, Long> countMap = rows.stream()
+                .collect(Collectors.toMap(
+                        row -> (Long) row[0],
+                        row -> (Long) row[1]
+                ));
+        return parentIds.stream().collect(Collectors.toMap(
+                id -> id,
+                id -> {
+                    long cnt = countMap.getOrDefault(id, 0L);
+                    return ReplyInfo.builder()
+                            .replyCount(cnt)
+                            .hasReplies(cnt > 0)
+                            .build();
+                }
+        ));
     }
 }

@@ -17,7 +17,7 @@ import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequ
 
 @Service
 @RequiredArgsConstructor
-@Profile("prod")
+@Profile("!prod")
 public class S3StorageService implements StorageService {
 
     private static final long MAX_IMAGE_SIZE_BYTES = 10L * 1024 * 1024;

@@ -48,4 +48,21 @@ public interface CommentRepository extends JpaRepository<Comment, Long> {
      */
     @Query("SELECT c FROM Comment c WHERE c.feed.id = :feedId")
     List<Comment> findByFeedId(@Param("feedId") Long feedId);
+
+    @Query("""
+        SELECT COUNT(c)
+        FROM Comment c
+        WHERE c.parent.id = :parentId
+          AND c.deletedAt IS NULL
+    """)
+    long countRepliesByParentId(@Param("parentId") Long parentId);
+
+    @Query("""
+        SELECT c.parent.id, COUNT(c)
+        FROM Comment c
+        WHERE c.parent.id IN :parentIds
+          AND c.deletedAt IS NULL
+        GROUP BY c.parent.id
+    """)
+    List<Object[]> countRepliesByParentIds(@Param("parentIds") List<Long> parentIds);
 }

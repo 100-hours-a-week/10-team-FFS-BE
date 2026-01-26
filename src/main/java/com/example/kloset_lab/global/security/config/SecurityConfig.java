@@ -14,6 +14,11 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.util.List;
 
 @Configuration
 @EnableWebSecurity
@@ -28,6 +33,9 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
+                // CORS 설정
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+
                 // CSRF 비활성화 (JWT 사용 시 불필요)
                 .csrf(AbstractHttpConfigurer::disable)
 
@@ -49,9 +57,6 @@ public class SecurityConfig {
                         // presigend-url 발급
                         .requestMatchers("/api/v1/presigned-url")
                         .permitAll()
-                        // actuator
-                        .requestMatchers("/actuator/**")
-                        .permitAll()
                         // 그 외 API는 인증 필요
                         .anyRequest()
                         .authenticated())
@@ -65,5 +70,34 @@ public class SecurityConfig {
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
+    }
+
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration configuration = new CorsConfiguration();
+
+        // 허용할 origin 설정
+        configuration.setAllowedOrigins(List.of(
+                "http://localhost:3000",  // 개발 환경
+                "http://localhost:5173"   // Vite 기본 포트
+        ));
+
+        // 허용할 HTTP 메서드
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
+
+        // 허용할 헤더
+        configuration.setAllowedHeaders(List.of("*"));
+
+        // 인증 정보 포함 허용 (Authorization 헤더 등)
+        configuration.setAllowCredentials(true);
+
+        // preflight 요청 캐시 시간 (1시간)
+        configuration.setMaxAge(3600L);
+
+        // 모든 경로에 대해 위 설정 적용
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration);
+
+        return source;
     }
 }
