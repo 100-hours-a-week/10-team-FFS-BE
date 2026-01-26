@@ -49,6 +49,9 @@ public class SecurityConfig {
                         // presigend-url 발급
                         .requestMatchers("/api/v1/presigned-url")
                         .permitAll()
+                        // actuator
+                        .requestMatchers("/actuator/**")
+                        .permitAll()
                         // 그 외 API는 인증 필요
                         .anyRequest()
                         .authenticated())
