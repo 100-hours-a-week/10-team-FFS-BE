@@ -362,7 +362,9 @@ public class CommentService {
     }
 
     private Map<Long, ReplyInfo> fetchReplyInfoMap(List<Comment> parentComments) {
-        if (parentComments.isEmpty()) return Map.of();
+        if (parentComments.isEmpty()) {
+            return Map.of();
+        }
 
         List<Long> parentIds = parentComments.stream().map(Comment::getId).toList();
 
