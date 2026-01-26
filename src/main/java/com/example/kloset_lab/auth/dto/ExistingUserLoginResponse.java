@@ -14,5 +14,5 @@ import lombok.Builder;
  * 참고: Refresh Token은 Set-Cookie 헤더로 별도 전달됩니다.
  */
 @Builder
-public record ExistingUserLoginResponse(boolean isRegistered, String accessToken, String nickname)
+public record ExistingUserLoginResponse(boolean isRegistered, String accessToken, Long userId)
         implements KakaoLoginResponse {}

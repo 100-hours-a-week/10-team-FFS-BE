@@ -100,7 +100,7 @@ public class AuthService {
 
         log.info("기존 회원 카카오 로그인 완료 - userId: {}, nickname: {}", userId, nickname);
 
-        return createExistingUserLoginResult(accessToken, refreshToken, nickname);
+        return createExistingUserLoginResult(accessToken, refreshToken, userId);
     }
 
     /**
@@ -205,11 +205,11 @@ public class AuthService {
      * @param nickname 회원 닉네임
      * @return KakaoLoginResult
      */
-    private KakaoLoginResult createExistingUserLoginResult(String accessToken, String refreshToken, String nickname) {
+    private KakaoLoginResult createExistingUserLoginResult(String accessToken, String refreshToken, Long userId) {
         ExistingUserLoginResponse response = ExistingUserLoginResponse.builder()
                 .isRegistered(true)
                 .accessToken(accessToken)
-                .nickname(nickname)
+                .userId(userId)
                 .build();
         return new KakaoLoginResult(response, refreshToken);
     }
