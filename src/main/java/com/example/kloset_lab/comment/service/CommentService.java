@@ -160,7 +160,6 @@ public class CommentService {
             replyInfo = ReplyInfo.builder().hasReplies(cnt > 0).replyCount(cnt).build();
         }
 
-
         return buildCommentItem(comment, isLiked, replyInfo);
     }
 
@@ -264,7 +263,11 @@ public class CommentService {
      * 댓글 페이징 응답 생성
      */
     private CommentPagedResponse<CommentItem> buildCommentPagedResponse(
-            Long parentId, List<Comment> comments, boolean hasNext, Long currentUserId, Map<Long, ReplyInfo> replyInfoMap) {
+            Long parentId,
+            List<Comment> comments,
+            boolean hasNext,
+            Long currentUserId,
+            Map<Long, ReplyInfo> replyInfoMap) {
 
         List<Long> commentIds = comments.stream().map(Comment::getId).toList();
 
@@ -282,7 +285,7 @@ public class CommentService {
                     boolean isLiked = likedCommentIds.contains(comment.getId());
                     boolean isOwner = comment.getUser().getId().equals(currentUserId);
                     ReplyInfo replyInfo = (replyInfoMap != null) ? replyInfoMap.get(comment.getId()) : null;
-                    return buildCommentItemWithProfile(comment, userProfileMap, isLiked, isOwner,replyInfo);
+                    return buildCommentItemWithProfile(comment, userProfileMap, isLiked, isOwner, replyInfo);
                 })
                 .toList();
 
@@ -315,7 +318,11 @@ public class CommentService {
      * 댓글 아이템 생성 (목록 조회용, 프로필 맵 사용)
      */
     private CommentItem buildCommentItemWithProfile(
-            Comment comment, Map<Long, UserProfile> userProfileMap, boolean isLiked, boolean isOwner, ReplyInfo replyInfo) {
+            Comment comment,
+            Map<Long, UserProfile> userProfileMap,
+            boolean isLiked,
+            boolean isOwner,
+            ReplyInfo replyInfo) {
         UserProfileDto userProfileDto =
                 userService.buildUserProfileDto(comment.getUser().getId(), userProfileMap);
 
@@ -361,20 +368,10 @@ public class CommentService {
 
         List<Object[]> rows = commentRepository.countRepliesByParentIds(parentIds);
 
-        Map<Long, Long> countMap = rows.stream()
-                .collect(Collectors.toMap(
-                        row -> (Long) row[0],
-                        row -> (Long) row[1]
-                ));
-        return parentIds.stream().collect(Collectors.toMap(
-                id -> id,
-                id -> {
-                    long cnt = countMap.getOrDefault(id, 0L);
-                    return ReplyInfo.builder()
-                            .replyCount(cnt)
-                            .hasReplies(cnt > 0)
-                            .build();
-                }
-        ));
+        Map<Long, Long> countMap = rows.stream().collect(Collectors.toMap(row -> (Long) row[0], row -> (Long) row[1]));
+        return parentIds.stream().collect(Collectors.toMap(id -> id, id -> {
+            long cnt = countMap.getOrDefault(id, 0L);
+            return ReplyInfo.builder().replyCount(cnt).hasReplies(cnt > 0).build();
+        }));
     }
 }

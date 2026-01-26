@@ -4,6 +4,7 @@ import com.example.kloset_lab.auth.infrastructure.kakao.config.KakaoProperties;
 import com.example.kloset_lab.global.security.filter.JwtAuthenticationFilter;
 import com.example.kloset_lab.global.security.filter.exceptionHandler.CustomAccessDeniedHandler;
 import com.example.kloset_lab.global.security.filter.exceptionHandler.CustomAuthenticationEntryPoint;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -17,8 +18,6 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
-
-import java.util.List;
 
 @Configuration
 @EnableWebSecurity
@@ -78,9 +77,9 @@ public class SecurityConfig {
 
         // 허용할 origin 설정
         configuration.setAllowedOrigins(List.of(
-                "http://localhost:3000",  // 개발 환경
-                "http://localhost:5173"   // Vite 기본 포트
-        ));
+                "http://localhost:3000", // 개발 환경
+                "http://localhost:5173" // Vite 기본 포트
+                ));
 
         // 허용할 HTTP 메서드
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));

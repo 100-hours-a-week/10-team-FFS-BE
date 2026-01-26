@@ -1,9 +1,8 @@
 package com.example.kloset_lab.comment.dto;
 
 import com.example.kloset_lab.user.dto.UserProfileDto;
-import java.time.LocalDateTime;
-
 import com.fasterxml.jackson.annotation.JsonInclude;
+import java.time.LocalDateTime;
 import lombok.Builder;
 
 /**

@@ -49,7 +49,8 @@ public interface CommentRepository extends JpaRepository<Comment, Long> {
     @Query("SELECT c FROM Comment c WHERE c.feed.id = :feedId")
     List<Comment> findByFeedId(@Param("feedId") Long feedId);
 
-    @Query("""
+    @Query(
+            """
         SELECT COUNT(c)
         FROM Comment c
         WHERE c.parent.id = :parentId
@@ -57,7 +58,8 @@ public interface CommentRepository extends JpaRepository<Comment, Long> {
     """)
     long countRepliesByParentId(@Param("parentId") Long parentId);
 
-    @Query("""
+    @Query(
+            """
         SELECT c.parent.id, COUNT(c)
         FROM Comment c
         WHERE c.parent.id IN :parentIds
