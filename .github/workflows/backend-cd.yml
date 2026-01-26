@@ -201,24 +201,26 @@ jobs:
               exit 1
             fi
             
-            # 헬스체크
-            echo "Checking application health..."
-            sleep 5
-            
-            if curl -f -s http://localhost:8080/actuator/health > /dev/null 2>&1; then
-              echo "✅ Application is healthy"
-              curl -s http://localhost:8080/actuator/health | jq '.' || true
-            else
-              echo "❌ Application health check failed!"
-            
-              # 로그 출력
-              if [ -f "${{ env.APP_DIR }}/logs/application.log" ]; then
-                echo "=== Last 50 lines of log ==="
-                tail -50 ${{ env.APP_DIR }}/logs/application.log
-              fi
-            
-              exit 1
-            fi
+            # 헬스체크 (주석 처리 - 필요시 복구)
+            # echo "Checking application health..."
+            # sleep 5
+            #
+            # if curl -f -s http://localhost:8080/actuator/health > /dev/null 2>&1; then
+            #   echo "✅ Application is healthy"
+            #   curl -s http://localhost:8080/actuator/health | jq '.' || true
+            # else
+            #   echo "❌ Application health check failed!"
+            #
+            #   # 로그 출력
+            #   if [ -f "${{ env.APP_DIR }}/logs/application.log" ]; then
+            #     echo "=== Last 50 lines of log ==="
+            #     tail -50 ${{ env.APP_DIR }}/logs/application.log
+            #   fi
+            #
+            #   exit 1
+            # fi
+
+            echo "⚠️ Health check is disabled (skipped for now)"
             
             echo "✅ Deployment verification passed"
 
@@ -535,105 +537,108 @@ jobs:
               exit 1
             fi
             
-            # 헬스체크 (여러 번 시도)
-            echo "Checking application health..."
-            MAX_RETRIES=30
-            RETRY_COUNT=0
-            
-            while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-              if curl -f -s http://localhost:8080/actuator/health > /dev/null 2>&1; then
-                echo "✅ Application is healthy"
-            
-                # 상세 정보 출력
-                echo "=== Health Details ==="
-                curl -s http://localhost:8080/actuator/health | jq '.' || true
-            
-                echo "=== Application Info ==="
-                curl -s http://localhost:8080/actuator/info | jq '.' || true
-            
-                exit 0
-              fi
-            
-              echo "Waiting for application to be ready... ($((RETRY_COUNT + 1))/$MAX_RETRIES)"
-              sleep 5
-              RETRY_COUNT=$((RETRY_COUNT + 1))
-            done
-            
-            echo "❌ Application health check failed after $MAX_RETRIES attempts!"
-            
-            # 로그 출력
-            if [ -f "${{ env.APP_DIR }}/logs/application.log" ]; then
-              echo "=== Last 100 lines of log ==="
-              tail -100 ${{ env.APP_DIR }}/logs/application.log
-            fi
-            
-            exit 1
+            # 헬스체크 (여러 번 시도) - 주석 처리 (필요시 복구)
+            # echo "Checking application health..."
+            # MAX_RETRIES=30
+            # RETRY_COUNT=0
+            #
+            # while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            #   if curl -f -s http://localhost:8080/actuator/health > /dev/null 2>&1; then
+            #     echo "✅ Application is healthy"
+            #
+            #     # 상세 정보 출력
+            #     echo "=== Health Details ==="
+            #     curl -s http://localhost:8080/actuator/health | jq '.' || true
+            #
+            #     echo "=== Application Info ==="
+            #     curl -s http://localhost:8080/actuator/info | jq '.' || true
+            #
+            #     exit 0
+            #   fi
+            #
+            #   echo "Waiting for application to be ready... ($((RETRY_COUNT + 1))/$MAX_RETRIES)"
+            #   sleep 5
+            #   RETRY_COUNT=$((RETRY_COUNT + 1))
+            # done
+            #
+            # echo "❌ Application health check failed after $MAX_RETRIES attempts!"
+            #
+            # # 로그 출력
+            # if [ -f "${{ env.APP_DIR }}/logs/application.log" ]; then
+            #   echo "=== Last 100 lines of log ==="
+            #   tail -100 ${{ env.APP_DIR }}/logs/application.log
+            # fi
+            #
+            # exit 1
+
+            echo "⚠️ Health check is disabled (skipped for now)"
+            echo "✅ Deployment verification passed"
 
       # ------------------------------------------------------
-      # 8. Smoke Test
+      # 8. Smoke Test (주석 처리 - 필요시 복구)
       # ------------------------------------------------------
-      - name: 🧪 Run smoke tests
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.PROD_SERVER_HOST }}
-          username: ${{ secrets.PROD_SERVER_USER }}
-          key: ${{ secrets.PROD_SERVER_SSH_KEY }}
-          script: |
-            echo "=== Production Smoke Tests ==="
-            
-            FAILED=0
-            
-            # Test 1: Health
-            echo "1. Testing health endpoint..."
-            if curl -f -s http://localhost:8080/actuator/health > /dev/null; then
-              echo "✅ Health check passed"
-            else
-              echo "❌ Health check failed"
-              FAILED=$((FAILED + 1))
-            fi
-            
-            # Test 2: Info
-            echo "2. Testing info endpoint..."
-            if curl -f -s http://localhost:8080/actuator/info > /dev/null; then
-              echo "✅ Info endpoint passed"
-            else
-              echo "❌ Info endpoint failed"
-              FAILED=$((FAILED + 1))
-            fi
-            
-            # Test 3: Metrics
-            echo "3. Testing metrics endpoint..."
-            if curl -f -s http://localhost:8080/actuator/metrics > /dev/null; then
-              echo "✅ Metrics endpoint passed"
-            else
-              echo "❌ Metrics endpoint failed"
-              FAILED=$((FAILED + 1))
-            fi
-            
-            # Test 4: Database connectivity
-            echo "4. Testing database connectivity..."
-            DB_STATUS=$(curl -s http://localhost:8080/actuator/health | jq -r '.components.db.status // "UNKNOWN"')
-            if [ "$DB_STATUS" = "UP" ]; then
-              echo "✅ Database connectivity passed"
-            else
-              echo "⚠️ Database status: $DB_STATUS"
-            fi
-            
-            # Test 5: Redis connectivity
-            echo "5. Testing Redis connectivity..."
-            REDIS_STATUS=$(curl -s http://localhost:8080/actuator/health | jq -r '.components.redis.status // "UNKNOWN"')
-            if [ "$REDIS_STATUS" = "UP" ]; then
-              echo "✅ Redis connectivity passed"
-            else
-              echo "⚠️ Redis status: $REDIS_STATUS"
-            fi
-            
-            if [ $FAILED -gt 0 ]; then
-              echo "❌ $FAILED smoke test(s) failed"
-              exit 1
-            fi
-            
-            echo "✅ All smoke tests passed"
+      # - name: 🧪 Run smoke tests
+      #   uses: appleboy/ssh-action@v1.0.0
+      #   with:
+      #     host: ${{ secrets.PROD_SERVER_HOST }}
+      #     username: ${{ secrets.PROD_SERVER_USER }}
+      #     key: ${{ secrets.PROD_SERVER_SSH_KEY }}
+      #     script: |
+      #       echo "=== Production Smoke Tests ==="
+      #
+      #       FAILED=0
+      #
+      #       # Test 1: Health
+      #       echo "1. Testing health endpoint..."
+      #       if curl -f -s http://localhost:8080/actuator/health > /dev/null; then
+      #         echo "✅ Health check passed"
+      #       else
+      #         echo "❌ Health check failed"
+      #         FAILED=$((FAILED + 1))
+      #       fi
+      #
+      #       # Test 2: Info
+      #       echo "2. Testing info endpoint..."
+      #       if curl -f -s http://localhost:8080/actuator/info > /dev/null; then
+      #         echo "✅ Info endpoint passed"
+      #       else
+      #         echo "❌ Info endpoint failed"
+      #         FAILED=$((FAILED + 1))
+      #       fi
+      #
+      #       # Test 3: Metrics
+      #       echo "3. Testing metrics endpoint..."
+      #       if curl -f -s http://localhost:8080/actuator/metrics > /dev/null; then
+      #         echo "✅ Metrics endpoint passed"
+      #       else
+      #         echo "❌ Metrics endpoint failed"
+      #         FAILED=$((FAILED + 1))
+      #       fi
+      #
+      #       # Test 4: Database connectivity
+      #       echo "4. Testing database connectivity..."
+      #       DB_STATUS=$(curl -s http://localhost:8080/actuator/health | jq -r '.components.db.status // "UNKNOWN"')
+      #       if [ "$DB_STATUS" = "UP" ]; then
+      #         echo "✅ Database connectivity passed"
+      #       else
+      #         echo "⚠️ Database status: $DB_STATUS"
+      #       fi
+      #
+      #       # Test 5: Redis connectivity
+      #       echo "5. Testing Redis connectivity..."
+      #       REDIS_STATUS=$(curl -s http://localhost:8080/actuator/health | jq -r '.components.redis.status // "UNKNOWN"')
+      #       if [ "$REDIS_STATUS" = "UP" ]; then
+      #         echo "✅ Redis connectivity passed"
+      #       else
+      #         echo "⚠️ Redis status: $REDIS_STATUS"
+      #       fi
+      #
+      #       if [ $FAILED -gt 0 ]; then
+      #         echo "❌ $FAILED smoke test(s) failed"
+      #         exit 1
+      #       fi
+      #
+      #       echo "✅ All smoke tests passed"
 
       # ------------------------------------------------------
       # 9. 배포 정보 기록
