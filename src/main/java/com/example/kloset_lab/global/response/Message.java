@@ -2,8 +2,8 @@ package com.example.kloset_lab.global.response;
 
 public class Message {
     // Auth
-    public static final String REGISTER_SUCCEEDED = "register_succeeded";
-    public static final String TEMPORARY_REGISTER_SUCCEEDED = "temporary_register_succeeded";
+    public static final String LOGIN_SUCCEEDED = "login_succeeded";
+    public static final String REGISTRATION_REQUIRED = "registration_required";
     public static final String ACCESS_TOKEN_REFRESHED = "access_token_refreshed";
     public static final String LOGOUT_SUCCEEDED = "logout_succeeded";
 
