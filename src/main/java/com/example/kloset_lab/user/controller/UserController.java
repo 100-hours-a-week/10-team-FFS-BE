@@ -77,6 +77,20 @@ public class UserController {
     }
 
     /**
+     * 내 옷장 옷 개수 조회 API
+     * GET /api/v1/users/me/clothes/count
+     *
+     * @param userId 현재 로그인한 사용자 ID
+     * @return 옷 개수
+     */
+    @GetMapping("/me/clothes/count")
+    public ResponseEntity<ApiResponse<ClothesCountResponse>> getMyClothesCount(@AuthenticationPrincipal Long userId) {
+        long count = clothesService.getClothesCount(userId);
+        ClothesCountResponse response = new ClothesCountResponse(count);
+        return ApiResponses.ok(Message.CLOTHES_COUNT_RETRIEVED, response);
+    }
+
+    /**
      * 특정 유저 프로필 조회 API
      * GET /api/v1/users/{userId}
      *

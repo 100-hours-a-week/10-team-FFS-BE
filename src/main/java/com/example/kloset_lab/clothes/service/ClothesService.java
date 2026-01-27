@@ -117,6 +117,16 @@ public class ClothesService {
     }
 
     /**
+     * 사용자의 옷 개수 조회
+     *
+     * @param userId 사용자 ID
+     * @return 옷 개수
+     */
+    public long getClothesCount(Long userId) {
+        return clothesRepository.countByUserId(userId);
+    }
+
+    /**
      * 특정 유저의 옷 목록 조회 (카테고리 필터링 옵션)
      *
      * @param targetUserId 조회 대상 유저 ID

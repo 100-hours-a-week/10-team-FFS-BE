@@ -11,6 +11,14 @@ import org.springframework.data.repository.query.Param;
 public interface ClothesRepository extends JpaRepository<Clothes, Long> {
 
     /**
+     * 사용자의 옷 개수를 조회
+     *
+     * @param userId 사용자 ID
+     * @return 옷 개수
+     */
+    long countByUserId(Long userId);
+
+    /**
      * 사용자의 옷 목록을 커서 기반으로 조회
      *
      * @param userId 사용자 ID
