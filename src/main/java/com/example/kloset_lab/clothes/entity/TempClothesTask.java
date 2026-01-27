@@ -2,6 +2,7 @@ package com.example.kloset_lab.clothes.entity;
 
 import com.example.kloset_lab.global.ai.dto.TaskStatus;
 import com.example.kloset_lab.global.entity.BaseTimeEntity;
+import com.example.kloset_lab.media.entity.MediaFile;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -27,27 +28,32 @@ public class TempClothesTask extends BaseTimeEntity {
     @Column(name = "task_id", nullable = false, unique = true, length = 50)
     private String taskId;
 
-    @Column(name = "file_id")
-    private Long fileId;
-
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private TaskStatus status;
 
+    @Column(name = "file_id")
+    private Long fileId;
+
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "analysis", columnDefinition = "JSON")
-    private String analysis;
+    @Column(name = "major", columnDefinition = "JSON")
+    private String major;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "extra", columnDefinition = "JSON")
+    private String extra;
 
     @Builder
-    public TempClothesTask(String taskId, Long fileId, TaskStatus status) {
+    public TempClothesTask(String taskId, TaskStatus status) {
         this.taskId = taskId;
-        this.fileId = fileId;
         this.status = status;
     }
 
-    public void updateResult(TaskStatus status, String analysis) {
+    public void updateResult(TaskStatus status, Long fileId, String major, String extra) {
         this.status = status;
-        this.analysis = analysis;
+        this.fileId = fileId;
+        this.major = major;
+        this.extra = extra;
     }
 
     public void setBatch(TempClothesBatch tempClothesBatch) {
