@@ -4,6 +4,7 @@ import com.example.kloset_lab.clothes.dto.ClothesCreateRequest;
 import com.example.kloset_lab.clothes.dto.ClothesDetailResponse;
 import com.example.kloset_lab.clothes.dto.ClothesListItem;
 import com.example.kloset_lab.clothes.dto.ClothesUpdateRequest;
+import com.example.kloset_lab.clothes.entity.Category;
 import com.example.kloset_lab.clothes.entity.Clothes;
 import com.example.kloset_lab.clothes.repository.ClothesRepository;
 import com.example.kloset_lab.global.exception.CustomException;
@@ -115,8 +116,23 @@ public class ClothesService {
         clothes.softDelete();
     }
 
-    public PagedResponse<ClothesListItem> getClothes(Long targetUserId, Long after, int limit) {
-        Slice<Clothes> clothesSlice = clothesRepository.findByCursor(targetUserId, after, PageRequest.of(0, limit));
+    /**
+     * 특정 유저의 옷 목록 조회 (카테고리 필터링 옵션)
+     *
+     * @param targetUserId 조회 대상 유저 ID
+     * @param category 카테고리 (null이면 전체 조회)
+     * @param after 커서 (마지막 옷 ID)
+     * @param limit 조회 개수
+     * @return 옷 목록
+     */
+    public PagedResponse<ClothesListItem> getClothes(Long targetUserId, Category category, Long after, int limit) {
+        Slice<Clothes> clothesSlice;
+        if (category == null) {
+            clothesSlice = clothesRepository.findByCursor(targetUserId, after, PageRequest.of(0, limit));
+        } else {
+            clothesSlice =
+                    clothesRepository.findByCursorAndCategory(targetUserId, category, after, PageRequest.of(0, limit));
+        }
         List<Clothes> clothes = clothesSlice.getContent();
 
         List<ClothesListItem> items = new ArrayList<>();

@@ -19,5 +19,8 @@ public final class PaginationDefaults {
     /** 대댓글 목록 조회 기본 개수 */
     public static final String REPLY_LIST = "20";
 
+    /** 옷 목록 조회 기본 개수 */
+    public static final String CLOTHES_LIST = "36";
+
     private PaginationDefaults() {}
 }

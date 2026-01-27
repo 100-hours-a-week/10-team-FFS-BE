@@ -1,7 +1,11 @@
 package com.example.kloset_lab.user.controller;
 
+import static com.example.kloset_lab.global.constants.PaginationDefaults.CLOTHES_LIST;
 import static com.example.kloset_lab.global.constants.PaginationDefaults.FEED_LIST;
 
+import com.example.kloset_lab.clothes.dto.ClothesListItem;
+import com.example.kloset_lab.clothes.entity.Category;
+import com.example.kloset_lab.clothes.service.ClothesService;
 import com.example.kloset_lab.feed.dto.FeedListItem;
 import com.example.kloset_lab.feed.service.FeedService;
 import com.example.kloset_lab.global.response.ApiResponse;
@@ -23,6 +27,7 @@ public class UserController {
 
     private final UserService userService;
     private final FeedService feedService;
+    private final ClothesService clothesService;
 
     /**
      * 회원가입 후 추가 정보 저장 API
@@ -104,5 +109,25 @@ public class UserController {
 
         PagedResponse<FeedListItem> response = feedService.getFeedsByUserId(currentUserId, userId, after, limit);
         return ApiResponses.ok(Message.USER_FEEDS_RETRIEVED, response);
+    }
+
+    /**
+     * 특정 유저의 옷장 조회 API
+     *
+     * @param userId 조회 대상 사용자 ID
+     * @param after 커서 (이전 페이지 마지막 옷 ID)
+     * @param limit 조회 개수
+     * @param category 카테고리 필터 (옵션)
+     * @return 옷 목록 및 페이지 정보
+     */
+    @GetMapping("/{userId}/clothes")
+    public ResponseEntity<ApiResponse<PagedResponse<ClothesListItem>>> getUserClothes(
+            @PathVariable Long userId,
+            @RequestParam(required = false) Long after,
+            @RequestParam(defaultValue = CLOTHES_LIST) int limit,
+            @RequestParam(required = false) Category category) {
+
+        PagedResponse<ClothesListItem> response = clothesService.getClothes(userId, category, after, limit);
+        return ApiResponses.ok(Message.CLOTHES_LIST_RETRIEVED, response);
     }
 }
