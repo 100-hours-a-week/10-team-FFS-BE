@@ -206,7 +206,7 @@ jobs:
             
             # 헬스체크 (여러 번 시도)
             echo "Checking application health..."
-            MAX_RETRIES=30
+            MAX_RETRIES=10
             RETRY_COUNT=0
             
             while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
@@ -539,7 +539,7 @@ jobs:
             
             # 헬스체크 (여러 번 시도)
             echo "Checking application health..."
-            MAX_RETRIES=30
+            MAX_RETRIES=10
             RETRY_COUNT=0
             
             while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do

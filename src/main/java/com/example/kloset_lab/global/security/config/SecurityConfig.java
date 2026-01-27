@@ -47,6 +47,9 @@ public class SecurityConfig {
 
                 // 엔드포인트 권한 설정
                 .authorizeHttpRequests(auth -> auth
+                        // health check 허용
+                        .requestMatchers("/actuator/**")
+                        .permitAll()
                         // 인증 관련 API는 모두 허용
                         .requestMatchers("/api/v1/auth/**")
                         .permitAll()
