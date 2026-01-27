@@ -14,6 +14,10 @@ public class Message {
     public static final String USER_CREATED = "user_created";
     public static final String NICKNAME_CHECKED_UNIQUE = "nickname_checked_unique";
     public static final String NICKNAME_CHECKED_DUPLICATE = "nickname_checked_duplicate";
+    public static final String BIRTH_DATE_VALID = "birth_date_valid";
+    public static final String BIRTH_DATE_INVALID_FORMAT = "birth_date_invalid_format";
+    public static final String BIRTH_DATE_FUTURE = "birth_date_future";
+    public static final String BIRTH_DATE_TOO_OLD = "birth_date_too_old";
     public static final String PROFILE_IMAGE_UPDATED = "profile_image_updated";
     public static final String PROFILE_IMAGE_DELETED = "profile_image_deleted";
     public static final String NICKNAME_UPDATED = "nickname_updated";

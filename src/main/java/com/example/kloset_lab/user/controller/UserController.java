@@ -56,6 +56,22 @@ public class UserController {
     }
 
     /**
+     * 생년월일 유효성 검사 API
+     * GET /api/v1/users/validation/birth-date?birthDate={birthDate}
+     *
+     * @param request 생년월일 검사 요청 (yyyy-MM-dd 형식)
+     * @return 유효 여부
+     */
+    @GetMapping("/validation/birth-date")
+    public ResponseEntity<ApiResponse<BirthDateValidationResponse>> validateBirthDate(
+            @Valid BirthDateValidationRequest request) {
+        BirthDateValidationResult result = userService.validateBirthDate(request.birthDate());
+        BirthDateValidationResponse response = new BirthDateValidationResponse(result.isValid());
+
+        return ApiResponses.ok(result.message(), response);
+    }
+
+    /**
      * 특정 유저 프로필 조회 API
      * GET /api/v1/users/{userId}
      *

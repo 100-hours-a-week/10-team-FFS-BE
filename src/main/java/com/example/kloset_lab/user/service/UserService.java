@@ -7,10 +7,7 @@ import com.example.kloset_lab.media.entity.MediaFile;
 import com.example.kloset_lab.media.entity.Purpose;
 import com.example.kloset_lab.media.repository.MediaFileRepository;
 import com.example.kloset_lab.media.service.MediaService;
-import com.example.kloset_lab.user.dto.NicknameValidationResult;
-import com.example.kloset_lab.user.dto.UserProfileDto;
-import com.example.kloset_lab.user.dto.UserProfileInfoResponse;
-import com.example.kloset_lab.user.dto.UserRegisterRequest;
+import com.example.kloset_lab.user.dto.*;
 import com.example.kloset_lab.user.entity.User;
 import com.example.kloset_lab.user.entity.UserProfile;
 import com.example.kloset_lab.user.repository.UserProfileRepository;
@@ -30,7 +27,7 @@ public class UserService {
     private final UserRepository userRepository;
     private final UserProfileRepository userProfileRepository;
     private final MediaFileRepository mediaFileRepository;
-    private final NicknameValidationService nicknameValidationService;
+    private final UserProfileValidationService userProfileValidationService;
     private final MediaService mediaService;
 
     /**
@@ -47,7 +44,7 @@ public class UserService {
             throw new CustomException(ErrorCode.NOT_PENDING_STATE);
         }
 
-        if (!nicknameValidationService.isNicknameAvailable(request.nickname())) {
+        if (!userProfileValidationService.isNicknameAvailable(request.nickname())) {
             throw new CustomException(ErrorCode.EXISTING_NICKNAME);
         }
 
@@ -65,6 +62,16 @@ public class UserService {
 
         user.completeRegistration();
         userProfileRepository.save(userProfile);
+    }
+
+    /**
+     * 생년월일 유효성 검사
+     *
+     * @param birthDateString 검사할 생년월일 문자열 (yyyy-MM-dd)
+     * @return 유효 여부와 메시지를 담은 결과 객체
+     */
+    public BirthDateValidationResult validateBirthDate(String birthDateString) {
+        return userProfileValidationService.validateBirthDate(birthDateString);
     }
 
     /**
@@ -103,7 +110,7 @@ public class UserService {
      * @return 사용 가능 여부와 메시지를 담은 결과 객체
      */
     public NicknameValidationResult validateNicknameWithMessage(String nickname) {
-        boolean isAvailable = nicknameValidationService.isNicknameAvailable(nickname);
+        boolean isAvailable = userProfileValidationService.isNicknameAvailable(nickname);
         String message = isAvailable ? Message.NICKNAME_CHECKED_UNIQUE : Message.NICKNAME_CHECKED_DUPLICATE;
         return new NicknameValidationResult(isAvailable, message);
     }
