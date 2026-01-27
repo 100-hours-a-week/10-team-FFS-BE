@@ -30,7 +30,7 @@ jobs:
   deploy-dev:
     name: Deploy to Development
     if: |
-      github.event.workflow_run.conclusion == 'success' && 
+      github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_branch == 'dev'
     runs-on: ubuntu-latest
     environment:
@@ -77,7 +77,6 @@ jobs:
           # JAR 파일 검증
           JAR_FILE=$(ls *.jar | head -1)
           JAR_SIZE=$(stat -f%z "$JAR_FILE" 2>/dev/null || stat -c%s "$JAR_FILE")
-          
           echo "JAR File: $JAR_FILE"
           echo "JAR Size: $JAR_SIZE bytes"
           
@@ -104,7 +103,6 @@ jobs:
             # 디스크 공간 확인
             echo "📊 Disk Usage:"
             df -h ${{ env.APP_DIR }}
-            
             DISK_USAGE=$(df ${{ env.APP_DIR }} | tail -1 | awk '{print $5}' | sed 's/%//')
             if [ "$DISK_USAGE" -gt 90 ]; then
               echo "::warning::Disk usage is high: ${DISK_USAGE}%"
@@ -124,7 +122,7 @@ jobs:
               echo "⚠️ Application is not running"
             fi
             
-            # 디렉토리 준
+            # 디렉토리 준비
             mkdir -p ${{ env.APP_DIR }}
             mkdir -p ${{ env.BACKUP_DIR }}
             mkdir -p /tmp/backend-deploy
@@ -201,26 +199,24 @@ jobs:
               exit 1
             fi
             
-            # 헬스체크 (주석 처리 - 필요시 복구)
-            # echo "Checking application health..."
-            # sleep 5
-            #
-            # if curl -f -s http://localhost:8080/actuator/health > /dev/null 2>&1; then
-            #   echo "✅ Application is healthy"
-            #   curl -s http://localhost:8080/actuator/health | jq '.' || true
-            # else
-            #   echo "❌ Application health check failed!"
-            #
-            #   # 로그 출력
-            #   if [ -f "${{ env.APP_DIR }}/logs/application.log" ]; then
-            #     echo "=== Last 50 lines of log ==="
-            #     tail -50 ${{ env.APP_DIR }}/logs/application.log
-            #   fi
-            #
-            #   exit 1
-            # fi
-
-            echo "⚠️ Health check is disabled (skipped for now)"
+            # 헬스체크
+            echo "Checking application health..."
+            sleep 5
+            
+            if curl -f -s http://localhost:8080/actuator/health > /dev/null 2>&1; then
+              echo "✅ Application is healthy"
+              curl -s http://localhost:8080/actuator/health | jq '.' || true
+            else
+              echo "❌ Application health check failed!"
+            
+              # 로그 출력
+              if [ -f "${{ env.APP_DIR }}/logs/application.log" ]; then
+                echo "=== Last 50 lines of log ==="
+                tail -50 ${{ env.APP_DIR }}/logs/application.log
+              fi
+            
+              exit 1
+            fi
             
             echo "✅ Deployment verification passed"
 
@@ -240,13 +236,11 @@ jobs:
             cat > deployment-info.json <<EOF
             {
               "environment": "development",
-              "deployedAt": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
-              "commitSha": "${{ github.event.workflow_run.head_sha }}",
-              "commitShort": "$(echo ${{ github.event.workflow_run.head_sha }} | cut -c1-7)",
+              "deployed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+              "commit_sha": "${{ github.event.workflow_run.head_sha }}",
               "branch": "${{ github.event.workflow_run.head_branch }}",
-              "deployedBy": "${{ github.event.workflow_run.head_commit.author.name }}",
-              "workflowRunId": "${{ github.run_id }}",
-              "workflowRunNumber": "${{ github.run_number }}"
+              "deployer": "${{ github.event.workflow_run.head_commit.author.name }}",
+              "workflow_run_id": "${{ github.run_id }}"
             }
             EOF
             
@@ -265,12 +259,12 @@ jobs:
           avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
           embed-title: "✅ Backend Dev 배포 성공"
           embed-description: |
-            **환경:** Development
+            **환경:** Development 🟢
             **브랜치:** `${{ github.event.workflow_run.head_branch }}`
             **커밋:** `${{ github.event.workflow_run.head_sha }}`
             **배포자:** ${{ github.event.workflow_run.head_commit.author.name }}
             
-            🎉 배포가 성공적으로 완료되었습니다!
+            배포가 성공적으로 완료되었습니다!
             
             [📋 CD 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           embed-color: 3066993
@@ -289,12 +283,12 @@ jobs:
           avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
           embed-title: "❌ Backend Dev 배포 실패"
           embed-description: |
-            **환경:** Development
+            **환경:** Development 🟢
             **브랜치:** `${{ github.event.workflow_run.head_branch }}`
             **커밋:** `${{ github.event.workflow_run.head_sha }}`
             **배포자:** ${{ github.event.workflow_run.head_commit.author.name }}
             
-            ⚠️ 배포 중 문제가 발생했습니다.
+            배포 중 오류가 발생했습니다. 로그를 확인해주세요.
             
             [📋 CD 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           embed-color: 15158332
@@ -307,17 +301,16 @@ jobs:
   deploy-prod:
     name: Deploy to Production
     if: |
-      github.event.workflow_run.conclusion == 'success' && 
+      github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
     environment:
       name: production
-      url: https://your-domain.com
     timeout-minutes: 20
 
     steps:
       # ------------------------------------------------------
-      # 1. 빌드 메타데이터 다운로드 및 검증
+      # 1. 빌드 메타데이터 다운로드
       # ------------------------------------------------------
       - name: 📥 Download build metadata
         uses: actions/download-artifact@v4
@@ -362,7 +355,6 @@ jobs:
           # JAR 파일 검증
           JAR_FILE=$(ls *.jar | head -1)
           JAR_SIZE=$(stat -f%z "$JAR_FILE" 2>/dev/null || stat -c%s "$JAR_FILE")
-          
           echo "JAR File: $JAR_FILE"
           echo "JAR Size: $JAR_SIZE bytes"
           
@@ -393,7 +385,6 @@ jobs:
             # 디스크 공간 확인
             echo "📊 Disk Usage:"
             df -h ${{ env.APP_DIR }}
-            
             DISK_USAGE=$(df ${{ env.APP_DIR }} | tail -1 | awk '{print $5}' | sed 's/%//')
             if [ "$DISK_USAGE" -gt 85 ]; then
               echo "ERROR: Disk usage is critically high: ${DISK_USAGE}%"
@@ -448,7 +439,6 @@ jobs:
               # 백업 파일 정보
               BACKUP_SIZE=$(stat -c%s ${{ env.BACKUP_DIR }}/app_prod_$TIMESTAMP.jar)
               BACKUP_SHA256=$(sha256sum ${{ env.BACKUP_DIR }}/app_prod_$TIMESTAMP.jar | cut -d' ' -f1)
-            
               echo "Backup size: $BACKUP_SIZE bytes"
               echo "Backup SHA256: $BACKUP_SHA256"
             
@@ -537,108 +527,105 @@ jobs:
               exit 1
             fi
             
-            # 헬스체크 (여러 번 시도) - 주석 처리 (필요시 복구)
-            # echo "Checking application health..."
-            # MAX_RETRIES=30
-            # RETRY_COUNT=0
-            #
-            # while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            #   if curl -f -s http://localhost:8080/actuator/health > /dev/null 2>&1; then
-            #     echo "✅ Application is healthy"
-            #
-            #     # 상세 정보 출력
-            #     echo "=== Health Details ==="
-            #     curl -s http://localhost:8080/actuator/health | jq '.' || true
-            #
-            #     echo "=== Application Info ==="
-            #     curl -s http://localhost:8080/actuator/info | jq '.' || true
-            #
-            #     exit 0
-            #   fi
-            #
-            #   echo "Waiting for application to be ready... ($((RETRY_COUNT + 1))/$MAX_RETRIES)"
-            #   sleep 5
-            #   RETRY_COUNT=$((RETRY_COUNT + 1))
-            # done
-            #
-            # echo "❌ Application health check failed after $MAX_RETRIES attempts!"
-            #
-            # # 로그 출력
-            # if [ -f "${{ env.APP_DIR }}/logs/application.log" ]; then
-            #   echo "=== Last 100 lines of log ==="
-            #   tail -100 ${{ env.APP_DIR }}/logs/application.log
-            # fi
-            #
-            # exit 1
-
-            echo "⚠️ Health check is disabled (skipped for now)"
-            echo "✅ Deployment verification passed"
+            # 헬스체크 (여러 번 시도)
+            echo "Checking application health..."
+            MAX_RETRIES=30
+            RETRY_COUNT=0
+            
+            while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+              if curl -f -s http://localhost:8080/actuator/health > /dev/null 2>&1; then
+                echo "✅ Application is healthy"
+            
+                # 상세 정보 출력
+                echo "=== Health Details ==="
+                curl -s http://localhost:8080/actuator/health | jq '.' || true
+            
+                echo "=== Application Info ==="
+                curl -s http://localhost:8080/actuator/info | jq '.' || true
+            
+                exit 0
+              fi
+            
+              echo "Waiting for application to be ready... ($((RETRY_COUNT + 1))/$MAX_RETRIES)"
+              sleep 5
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+            done
+            
+            echo "❌ Application health check failed after $MAX_RETRIES attempts!"
+            
+            # 로그 출력
+            if [ -f "${{ env.APP_DIR }}/logs/application.log" ]; then
+              echo "=== Last 100 lines of log ==="
+              tail -100 ${{ env.APP_DIR }}/logs/application.log
+            fi
+            
+            exit 1
 
       # ------------------------------------------------------
-      # 8. Smoke Test (주석 처리 - 필요시 복구)
+      # 8. Smoke Test
       # ------------------------------------------------------
-      # - name: 🧪 Run smoke tests
-      #   uses: appleboy/ssh-action@v1.0.0
-      #   with:
-      #     host: ${{ secrets.PROD_SERVER_HOST }}
-      #     username: ${{ secrets.PROD_SERVER_USER }}
-      #     key: ${{ secrets.PROD_SERVER_SSH_KEY }}
-      #     script: |
-      #       echo "=== Production Smoke Tests ==="
-      #
-      #       FAILED=0
-      #
-      #       # Test 1: Health
-      #       echo "1. Testing health endpoint..."
-      #       if curl -f -s http://localhost:8080/actuator/health > /dev/null; then
-      #         echo "✅ Health check passed"
-      #       else
-      #         echo "❌ Health check failed"
-      #         FAILED=$((FAILED + 1))
-      #       fi
-      #
-      #       # Test 2: Info
-      #       echo "2. Testing info endpoint..."
-      #       if curl -f -s http://localhost:8080/actuator/info > /dev/null; then
-      #         echo "✅ Info endpoint passed"
-      #       else
-      #         echo "❌ Info endpoint failed"
-      #         FAILED=$((FAILED + 1))
-      #       fi
-      #
-      #       # Test 3: Metrics
-      #       echo "3. Testing metrics endpoint..."
-      #       if curl -f -s http://localhost:8080/actuator/metrics > /dev/null; then
-      #         echo "✅ Metrics endpoint passed"
-      #       else
-      #         echo "❌ Metrics endpoint failed"
-      #         FAILED=$((FAILED + 1))
-      #       fi
-      #
-      #       # Test 4: Database connectivity
-      #       echo "4. Testing database connectivity..."
-      #       DB_STATUS=$(curl -s http://localhost:8080/actuator/health | jq -r '.components.db.status // "UNKNOWN"')
-      #       if [ "$DB_STATUS" = "UP" ]; then
-      #         echo "✅ Database connectivity passed"
-      #       else
-      #         echo "⚠️ Database status: $DB_STATUS"
-      #       fi
-      #
-      #       # Test 5: Redis connectivity
-      #       echo "5. Testing Redis connectivity..."
-      #       REDIS_STATUS=$(curl -s http://localhost:8080/actuator/health | jq -r '.components.redis.status // "UNKNOWN"')
-      #       if [ "$REDIS_STATUS" = "UP" ]; then
-      #         echo "✅ Redis connectivity passed"
-      #       else
-      #         echo "⚠️ Redis status: $REDIS_STATUS"
-      #       fi
-      #
-      #       if [ $FAILED -gt 0 ]; then
-      #         echo "❌ $FAILED smoke test(s) failed"
-      #         exit 1
-      #       fi
-      #
-      #       echo "✅ All smoke tests passed"
+      - name: 🧪 Run smoke tests
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.PROD_SERVER_HOST }}
+          username: ${{ secrets.PROD_SERVER_USER }}
+          key: ${{ secrets.PROD_SERVER_SSH_KEY }}
+          script: |
+            echo "=== Production Smoke Tests ==="
+            
+            FAILED=0
+            
+            # Test 1: Health
+            echo "1. Testing health endpoint..."
+            if curl -f -s http://localhost:8080/actuator/health > /dev/null; then
+              echo "✅ Health check passed"
+            else
+              echo "❌ Health check failed"
+              FAILED=$((FAILED + 1))
+            fi
+            
+            # Test 2: Info
+            echo "2. Testing info endpoint..."
+            if curl -f -s http://localhost:8080/actuator/info > /dev/null; then
+              echo "✅ Info endpoint passed"
+            else
+              echo "❌ Info endpoint failed"
+              FAILED=$((FAILED + 1))
+            fi
+            
+            # Test 3: Metrics
+            echo "3. Testing metrics endpoint..."
+            if curl -f -s http://localhost:8080/actuator/metrics > /dev/null; then
+              echo "✅ Metrics endpoint passed"
+            else
+              echo "❌ Metrics endpoint failed"
+              FAILED=$((FAILED + 1))
+            fi
+            
+            # Test 4: Database connectivity
+            echo "4. Testing database connectivity..."
+            DB_STATUS=$(curl -s http://localhost:8080/actuator/health | jq -r '.components.db.status // "UNKNOWN"')
+            if [ "$DB_STATUS" = "UP" ]; then
+              echo "✅ Database connectivity passed"
+            else
+              echo "⚠️ Database status: $DB_STATUS"
+            fi
+            
+            # Test 5: Redis connectivity
+            echo "5. Testing Redis connectivity..."
+            REDIS_STATUS=$(curl -s http://localhost:8080/actuator/health | jq -r '.components.redis.status // "UNKNOWN"')
+            if [ "$REDIS_STATUS" = "UP" ]; then
+              echo "✅ Redis connectivity passed"
+            else
+              echo "⚠️ Redis status: $REDIS_STATUS"
+            fi
+            
+            if [ $FAILED -gt 0 ]; then
+              echo "❌ $FAILED smoke test(s) failed"
+              exit 1
+            fi
+            
+            echo "✅ All smoke tests passed"
 
       # ------------------------------------------------------
       # 9. 배포 정보 기록
@@ -652,20 +639,17 @@ jobs:
           key: ${{ secrets.PROD_SERVER_SSH_KEY }}
           script: |
             cd ${{ env.APP_DIR }}
-            
             JAR_SHA256=$(sha256sum app.jar | cut -d' ' -f1)
             
             cat > deployment-info.json <<EOF
             {
               "environment": "production",
-              "deployedAt": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
-              "commitSha": "${{ github.event.workflow_run.head_sha }}",
-              "commitShort": "$(echo ${{ github.event.workflow_run.head_sha }} | cut -c1-7)",
+              "deployed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+              "commit_sha": "${{ github.event.workflow_run.head_sha }}",
               "branch": "${{ github.event.workflow_run.head_branch }}",
-              "deployedBy": "${{ github.event.workflow_run.head_commit.author.name }}",
-              "workflowRunId": "${{ github.run_id }}",
-              "workflowRunNumber": "${{ github.run_number }}",
-              "jarSha256": "$JAR_SHA256"
+              "deployer": "${{ github.event.workflow_run.head_commit.author.name }}",
+              "workflow_run_id": "${{ github.run_id }}",
+              "jar_sha256": "$JAR_SHA256"
             }
             EOF
             
@@ -673,28 +657,26 @@ jobs:
             cat deployment-info.json
 
       # ------------------------------------------------------
-      # 10. 롤백 처리 (실패 시)
+      # 10. 롤백 스크립트 (실패 시)
       # ------------------------------------------------------
-      - name: 🔄 Rollback on failure
-        if: failure()
+      - name: ⚠️ Rollback on failure
+        if: failure() && steps.deploy.outcome == 'failure'
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ secrets.PROD_SERVER_HOST }}
           username: ${{ secrets.PROD_SERVER_USER }}
           key: ${{ secrets.PROD_SERVER_SSH_KEY }}
           script: |
-            echo "=== Starting Rollback ==="
             cd ${{ env.APP_DIR }}
             
+            echo "=== Rolling back to previous version ==="
+            
             if [ -f "./rollback.sh" ]; then
-              echo "🔄 Executing rollback script..."
               chmod +x ./rollback.sh
               bash ./rollback.sh
             
               # 롤백 후 헬스체크
-              echo "Waiting for rollback to complete..."
-              sleep 10
-            
+              sleep 5
               if curl -f -s http://localhost:8080/actuator/health > /dev/null 2>&1; then
                 echo "✅ Rollback successful, application is healthy"
               else
