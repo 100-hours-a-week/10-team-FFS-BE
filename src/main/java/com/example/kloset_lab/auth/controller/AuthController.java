@@ -9,6 +9,7 @@ import com.example.kloset_lab.auth.service.AuthService.TokenRefreshResult;
 import com.example.kloset_lab.global.exception.InvalidTokenException;
 import com.example.kloset_lab.global.response.ApiResponse;
 import com.example.kloset_lab.global.response.ApiResponses;
+import com.example.kloset_lab.global.response.Message;
 import com.example.kloset_lab.global.util.CookieUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -69,7 +70,7 @@ public class AuthController {
         // 새 리프레시 토큰을 쿠키에 설정
         CookieUtil.addRefreshTokenCookie(response, result.newRefreshToken());
 
-        return ApiResponses.ok("accessToken_refreshed", result.response());
+        return ApiResponses.ok(Message.ACCESS_TOKEN_REFRESHED, result.response());
     }
 
     /**
@@ -85,6 +86,6 @@ public class AuthController {
         // 리프레시 토큰 쿠키 만료 처리
         CookieUtil.expireRefreshTokenCookie(response);
 
-        return ApiResponses.ok("logout_success");
+        return ApiResponses.ok(Message.LOGOUT_SUCCEEDED);
     }
 }

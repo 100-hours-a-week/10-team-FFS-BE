@@ -1,5 +1,7 @@
 package com.example.kloset_lab.auth.dto;
 
+import com.example.kloset_lab.global.response.Message;
+
 /**
  * 카카오 로그인 응답의 공통 인터페이스
  *
@@ -15,9 +17,9 @@ public sealed interface KakaoLoginResponse permits ExistingUserLoginResponse, Ne
     /**
      * API 응답 메시지 반환
      *
-     * @return 기존 회원이면 "login_success", 신규 회원이면 "registration_required"
+     * @return 기존 회원이면 "login_succeeded", 신규 회원이면 "registration_required"
      */
     default String resultMessage() {
-        return isRegistered() ? "login_success" : "registration_required";
+        return isRegistered() ? Message.LOGIN_SUCCEEDED : Message.REGISTRATION_REQUIRED;
     }
 }
