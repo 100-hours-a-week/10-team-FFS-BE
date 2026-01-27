@@ -54,7 +54,7 @@ public class TempClothesBatch extends BaseTimeEntity {
         this.status = status;
         this.total = total;
         this.completed = 0;
-        this.processing = 0;
+        this.processing = total;
         this.isFinished = false;
     }
 

@@ -57,12 +57,12 @@ public class Clothes extends BaseEntity {
     private List<String> colors = new ArrayList<>();
 
     @ElementCollection(fetch = FetchType.EAGER)
-    @CollectionTable(name = "clothes_material", joinColumns = @JoinColumn(name = "clothes_id"))
+    @CollectionTable(name = "material_mapping", joinColumns = @JoinColumn(name = "clothes_id"))
     @Column(name = "material", length = 30)
     private List<String> materials = new ArrayList<>();
 
     @ElementCollection(fetch = FetchType.EAGER)
-    @CollectionTable(name = "clothes_style_tag", joinColumns = @JoinColumn(name = "clothes_id"))
+    @CollectionTable(name = "style_tag_mapping", joinColumns = @JoinColumn(name = "clothes_id"))
     @Column(name = "style_tag", length = 20)
     private List<String> styleTags = new ArrayList<>();
 

@@ -7,6 +7,8 @@ import com.example.kloset_lab.clothes.entity.TempClothesTask;
 import com.example.kloset_lab.clothes.repository.TempClothesBatchRepository;
 import com.example.kloset_lab.global.ai.client.AIClient;
 import com.example.kloset_lab.global.ai.dto.BatchResponse;
+import com.example.kloset_lab.global.ai.dto.MajorFeature;
+import com.example.kloset_lab.global.ai.dto.Meta;
 import com.example.kloset_lab.global.ai.dto.ValidateResponse;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
@@ -60,16 +62,19 @@ public class ClothesAnalysisService {
                 .build();
     }
 
+    @Transactional
     public ClothesPollingResponse getAnalysisResult(Long currentUserId, String batchId) {
-        // 최신 상태 업데이트
-        BatchResponse batchResponse = aiClient.getBatchStatus(batchId);
-
         TempClothesBatch batch = tempClothesBatchRepository
                 .findByBatchId(batchId)
                 .orElseThrow(() -> new CustomException(ErrorCode.CLOTHES_ANALYSIS_RESULT_NOT_FOUND));
 
         if (!batch.isOwner(currentUserId)) {
             throw new CustomException(ErrorCode.CLOTHES_ANALYSIS_RESULT_DENIED);
+        }
+
+        if (!batch.isFinished()) {
+            BatchResponse batchResponse = aiClient.getBatchStatus(batchId);
+            updateBatchAndTasks(batch, batchResponse);
         }
 
         return toPollingResponse(batch);
@@ -87,7 +92,6 @@ public class ClothesAnalysisService {
             for (BatchResponse.TaskResult result : batchResponse.results()) {
                 TempClothesTask task = TempClothesTask.builder()
                         .taskId(result.taskId())
-                        .fileId(result.fileId())
                         .status(result.status())
                         .build();
                 batch.addTask(task);
@@ -97,6 +101,27 @@ public class ClothesAnalysisService {
         tempClothesBatchRepository.save(batch);
     }
 
+    private void updateBatchAndTasks(TempClothesBatch batch, BatchResponse batchResponse) {
+        batch.updateMeta(
+                batchResponse.status(),
+                batchResponse.meta().completed(),
+                batchResponse.meta().processing(),
+                batchResponse.meta().isFinished());
+
+        if (batchResponse.results() == null) {
+            return;
+        }
+
+        for (BatchResponse.TaskResult result : batchResponse.results()) {
+            batch.getTasks().stream()
+                    .filter(task -> task.getTaskId().equals(result.taskId()))
+                    .findFirst()
+                    .ifPresent(task -> {
+                        task.updateResult(result.status(), result.fileId(), result.major(), result.extra());
+                    });
+        }
+    }
+
     private ClothesPollingResponse toPollingResponse(TempClothesBatch batch) {
         List<ClothesPollingResponse.TaskResult> results =
                 batch.getTasks().stream().map(this::toTaskResult).toList();
@@ -104,7 +129,7 @@ public class ClothesAnalysisService {
         return ClothesPollingResponse.builder()
                 .batchId(batch.getBatchId())
                 .status(batch.getStatus())
-                .meta(ClothesPollingResponse.Meta.builder()
+                .meta(Meta.builder()
                         .total(batch.getTotal())
                         .completed(batch.getCompleted())
                         .processing(batch.getProcessing())
@@ -117,27 +142,25 @@ public class ClothesAnalysisService {
     private ClothesPollingResponse.TaskResult toTaskResult(TempClothesTask task) {
         String imageUrl = task.getFileId() != null ? mediaService.getFileFullUrl(task.getFileId()) : null;
 
-        ClothesPollingResponse.Analysis analysis = parseAnalysis(task.getAnalysis());
+        MajorFeature major = parseMajorFeature(task.getMajor());
 
         return ClothesPollingResponse.TaskResult.builder()
                 .taskId(task.getTaskId())
                 .status(task.getStatus())
+                .fileId(task.getFileId())
                 .imageUrl(imageUrl)
-                .analysis(analysis)
+                .major(major)
                 .build();
     }
 
-    private ClothesPollingResponse.Analysis parseAnalysis(String analysisJson) {
-        if (analysisJson == null) {
+    private MajorFeature parseMajorFeature(String majorJson) {
+        if (majorJson == null) {
             return null;
         }
         try {
-            ClothesPollingResponse.Attributes attributes =
-                    objectMapper.readValue(analysisJson, ClothesPollingResponse.Attributes.class);
-            return ClothesPollingResponse.Analysis.builder()
-                    .attributes(attributes)
-                    .build();
+            return objectMapper.readValue(majorJson, MajorFeature.class);
         } catch (JsonProcessingException e) {
+            log.error("MajorFeature 파싱 실패: {}", majorJson, e);
             return null;
         }
     }
