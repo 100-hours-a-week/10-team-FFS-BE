@@ -193,33 +193,43 @@ jobs:
             # 프로세스 확인
             if pgrep -f "app.jar" > /dev/null; then
               PID=$(pgrep -f "app.jar")
+              PID_COUNT=$(pgrep -f "app.jar" | wc -l)
               echo "✅ Application is running (PID: $PID)"
+            
+              if [ $PID_COUNT -gt 1 ]; then
+                echo "⚠️ WARNING: Multiple processes found ($PID_COUNT)"
+              fi
             else
               echo "❌ Application is not running!"
               exit 1
             fi
             
-            # 헬스체크
+            # 헬스체크 (여러 번 시도)
             echo "Checking application health..."
-            sleep 5
+            MAX_RETRIES=30
+            RETRY_COUNT=0
             
-            if curl -f -s http://localhost:8080/actuator/health > /dev/null 2>&1; then
-              echo "✅ Application is healthy"
-              curl -s http://localhost:8080/actuator/health | jq '.' || true
-            else
-              echo "❌ Application health check failed!"
-            
-              # 로그 출력
-              if [ -f "${{ env.APP_DIR }}/logs/application.log" ]; then
-                echo "=== Last 50 lines of log ==="
-                tail -50 ${{ env.APP_DIR }}/logs/application.log
+            while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+              if curl -f -s http://localhost:8080/actuator/health > /dev/null 2>&1; then
+                echo "✅ Application is healthy"
+                curl -s http://localhost:8080/actuator/health | jq '.' || true
+                exit 0
               fi
             
-              exit 1
+              echo "Waiting for application to be ready... ($((RETRY_COUNT + 1))/$MAX_RETRIES)"
+              sleep 5
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+            done
+            
+            echo "❌ Application health check failed after $MAX_RETRIES attempts!"
+            
+            # 로그 출력
+            if [ -f "${{ env.APP_DIR }}/logs/application.log" ]; then
+              echo "=== Last 100 lines of log ==="
+              tail -100 ${{ env.APP_DIR }}/logs/application.log
             fi
             
-            echo "✅ Deployment verification passed"
-
+            exit 1
       # ------------------------------------------------------
       # 7. 배포 정보 기록
       # ------------------------------------------------------
