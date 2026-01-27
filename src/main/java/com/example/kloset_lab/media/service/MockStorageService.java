@@ -21,6 +21,6 @@ public class MockStorageService implements StorageService {
 
     @Override
     public String getFullImageUrl(String objectKey) {
-        return "https://sample-full-url";
+        return "https://www.emoneynews.co.kr/news/photo/202505/119827_47885_3941.jpg";
     }
 }
