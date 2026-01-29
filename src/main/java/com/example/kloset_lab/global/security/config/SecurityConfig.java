@@ -4,7 +4,6 @@ import com.example.kloset_lab.auth.infrastructure.kakao.config.KakaoProperties;
 import com.example.kloset_lab.global.security.filter.JwtAuthenticationFilter;
 import com.example.kloset_lab.global.security.filter.exceptionHandler.CustomAccessDeniedHandler;
 import com.example.kloset_lab.global.security.filter.exceptionHandler.CustomAuthenticationEntryPoint;
-import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
