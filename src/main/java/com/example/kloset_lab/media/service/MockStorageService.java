@@ -6,12 +6,12 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 
 @Service
-@Profile("!prod")
+@Profile("local")
 public class MockStorageService implements StorageService {
     @Override
     public PresignedUrlInfo generatePresignedUrl(String fileName, FileType fileType) {
         return PresignedUrlInfo.builder()
-                .presignedUrl("https://sample-presigned-url")
+                .presignedUrl("sample")
                 .objectKey("sample-object-key")
                 .build();
     }
