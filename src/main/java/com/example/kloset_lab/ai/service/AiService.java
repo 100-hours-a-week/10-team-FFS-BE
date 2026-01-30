@@ -132,23 +132,28 @@ public class AiService {
                     int outfitIndex = outfitResponse.outfits().indexOf(outfit);
                     TpoResult tpoResult = tpoResults.get(outfitIndex);
 
-                    Clothes clothes = clothesRepository
-                            .findById(outfit.clothesIds().get(outfitIndex))
-                            .orElseThrow(() -> new CustomException(ErrorCode.CLOTHES_NOT_FOUND));
-                    String clothesImageUrl =
-                            storageService.getFullImageUrl(clothes.getFile().getObjectKey());
+                    ClothesDto[] clothesDtos = outfit.clothesIds().stream()
+                            .map(clothesId -> {
+                                Clothes clothes = clothesRepository
+                                        .findById(clothesId)
+                                        .orElseThrow(() -> new CustomException(ErrorCode.CLOTHES_NOT_FOUND));
+                                String clothesImageUrl = storageService.getFullImageUrl(
+                                        clothes.getFile().getObjectKey());
 
-                    ClothesDto clothesDto = ClothesDto.builder()
-                            .clothesId(clothes.getId())
-                            .imageUrl(clothesImageUrl)
-                            .name(clothes.getClothesName())
-                            .build();
+                                return ClothesDto.builder()
+                                        .clothesId(clothes.getId())
+                                        .imageUrl(clothesImageUrl)
+                                        .name(clothes.getClothesName())
+                                        .build();
+                            })
+                            .toArray(ClothesDto[]::new);
+
                     String aiComment = buildAiComment(outfit);
 
                     return TpoOutfitsResponse.OutfitItem.builder()
                             .outfitId(tpoResult.getId())
                             .aiComment(aiComment)
-                            .clothes(clothesDto)
+                            .clothes(clothesDtos)
                             .build();
                 })
                 .toList();

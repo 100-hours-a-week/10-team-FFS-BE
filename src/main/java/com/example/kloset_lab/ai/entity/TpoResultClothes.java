@@ -22,7 +22,7 @@ public class TpoResultClothes extends BaseTimeEntity {
     @JoinColumn(name = "tpo_result_id", nullable = false)
     private TpoResult tpoResult;
 
-    @OneToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "clothes_id", nullable = false)
     private Clothes clothes;
 
