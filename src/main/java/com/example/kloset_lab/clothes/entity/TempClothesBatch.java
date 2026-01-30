@@ -29,7 +29,7 @@ public class TempClothesBatch extends BaseTimeEntity {
     private String batchId;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false, length = 20)
+    @Column(name = "status", nullable = false, columnDefinition = "varchar(20)")
     private BatchStatus status;
 
     @Column(name = "total", nullable = false)
