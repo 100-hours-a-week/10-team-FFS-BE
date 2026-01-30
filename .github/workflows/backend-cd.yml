@@ -320,6 +320,22 @@ jobs:
 
     steps:
       # ------------------------------------------------------
+      # 0. Debug: 브랜치 정보 확인
+      # ------------------------------------------------------
+      - name: 🔍 Debug branch information
+        run: |
+          echo "=== Workflow Run Information ==="
+          echo "Head Branch: ${{ github.event.workflow_run.head_branch }}"
+          echo "Head SHA: ${{ github.event.workflow_run.head_sha }}"
+          echo "Event: ${{ github.event.workflow_run.event }}"
+          echo "Conclusion: ${{ github.event.workflow_run.conclusion }}"
+          echo "=== Current Context ==="
+          echo "Ref: ${{ github.ref }}"
+          echo "Ref Name: ${{ github.ref_name }}"
+          echo "Repository: ${{ github.repository }}"
+          echo "Actor: ${{ github.actor }}"
+
+      # ------------------------------------------------------
       # 1. 빌드 메타데이터 다운로드
       # ------------------------------------------------------
       - name: 📥 Download build metadata
