@@ -13,7 +13,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 @Component
-@Profile("!prod")
+@Profile({"local", "dev", "prod", "test"})
 @RequiredArgsConstructor
 public class MockAIClient implements AIClient {
 
