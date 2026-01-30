@@ -23,6 +23,22 @@ public class HttpAIClient implements AIClient {
 
     @Override
     public ValidateResponse validateImages(Long userId, List<String> imageUrlList) {
+        return ValidateResponse.builder()
+                .success(true)
+                .validationSummary(ValidateResponse.ValidationSummary.builder()
+                        .total(imageUrlList.size())
+                        .passed(imageUrlList.size())
+                        .failed(0)
+                        .build())
+                .validationResults(imageUrlList.stream()
+                        .map(url -> ValidateResponse.ValidationResult.builder()
+                                .originUrl(url)
+                                .passed(true)
+                                .build())
+                        .toList())
+                .build();
+        // TODO: V2에서 어뷰징 처리 기능 연동
+        /*
         ValidateRequest validateRequest =
                 ValidateRequest.builder().userId(userId).images(imageUrlList).build();
         return restClient
@@ -31,6 +47,7 @@ public class HttpAIClient implements AIClient {
                 .body(validateRequest)
                 .retrieve()
                 .body(ValidateResponse.class);
+        */
     }
 
     @Override
@@ -85,6 +102,12 @@ public class HttpAIClient implements AIClient {
 
     @Override
     public OutfitResponse recommendOutfit(Long userId, String query) {
+        // TODO: V2에서 이미지 처리 기능 연동
+        /*
+        List<FileUploadInfo> fileUploadInfos = createFileUploadInfos(3);
+        List<FileUploadResponse> fileUploadResponses =
+                mediaService.requestFileUpload(userId, Purpose.OUTFIT, fileUploadInfos);
+         */
         OutfitRequest outfitRequest = OutfitRequest.builder()
                 .userId(userId)
                 .query(query)
