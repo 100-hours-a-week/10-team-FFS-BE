@@ -4,7 +4,7 @@ import com.example.kloset_lab.clothes.entity.Clothes;
 import com.example.kloset_lab.clothes.service.ClothesValidationService;
 import com.example.kloset_lab.comment.entity.Comment;
 import com.example.kloset_lab.comment.repository.CommentRepository;
-import com.example.kloset_lab.feed.dto.ClothesDto;
+import com.example.kloset_lab.feed.dto.FeedClothesDto;
 import com.example.kloset_lab.feed.dto.FeedCreateRequest;
 import com.example.kloset_lab.feed.dto.FeedDetailResponse;
 import com.example.kloset_lab.feed.dto.FeedLikeUserItem;
@@ -401,13 +401,13 @@ public class FeedService {
         List<String> imageUrls = mediaService.getFileFullUrls(fileIds);
 
         List<FeedClothesMapping> mappings = feedClothesMappingRepository.findByFeedId(feed.getId());
-        List<ClothesDto> clothesDtoList = mappings.stream()
+        List<FeedClothesDto> feedClothesDtoList = mappings.stream()
                 .map(mapping -> {
                     Clothes clothes = mapping.getClothes();
                     String clothesImageUrl = mediaService
                             .getFileFullUrls(List.of(clothes.getFile().getId()))
                             .getFirst();
-                    return new ClothesDto(
+                    return new FeedClothesDto(
                             clothes.getId(), clothesImageUrl, clothes.getClothesName(), clothes.getPrice());
                 })
                 .toList();
@@ -426,7 +426,7 @@ public class FeedService {
                 .likeCount(feed.getLikeCount())
                 .commentCount(feed.getCommentCount())
                 .postedTime(feed.getCreatedAt())
-                .clothes(clothesDtoList.isEmpty() ? null : clothesDtoList)
+                .clothes(feedClothesDtoList.isEmpty() ? null : feedClothesDtoList)
                 .content(feed.getContent())
                 .userProfile(userProfileDto)
                 .isFollowing(false) // 팔로우 기능 미구현

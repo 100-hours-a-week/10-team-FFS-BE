@@ -3,7 +3,7 @@ package com.example.kloset_lab.clothes.controller;
 import com.example.kloset_lab.clothes.dto.*;
 import com.example.kloset_lab.clothes.service.ClothesAnalysisService;
 import com.example.kloset_lab.clothes.service.ClothesService;
-import com.example.kloset_lab.feed.dto.ClothesDto;
+import com.example.kloset_lab.feed.dto.FeedClothesDto;
 import com.example.kloset_lab.global.response.ApiResponse;
 import com.example.kloset_lab.global.response.ApiResponses;
 import com.example.kloset_lab.global.response.Message;
@@ -73,7 +73,7 @@ public class ClothesController {
     }
 
     @GetMapping("/clothes-details")
-    public ResponseEntity<ApiResponse<List<ClothesDto>>> getClothesDetails(
+    public ResponseEntity<ApiResponse<List<FeedClothesDto>>> getClothesDetails(
             @AuthenticationPrincipal Long currentUserId, @RequestParam List<Long> clothesIds) {
         return ApiResponses.ok("옷 세부 정보 반환", clothesService.getClothesDetails(clothesIds));
     }

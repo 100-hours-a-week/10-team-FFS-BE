@@ -11,4 +11,4 @@ import lombok.Builder;
  * @param price    가격
  */
 @Builder
-public record ClothesDto(Long id, String imageUrl, String name, Integer price) {}
+public record FeedClothesDto(Long id, String imageUrl, String name, Integer price) {}
