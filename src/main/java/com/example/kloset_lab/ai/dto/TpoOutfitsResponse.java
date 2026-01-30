@@ -13,5 +13,5 @@ import lombok.Builder;
 @Builder
 public record TpoOutfitsResponse(String outfitSummary, List<OutfitItem> outfits) {
     @Builder
-    public record OutfitItem(Long outfitId, String aiComment, ClothesDto clothes) {}
+    public record OutfitItem(Long outfitId, String aiComment, ClothesDto[] clothes) {}
 }
