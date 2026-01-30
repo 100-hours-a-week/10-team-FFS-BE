@@ -14,9 +14,9 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
-@Profile("prod")
 @RequiredArgsConstructor
 @Component
+@Profile("real")
 public class HttpAIClient implements AIClient {
     private final RestClient restClient;
     private final MediaService mediaService;
