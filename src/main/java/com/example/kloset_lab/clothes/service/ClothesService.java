@@ -7,6 +7,7 @@ import com.example.kloset_lab.clothes.dto.ClothesUpdateRequest;
 import com.example.kloset_lab.clothes.entity.Category;
 import com.example.kloset_lab.clothes.entity.Clothes;
 import com.example.kloset_lab.clothes.repository.ClothesRepository;
+import com.example.kloset_lab.feed.dto.ClothesDto;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
 import com.example.kloset_lab.global.response.PageInfo;
@@ -162,5 +163,19 @@ public class ClothesService {
                 .items(items)
                 .pageInfo(pageInfo)
                 .build();
+    }
+
+    public List<ClothesDto> getClothesDetails(List<Long> clothesIds) {
+        List<Clothes> clothes = clothesRepository.findAllById(clothesIds);
+        List<ClothesDto> clothesDtos = new ArrayList<>();
+        for (Clothes c : clothes) {
+            clothesDtos.add(ClothesDto.builder()
+                    .id(c.getId())
+                    .imageUrl(mediaService.getFileFullUrl(c.getFile().getId()))
+                    .name(c.getClothesName())
+                    .price(c.getPrice())
+                    .build());
+        }
+        return clothesDtos;
     }
 }
