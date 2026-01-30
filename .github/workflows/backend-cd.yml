@@ -31,7 +31,8 @@ jobs:
     name: Deploy to Development
     if: |
       github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'dev'
+      github.event.workflow_run.head_branch == 'dev' &&
+      github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     environment:
       name: development
