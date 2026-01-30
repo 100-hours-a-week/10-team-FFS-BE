@@ -1,5 +1,6 @@
 package com.example.kloset_lab.ai.dto;
 
+import com.example.kloset_lab.global.ai.dto.ClothesDto;
 import java.util.List;
 import lombok.Builder;
 
@@ -12,5 +13,5 @@ import lombok.Builder;
 @Builder
 public record TpoOutfitsResponse(String outfitSummary, List<OutfitItem> outfits) {
     @Builder
-    public record OutfitItem(Long outfitId, String outfitImageUrl, String aiComment) {}
+    public record OutfitItem(Long outfitId, String aiComment, ClothesDto[] clothes) {}
 }

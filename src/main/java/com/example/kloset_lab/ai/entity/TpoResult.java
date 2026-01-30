@@ -1,7 +1,6 @@
 package com.example.kloset_lab.ai.entity;
 
 import com.example.kloset_lab.global.entity.BaseTimeEntity;
-import com.example.kloset_lab.media.entity.MediaFile;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -22,10 +21,6 @@ public class TpoResult extends BaseTimeEntity {
     @JoinColumn(name = "tpo_request_id", nullable = false)
     private TpoRequest tpoRequest;
 
-    @OneToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "file_id", nullable = false)
-    private MediaFile file;
-
     @Column(name = "cordi_explain_text", nullable = false, columnDefinition = "varchar(255)")
     private String cordiExplainText;
 
@@ -33,12 +28,15 @@ public class TpoResult extends BaseTimeEntity {
     @Column(name = "reaction", nullable = false, columnDefinition = "varchar(10)")
     private Reaction reaction;
 
+    @Column(name = "outfit_id", nullable = false)
+    private String outfitId;
+
     @Builder
-    public TpoResult(TpoRequest tpoRequest, MediaFile file, String cordiExplainText) {
+    public TpoResult(TpoRequest tpoRequest, String cordiExplainText, String outfitId) {
         this.tpoRequest = tpoRequest;
-        this.file = file;
         this.cordiExplainText = cordiExplainText;
         this.reaction = Reaction.NONE;
+        this.outfitId = outfitId;
     }
 
     public void updateReaction(Reaction reaction) {

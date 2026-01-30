@@ -10,12 +10,13 @@ import com.example.kloset_lab.ai.entity.TpoResultClothes;
 import com.example.kloset_lab.ai.repository.TpoRequestRepository;
 import com.example.kloset_lab.ai.repository.TpoResultClothesRepository;
 import com.example.kloset_lab.ai.repository.TpoResultRepository;
+import com.example.kloset_lab.clothes.entity.Clothes;
+import com.example.kloset_lab.clothes.repository.ClothesRepository;
 import com.example.kloset_lab.global.ai.client.AIClient;
+import com.example.kloset_lab.global.ai.dto.ClothesDto;
 import com.example.kloset_lab.global.ai.dto.OutfitResponse;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
-import com.example.kloset_lab.media.entity.MediaFile;
-import com.example.kloset_lab.media.repository.MediaFileRepository;
 import com.example.kloset_lab.media.service.StorageService;
 import com.example.kloset_lab.user.entity.User;
 import com.example.kloset_lab.user.repository.UserRepository;
@@ -34,10 +35,10 @@ public class AiService {
 
     private final AIClient aIClient;
     private final UserRepository userRepository;
-    private final MediaFileRepository mediaFileRepository;
     private final TpoRequestRepository tpoRequestRepository;
     private final TpoResultRepository tpoResultRepository;
     private final TpoResultClothesRepository tpoResultClothesRepository;
+    private final ClothesRepository clothesRepository;
     private final StorageService storageService;
 
     /**
@@ -55,6 +56,7 @@ public class AiService {
                 TpoRequest.builder().user(user).requestText(request.content()).build();
 
         OutfitResponse outfitResponse = aIClient.recommendOutfit(user.getId(), tpoRequest.getRequestText());
+        tpoRequest.addQuerySummary(outfitResponse.querySummary());
 
         tpoRequestRepository.save(tpoRequest);
 
@@ -78,16 +80,11 @@ public class AiService {
      */
     private List<TpoResult> saveTpoResults(OutfitResponse outfitResponse, TpoRequest tpoRequest) {
         List<TpoResult> tpoResults = outfitResponse.outfits().stream()
-                .map(outfit -> {
-                    MediaFile mediaFile = mediaFileRepository
-                            .findById(outfit.fileId())
-                            .orElseThrow(() -> new CustomException(ErrorCode.FILE_NOT_FOUND));
-                    return TpoResult.builder()
-                            .tpoRequest(tpoRequest)
-                            .file(mediaFile)
-                            .cordiExplainText(outfit.description())
-                            .build();
-                })
+                .map(outfit -> TpoResult.builder()
+                        .tpoRequest(tpoRequest)
+                        .cordiExplainText(outfit.description())
+                        .outfitId(outfit.outfitId())
+                        .build())
                 .toList();
 
         return tpoResultRepository.saveAll(tpoResults);
@@ -100,18 +97,25 @@ public class AiService {
      * @param tpoResults 저장된 TpoResult 리스트
      */
     private void saveTpoResultClothes(OutfitResponse outfitResponse, List<TpoResult> tpoResults) {
-        List<TpoResultClothes> tpoResultClothes = outfitResponse.outfits().stream()
-                .flatMap(outfit -> {
-                    int outfitIndex = outfitResponse.outfits().indexOf(outfit);
-                    TpoResult tpoResult = tpoResults.get(outfitIndex);
-                    return outfit.items().stream().map(vectorDbId -> TpoResultClothes.builder()
-                            .tpoResult(tpoResult)
-                            .vectorDbId(String.valueOf(vectorDbId))
-                            .build());
-                })
-                .toList();
+        for (int i = 0; i < outfitResponse.outfits().size(); i++) {
+            OutfitResponse.Outfit outfit = outfitResponse.outfits().get(i);
+            TpoResult tpoResult = tpoResults.get(i);
 
-        tpoResultClothesRepository.saveAll(tpoResultClothes);
+            List<TpoResultClothes> tpoResultClothes = outfit.clothesIds().stream()
+                    .map(clothesId -> {
+                        Clothes clothes = clothesRepository
+                                .findById(clothesId)
+                                .orElseThrow(() -> new CustomException(ErrorCode.CLOTHES_NOT_FOUND));
+
+                        return TpoResultClothes.builder()
+                                .tpoResult(tpoResult)
+                                .clothes(clothes)
+                                .build();
+                    })
+                    .toList();
+
+            tpoResultClothesRepository.saveAll(tpoResultClothes);
+        }
     }
 
     /**
@@ -128,17 +132,28 @@ public class AiService {
                     int outfitIndex = outfitResponse.outfits().indexOf(outfit);
                     TpoResult tpoResult = tpoResults.get(outfitIndex);
 
-                    MediaFile mediaFile = mediaFileRepository
-                            .findById(outfit.fileId())
-                            .orElseThrow(() -> new CustomException(ErrorCode.FILE_NOT_FOUND));
+                    ClothesDto[] clothesDtos = outfit.clothesIds().stream()
+                            .map(clothesId -> {
+                                Clothes clothes = clothesRepository
+                                        .findById(clothesId)
+                                        .orElseThrow(() -> new CustomException(ErrorCode.CLOTHES_NOT_FOUND));
+                                String clothesImageUrl = storageService.getFullImageUrl(
+                                        clothes.getFile().getObjectKey());
 
-                    String outfitImageUrl = storageService.getFullImageUrl(mediaFile.getObjectKey());
+                                return ClothesDto.builder()
+                                        .clothesId(clothes.getId())
+                                        .imageUrl(clothesImageUrl)
+                                        .name(clothes.getClothesName())
+                                        .build();
+                            })
+                            .toArray(ClothesDto[]::new);
+
                     String aiComment = buildAiComment(outfit);
 
                     return TpoOutfitsResponse.OutfitItem.builder()
                             .outfitId(tpoResult.getId())
-                            .outfitImageUrl(outfitImageUrl)
                             .aiComment(aiComment)
+                            .clothes(clothesDtos)
                             .build();
                 })
                 .toList();

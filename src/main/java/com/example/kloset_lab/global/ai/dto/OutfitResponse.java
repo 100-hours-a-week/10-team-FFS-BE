@@ -6,5 +6,5 @@ import lombok.Builder;
 @Builder
 public record OutfitResponse(String querySummary, List<Outfit> outfits, String sessionId) {
     @Builder
-    public record Outfit(String outfitId, String description, String fallbackNotice, List<Long> items, Long fileId) {}
+    public record Outfit(String outfitId, String description, String fallbackNotice, List<Long> clothesIds) {}
 }

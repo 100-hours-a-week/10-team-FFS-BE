@@ -28,10 +28,18 @@ public class TpoRequest extends BaseTimeEntity {
     @Column(name = "request_count", nullable = false)
     private Integer requestCount;
 
+    @Column(name = "query_summary", nullable = false)
+    private String querySummary;
+
     @Builder
-    public TpoRequest(User user, String requestText) {
+    public TpoRequest(User user, String requestText, String querySummary) {
         this.user = user;
         this.requestText = requestText;
         this.requestCount = 0;
+        this.querySummary = querySummary;
+    }
+
+    public void addQuerySummary(String querySummary) {
+        this.querySummary = querySummary;
     }
 }

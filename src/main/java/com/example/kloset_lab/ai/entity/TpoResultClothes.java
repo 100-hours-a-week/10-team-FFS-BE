@@ -1,7 +1,7 @@
 package com.example.kloset_lab.ai.entity;
 
+import com.example.kloset_lab.clothes.entity.Clothes;
 import com.example.kloset_lab.global.entity.BaseTimeEntity;
-import com.example.kloset_lab.media.entity.MediaFile;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -22,12 +22,13 @@ public class TpoResultClothes extends BaseTimeEntity {
     @JoinColumn(name = "tpo_result_id", nullable = false)
     private TpoResult tpoResult;
 
-    @Column(name = "vector_db_id", nullable = false, columnDefinition = "varchar(50)")
-    private String vectorDbId;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "clothes_id", nullable = false)
+    private Clothes clothes;
 
     @Builder
-    public TpoResultClothes(TpoResult tpoResult, MediaFile file, String vectorDbId) {
+    public TpoResultClothes(TpoResult tpoResult, Clothes clothes) {
         this.tpoResult = tpoResult;
-        this.vectorDbId = vectorDbId;
+        this.clothes = clothes;
     }
 }

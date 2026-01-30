@@ -1,18 +1,26 @@
 package com.example.kloset_lab.global.ai.client;
 
 import com.example.kloset_lab.global.ai.dto.*;
+import com.example.kloset_lab.media.dto.FileUploadInfo;
+import com.example.kloset_lab.media.dto.FileUploadResponse;
+import com.example.kloset_lab.media.entity.Purpose;
+import com.example.kloset_lab.media.service.MediaService;
 import com.github.f4b6a3.ulid.UlidCreator;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 @Component
-@Profile("!prod")
+@Profile("!real")
+@RequiredArgsConstructor
 public class MockAIClient implements AIClient {
 
     private static final long MIN_DELAY_MS = 10_000;
     private static final long MAX_DELAY_MS = 20_000;
+
+    private final MediaService mediaService;
 
     private final Map<String, BatchInfo> batchStore = new ConcurrentHashMap<>();
     private final Random random = new Random();
@@ -62,8 +70,11 @@ public class MockAIClient implements AIClient {
 
             long delay = MIN_DELAY_MS + random.nextLong(MAX_DELAY_MS - MIN_DELAY_MS);
             long completeAt = System.currentTimeMillis() + delay;
-
-            long fileId = 6;
+            List<FileUploadResponse> fileUploadResponses = mediaService.requestFileUpload(
+                    userId,
+                    Purpose.CLOTHES,
+                    List.of(FileUploadInfo.builder().name("").type("image/png").build()));
+            long fileId = fileUploadResponses.get(0).fileId();
 
             batchInfo.tasks.put(taskId, new TaskInfo(completeAt, fileId));
         });
@@ -180,8 +191,8 @@ public class MockAIClient implements AIClient {
                 .outfits(List.of(OutfitResponse.Outfit.builder()
                         .outfitId("outfit_mock_001")
                         .description("목 데이터 코디 1")
-                        .items(List.of(1L, 2L))
-                        .fileId(1L)
+                        .fallbackNotice("에 추가될 fallback notice 입니다.")
+                        .clothesIds(List.of(1L, 2L))
                         .build()))
                 .sessionId(null)
                 .build();
