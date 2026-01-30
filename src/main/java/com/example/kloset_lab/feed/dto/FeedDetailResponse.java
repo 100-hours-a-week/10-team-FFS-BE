@@ -27,7 +27,7 @@ public record FeedDetailResponse(
         Long likeCount,
         Long commentCount,
         LocalDateTime postedTime,
-        List<ClothesDto> clothes,
+        List<FeedClothesDto> clothes,
         String content,
         UserProfileDto userProfile,
         Boolean isFollowing,
