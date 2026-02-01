@@ -1,9 +1,5 @@
 package com.example.kloset_lab.user.service;
 
-import com.example.kloset_lab.auth.repository.RefreshTokenRepository;
-import com.example.kloset_lab.clothes.repository.ClothesRepository;
-import com.example.kloset_lab.comment.repository.CommentRepository;
-import com.example.kloset_lab.feed.repository.FeedRepository;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
 import com.example.kloset_lab.global.response.Message;
@@ -16,7 +12,6 @@ import com.example.kloset_lab.user.entity.User;
 import com.example.kloset_lab.user.entity.UserProfile;
 import com.example.kloset_lab.user.repository.UserProfileRepository;
 import com.example.kloset_lab.user.repository.UserRepository;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -32,10 +27,6 @@ public class UserService {
     private final UserRepository userRepository;
     private final UserProfileRepository userProfileRepository;
     private final MediaFileRepository mediaFileRepository;
-    private final RefreshTokenRepository refreshTokenRepository;
-    private final FeedRepository feedRepository;
-    private final CommentRepository commentRepository;
-    private final ClothesRepository clothesRepository;
     private final UserProfileValidationService userProfileValidationService;
     private final MediaService mediaService;
 
@@ -71,27 +62,6 @@ public class UserService {
 
         user.completeRegistration();
         userProfileRepository.save(userProfile);
-    }
-
-    /**
-     * 회원 탈퇴 처리 (soft delete)
-     * 유저와 연관된 피드, 댓글, 옷도 함께 soft delete 처리
-     *
-     * @param userId 탈퇴할 회원 ID
-     */
-    @Transactional
-    public void deleteUser(Long userId) {
-        User user = userRepository.findById(userId).orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
-
-        LocalDateTime now = LocalDateTime.now();
-
-        feedRepository.softDeleteAllByUserId(userId, now);
-        commentRepository.softDeleteAllByUserId(userId, now);
-        clothesRepository.softDeleteAllByUserId(userId, now);
-
-        user.softDelete();
-
-        refreshTokenRepository.deleteByUserId(userId);
     }
 
     /**

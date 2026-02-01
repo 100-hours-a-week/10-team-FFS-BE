@@ -13,6 +13,14 @@ public interface FeedLikeRepository extends JpaRepository<FeedLike, Long> {
 
     Optional<FeedLike> findByFeedIdAndUserId(Long feedId, Long userId);
 
+    /**
+     * 특정 유저가 누른 모든 피드 좋아요 조회
+     *
+     * @param userId 유저 ID
+     * @return 피드 좋아요 목록
+     */
+    List<FeedLike> findAllByUserId(Long userId);
+
     void deleteByFeedIdAndUserId(Long feedId, Long userId);
 
     List<FeedLike> findByFeedIdInAndUserId(List<Long> feedIds, Long userId);

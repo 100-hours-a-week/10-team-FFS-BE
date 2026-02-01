@@ -56,6 +56,9 @@ dependencies {
     // prometheus
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'io.micrometer:micrometer-registry-prometheus'
+
+    // Rate Limiting - Bucket4j
+    implementation("com.bucket4j:bucket4j_jdk17-core:8.14.0")
 }
 
 spotless {

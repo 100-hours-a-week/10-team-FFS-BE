@@ -79,4 +79,13 @@ public interface CommentRepository extends JpaRepository<Comment, Long> {
     @Modifying
     @Query("UPDATE Comment c SET c.deletedAt = :deletedAt WHERE c.user.id = :userId AND c.deletedAt IS NULL")
     void softDeleteAllByUserId(@Param("userId") Long userId, @Param("deletedAt") LocalDateTime deletedAt);
+
+    /**
+     * 특정 유저의 삭제되지 않은 모든 댓글 조회 (soft delete 전 카운트 감소용)
+     *
+     * @param userId 유저 ID
+     * @return 댓글 목록
+     */
+    @Query("SELECT c FROM Comment c WHERE c.user.id = :userId AND c.deletedAt IS NULL")
+    List<Comment> findAllActiveByUserId(@Param("userId") Long userId);
 }
