@@ -106,7 +106,7 @@ public class ClothesAnalysisService {
                 batchResponse.status(),
                 batchResponse.meta().completed(),
                 batchResponse.meta().processing(),
-                batchResponse.meta().isFinished());
+                batchResponse.meta().completed() >= batchResponse.meta().total());
 
         if (batchResponse.results() == null) {
             return;

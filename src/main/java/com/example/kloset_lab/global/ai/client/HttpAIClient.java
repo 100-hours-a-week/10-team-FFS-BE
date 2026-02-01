@@ -16,7 +16,6 @@ import org.springframework.web.client.RestClient;
 
 @RequiredArgsConstructor
 @Component
-@Profile("dev")
 public class HttpAIClient implements AIClient {
     private final RestClient restClient;
     private final MediaService mediaService;
@@ -62,7 +61,7 @@ public class HttpAIClient implements AIClient {
                     .sequence(i)
                     .targetImage(imageUrlList.get(i))
                     .taskId(UlidCreator.getUlid().toString())
-                    .fileInfo(fileUploadResponses.get(i))
+                    .fileUploadInfo(fileUploadResponses.get(i))
                     .build();
             imageInfos.add(imageInfo);
         }
@@ -148,7 +147,7 @@ public class HttpAIClient implements AIClient {
 
         try {
             BatchResponse response = restClient.get()
-                    .uri("/v1/closet/analyze/" + batchId)
+                    .uri("/v1/closet/batches/" + batchId)
                     .retrieve()
                     .body(BatchResponse.class);
 

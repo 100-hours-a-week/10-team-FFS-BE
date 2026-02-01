@@ -5,8 +5,6 @@ import com.example.kloset_lab.media.entity.FileType;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 
-@Service
-@Profile("!real")
 public class MockStorageService implements StorageService {
     @Override
     public PresignedUrlInfo generatePresignedUrl(String fileName, FileType fileType) {
