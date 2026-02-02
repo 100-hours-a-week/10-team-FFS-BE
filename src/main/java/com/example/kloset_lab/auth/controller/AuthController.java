@@ -25,7 +25,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/v1/auth")
+@RequestMapping("/api")
 @RequiredArgsConstructor
 public class AuthController {
 
@@ -40,7 +40,7 @@ public class AuthController {
      * - 기존 회원: isRegistered=true, accessToken, nickname 반환 + Refresh Token 쿠키 설정
      * - 신규 회원: isRegistered=false, accessToken 반환 (회원가입 추가 정보 입력 필요)
      */
-    @PostMapping("/kakao")
+    @PostMapping("/v1/auth/kakao")
     public ResponseEntity<ApiResponse<KakaoLoginResponse>> kakaoLogin(
             @RequestBody @Valid KakaoLoginRequest request, HttpServletResponse response) {
 
@@ -56,7 +56,7 @@ public class AuthController {
      * 토큰 갱신 API
      * POST /api/v1/auth/tokens
      */
-    @PostMapping("/tokens")
+    @PostMapping("/v1/auth/tokens")
     public ResponseEntity<ApiResponse<TokenRefreshResponse>> refreshToken(
             HttpServletRequest request, HttpServletResponse response) {
 
@@ -77,7 +77,7 @@ public class AuthController {
      * 로그아웃 API
      * DELETE /api/v1/auth/tokens
      */
-    @DeleteMapping("/tokens")
+    @DeleteMapping("/v1/auth/tokens")
     public ResponseEntity<ApiResponse<Void>> logout(
             @AuthenticationPrincipal Long userId, HttpServletResponse response) {
 
