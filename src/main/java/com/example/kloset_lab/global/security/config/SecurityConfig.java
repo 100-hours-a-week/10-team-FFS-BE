@@ -36,7 +36,8 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .formLogin(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
-                .authorizeHttpRequests(auth -> auth.requestMatchers("/actuator/health", "/actuator/prometheus")
+                .authorizeHttpRequests(auth -> auth.requestMatchers(
+                                "/actuator/health", "/actuator/prometheus", "/actuator/info", "/actuator/metrics")
                         .permitAll()
                         .requestMatchers("/api/v1/auth/**")
                         .permitAll()
