@@ -16,8 +16,8 @@ public class RestClientConfig {
     public RestClient restClient() {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
 
-        factory.setConnectTimeout(5);
-        factory.setReadTimeout(300);
+        factory.setConnectTimeout(5000);
+        factory.setReadTimeout(300000);
 
         return RestClient.builder()
                 .baseUrl(baseUrl)

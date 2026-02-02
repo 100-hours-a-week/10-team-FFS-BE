@@ -51,6 +51,7 @@ public enum ErrorCode {
     PARENT_COMMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "parent_comment_not_found"),
     OUTFIT_NOT_FOUND(HttpStatus.NOT_FOUND, "outfit_not_found"),
     TPO_RESULT_NOT_FOUND(HttpStatus.NOT_FOUND, "tpo_result_not_found"),
+    RESULT_NOT_FOUND(HttpStatus.NOT_FOUND, "clothes_analyze_result_not_found"),
 
     // 409 Conflict
     EXISTING_NICKNAME(HttpStatus.CONFLICT, "existing_nickname"),
@@ -59,10 +60,10 @@ public enum ErrorCode {
     UPLOADED_FILE_MISMATCH(HttpStatus.CONFLICT, "uploaded_file_mismatch"),
 
     // 413 Payload Too Large
-    CONTENT_TOO_LONG(HttpStatus.PAYLOAD_TOO_LARGE, "content_too_long"),
     FILE_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "file_too_large"),
 
     // 422 Unprocessable Entity
+    CONTENT_TOO_LONG(HttpStatus.UNPROCESSABLE_ENTITY, "content_too_long"),
     EMPTY_CLOSET(HttpStatus.UNPROCESSABLE_ENTITY, "empty_closet"),
     INSUFFICIENT_ITEMS(HttpStatus.UNPROCESSABLE_ENTITY, "insufficient_items"),
     NO_MATCHED_ITEMS(HttpStatus.UNPROCESSABLE_ENTITY, "no_matched_items"),
@@ -88,5 +89,19 @@ public enum ErrorCode {
     ErrorCode(HttpStatus status, String message) {
         this.status = status;
         this.message = message;
+    }
+
+    /**
+     * Bean Validation 어노테이션 message 속성용 상수 클래스
+     * <p>
+     * 컴파일 타임 체크를 위해 ErrorCode와 동일한 이름 사용. DTO에서 ErrorCode.Code.CONTENT_TOO_LONG 형태로 참조.
+     */
+    public static class Code {
+        public static final String CONTENT_TOO_LONG = "content_too_long";
+        public static final String MINIMUM_1_FILE_ALLOWED = "minimum_1_file_allowed";
+        public static final String MAXIMUM_5_FILES_ALLOWED = "maximum_5_files_allowed";
+        public static final String MAXIMUM_10_CLOTHES_MAPPING_ALLOWED = "maximum_10_clothes_mapping_allowed";
+
+        private Code() {}
     }
 }

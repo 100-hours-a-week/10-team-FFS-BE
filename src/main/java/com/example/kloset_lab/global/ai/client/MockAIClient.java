@@ -9,11 +9,7 @@ import com.github.f4b6a3.ulid.UlidCreator;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.RequiredArgsConstructor;
-import org.springframework.context.annotation.Profile;
-import org.springframework.stereotype.Component;
 
-@Component
-@Profile("!real")
 @RequiredArgsConstructor
 public class MockAIClient implements AIClient {
 

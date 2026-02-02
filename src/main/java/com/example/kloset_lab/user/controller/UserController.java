@@ -13,6 +13,7 @@ import com.example.kloset_lab.global.response.ApiResponses;
 import com.example.kloset_lab.global.response.Message;
 import com.example.kloset_lab.global.response.PagedResponse;
 import com.example.kloset_lab.user.dto.*;
+import com.example.kloset_lab.user.service.UserLifecycleService;
 import com.example.kloset_lab.user.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +27,7 @@ import org.springframework.web.bind.annotation.*;
 public class UserController {
 
     private final UserService userService;
+    private final UserLifecycleService userLifecycleService;
     private final FeedService feedService;
     private final ClothesService clothesService;
 
@@ -53,7 +55,7 @@ public class UserController {
      */
     @DeleteMapping
     public ResponseEntity<ApiResponse<Void>> deleteUser(@AuthenticationPrincipal Long userId) {
-        userService.deleteUser(userId);
+        userLifecycleService.deleteUser(userId);
         return ApiResponses.ok(Message.USER_DELETED);
     }
 

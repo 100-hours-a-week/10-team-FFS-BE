@@ -15,6 +15,14 @@ public interface CommentLikeRepository extends JpaRepository<CommentLike, Long> 
     Optional<CommentLike> findByCommentIdAndUserId(Long commentId, Long userId);
 
     /**
+     * 특정 유저가 누른 모든 댓글 좋아요 조회
+     *
+     * @param userId 유저 ID
+     * @return 댓글 좋아요 목록
+     */
+    List<CommentLike> findAllByUserId(Long userId);
+
+    /**
      * @param commentIds 댓글 ID 목록
      * @param userId 사용자 ID
      * @return 좋아요 목록

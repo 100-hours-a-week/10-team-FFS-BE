@@ -46,4 +46,4 @@ cors:
 
 ai:
   api:
-    base-url: http://localhost:8080
+    base-url: ${AI_API_BASE_URL:http://localhost:8080}

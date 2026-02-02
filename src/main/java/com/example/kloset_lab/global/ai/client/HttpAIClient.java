@@ -10,13 +10,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
-import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 @RequiredArgsConstructor
 @Component
-@Profile("real")
 public class HttpAIClient implements AIClient {
     private final RestClient restClient;
     private final MediaService mediaService;
@@ -53,7 +51,6 @@ public class HttpAIClient implements AIClient {
     @Override
     public BatchResponse analyzeImages(Long userId, List<String> imageUrlList) {
         List<FileUploadInfo> fileUploadInfos = createFileUploadInfos(imageUrlList.size());
-
         List<FileUploadResponse> fileUploadResponses =
                 mediaService.requestFileUpload(userId, Purpose.CLOTHES, fileUploadInfos);
 
@@ -63,51 +60,51 @@ public class HttpAIClient implements AIClient {
                     .sequence(i)
                     .targetImage(imageUrlList.get(i))
                     .taskId(UlidCreator.getUlid().toString())
-                    .fileInfo(fileUploadResponses.get(i))
+                    .fileUploadInfo(fileUploadResponses.get(i))
                     .build();
             imageInfos.add(imageInfo);
         }
+
+        String batchId = UlidCreator.getUlid().toString();
         AnalyzeRequest analyzeRequest = AnalyzeRequest.builder()
                 .userId(userId)
-                .batchId(UlidCreator.getUlid().toString())
+                .batchId(batchId)
                 .images(imageInfos)
                 .build();
-        return restClient
-                .post()
-                .uri("/v1/closet/analyze")
-                .body(analyzeRequest)
-                .retrieve()
-                .body(BatchResponse.class);
-    }
 
-    @Override
-    public BatchResponse getBatchStatus(String batchId) {
-        return restClient.get().uri("/v1/closet/analyze/" + batchId).retrieve().body(BatchResponse.class);
-    }
+        System.out.println("=== [AI-API] analyzeImages 시작 ===");
+        System.out.println("userId: " + userId);
+        System.out.println("batchId: " + batchId);
+        System.out.println("imageCount: " + imageUrlList.size());
+        System.out.println("요청 바디: " + analyzeRequest);
 
-    @Override
-    public EmbeddingResponse saveEmbedding(EmbeddingRequest request) {
-        return restClient
-                .post()
-                .uri("/v1/closet/embedding")
-                .body(request)
-                .retrieve()
-                .body(EmbeddingResponse.class);
-    }
+        long startTime = System.currentTimeMillis();
 
-    @Override
-    public void deleteClothes(Long clothesId) {
-        restClient.delete().uri("/v1/closet/" + clothesId).retrieve();
+        try {
+            BatchResponse response = restClient
+                    .post()
+                    .uri("/v1/closet/analyze")
+                    .body(analyzeRequest)
+                    .retrieve()
+                    .body(BatchResponse.class);
+
+            System.out.println("=== [AI-API] analyzeImages 성공 ===");
+            System.out.println("소요시간: " + (System.currentTimeMillis() - startTime) + "ms");
+            System.out.println("응답: " + response);
+
+            return response;
+
+        } catch (Exception e) {
+            System.out.println("=== [AI-API] analyzeImages 실패 ===");
+            System.out.println("소요시간: " + (System.currentTimeMillis() - startTime) + "ms");
+            System.out.println("에러: " + e.getMessage());
+            e.printStackTrace();
+            throw e;
+        }
     }
 
     @Override
     public OutfitResponse recommendOutfit(Long userId, String query) {
-        // TODO: V2에서 이미지 처리 기능 연동
-        /*
-        List<FileUploadInfo> fileUploadInfos = createFileUploadInfos(3);
-        List<FileUploadResponse> fileUploadResponses =
-                mediaService.requestFileUpload(userId, Purpose.OUTFIT, fileUploadInfos);
-         */
         OutfitRequest outfitRequest = OutfitRequest.builder()
                 .userId(userId)
                 .query(query)
@@ -115,12 +112,90 @@ public class HttpAIClient implements AIClient {
                 .weather(null)
                 .urls(null)
                 .build();
-        return restClient
-                .post()
-                .uri("/v1/closet/outfit")
-                .body(outfitRequest)
-                .retrieve()
-                .body(OutfitResponse.class);
+
+        System.out.println("=== [AI-API] recommendOutfit 시작 ===");
+        System.out.println("userId: " + userId + ", query: " + query);
+
+        long startTime = System.currentTimeMillis();
+
+        try {
+            OutfitResponse response = restClient
+                    .post()
+                    .uri("/v1/closet/outfit")
+                    .body(outfitRequest)
+                    .retrieve()
+                    .body(OutfitResponse.class);
+
+            System.out.println("=== [AI-API] recommendOutfit 성공 ===");
+            System.out.println("소요시간: " + (System.currentTimeMillis() - startTime) + "ms");
+            System.out.println("응답: " + response);
+
+            return response;
+
+        } catch (Exception e) {
+            System.out.println("=== [AI-API] recommendOutfit 실패 ===");
+            System.out.println("에러: " + e.getMessage());
+            e.printStackTrace();
+            throw e;
+        }
+    }
+
+    @Override
+    public BatchResponse getBatchStatus(String batchId) {
+        System.out.println("=== [AI-API] getBatchStatus 시작 === batchId: " + batchId);
+
+        try {
+            BatchResponse response = restClient
+                    .get()
+                    .uri("/v1/closet/batches/" + batchId)
+                    .retrieve()
+                    .body(BatchResponse.class);
+
+            System.out.println("=== [AI-API] getBatchStatus 성공 === 응답: " + response);
+            return response;
+
+        } catch (Exception e) {
+            System.out.println("=== [AI-API] getBatchStatus 실패 === 에러: " + e.getMessage());
+            e.printStackTrace();
+            throw e;
+        }
+    }
+
+    @Override
+    public EmbeddingResponse saveEmbedding(EmbeddingRequest request) {
+        System.out.println("=== [AI-API] saveEmbedding 시작 === 요청: " + request);
+
+        try {
+            EmbeddingResponse response = restClient
+                    .post()
+                    .uri("/v1/closet/embedding")
+                    .body(request)
+                    .retrieve()
+                    .body(EmbeddingResponse.class);
+
+            System.out.println("=== [AI-API] saveEmbedding 성공 === 응답: " + response);
+            return response;
+
+        } catch (Exception e) {
+            System.out.println("=== [AI-API] saveEmbedding 실패 === 에러: " + e.getMessage());
+            e.printStackTrace();
+            throw e;
+        }
+    }
+
+    @Override
+    public void deleteClothes(Long clothesId) {
+        System.out.println("=== [AI-API] deleteClothes 시작 === clothesId: " + clothesId);
+
+        try {
+            restClient.delete().uri("/v1/closet/" + clothesId).retrieve();
+            System.out.println("=== [AI-API] deleteClothes 성공 ===");
+
+        } catch (Exception e) {
+            System.out.println("=== [AI-API] deleteClothes 실패 === 에러: " + e.getMessage());
+            e.printStackTrace();
+            throw e;
+        }
     }
 
     @Override

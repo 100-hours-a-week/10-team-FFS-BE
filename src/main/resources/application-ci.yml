@@ -93,6 +93,10 @@ kakao:
   jwks-uri: https://kauth.kakao.com/.well-known/jwks.json
   issuer: https://kauth.kakao.com
 
+rate-limit:
+  ai-api-daily-limit: 50
+  general-api-minute-limit: 100
+
 ai:
   api:
     base-url: http://localhost:8080

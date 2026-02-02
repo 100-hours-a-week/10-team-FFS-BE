@@ -7,7 +7,11 @@ import com.example.kloset_lab.clothes.dto.ClothesUpdateRequest;
 import com.example.kloset_lab.clothes.entity.Category;
 import com.example.kloset_lab.clothes.entity.Clothes;
 import com.example.kloset_lab.clothes.repository.ClothesRepository;
+import com.example.kloset_lab.clothes.repository.TempClothesTaskRepository;
 import com.example.kloset_lab.feed.dto.FeedClothesDto;
+import com.example.kloset_lab.global.ai.client.AIClient;
+import com.example.kloset_lab.global.ai.dto.EmbeddingRequest;
+import com.example.kloset_lab.global.ai.dto.MajorFeature;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
 import com.example.kloset_lab.global.response.PageInfo;
@@ -39,6 +43,8 @@ public class ClothesService {
     private final MediaFileRepository mediaFileRepository;
     private final MediaService mediaService;
     private final StorageService storageService;
+    private final AIClient aiClient;
+    private final TempClothesTaskRepository tempClothesTaskRepository;
 
     @Transactional
     public ClothesDetailResponse createClothes(Long currentUserId, ClothesCreateRequest request) {
@@ -66,6 +72,23 @@ public class ClothesService {
         clothes = clothesRepository.save(clothes);
 
         String imageUrl = storageService.getFullImageUrl(mediaFile.getObjectKey());
+
+        aiClient.saveEmbedding(EmbeddingRequest.builder()
+                .userId(currentUserId)
+                .clothesId(clothes.getId())
+                .imageUrl(imageUrl)
+                .major(MajorFeature.builder()
+                        .category(request.category())
+                        .color(request.color())
+                        .material(request.material())
+                        .styleTags(request.styleTag())
+                        .build())
+                .extra(tempClothesTaskRepository
+                        .findByTaskId(request.taskId())
+                        .orElseThrow(() -> new CustomException(ErrorCode.RESULT_NOT_FOUND))
+                        .getExtra())
+                .build());
+
         return ClothesDetailResponse.from(clothes, imageUrl, true);
     }
 
@@ -115,6 +138,7 @@ public class ClothesService {
         }
 
         clothes.softDelete();
+        aiClient.deleteClothes(clothesId);
     }
 
     /**

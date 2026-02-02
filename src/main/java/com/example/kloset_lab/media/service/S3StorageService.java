@@ -8,7 +8,6 @@ import java.time.Duration;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.*;
@@ -17,7 +16,6 @@ import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequ
 
 @Service
 @RequiredArgsConstructor
-@Profile("real")
 public class S3StorageService implements StorageService {
 
     private static final long MAX_IMAGE_SIZE_BYTES = 10L * 1024 * 1024;
@@ -58,7 +56,8 @@ public class S3StorageService implements StorageService {
             HeadObjectResponse response = s3Client.headObject(headObjectRequest);
 
             String actualFileType = response.contentType();
-            if (actualFileType == null || !expectedFileType.getMimeType().equals(actualFileType)) {
+            if (!FileType.PNG.getMimeType().equals(actualFileType)
+                    && !FileType.JPEG.getMimeType().equals(actualFileType)) {
                 throw new CustomException(ErrorCode.UPLOADED_FILE_MISMATCH);
             }
             long actualFileSize = response.contentLength();

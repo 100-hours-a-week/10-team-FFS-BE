@@ -7,5 +7,5 @@ import lombok.Builder;
 @Builder
 public record AnalyzeRequest(Long userId, String batchId, List<ImageInfo> images) {
     @Builder
-    public record ImageInfo(Integer sequence, String targetImage, String taskId, FileUploadResponse fileInfo) {}
+    public record ImageInfo(Integer sequence, String targetImage, String taskId, FileUploadResponse fileUploadInfo) {}
 }

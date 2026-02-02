@@ -7,6 +7,7 @@ import lombok.Builder;
 
 @Builder
 public record ClothesCreateRequest(
+        String taskId,
         Long fileId,
         String name,
         String brand,
