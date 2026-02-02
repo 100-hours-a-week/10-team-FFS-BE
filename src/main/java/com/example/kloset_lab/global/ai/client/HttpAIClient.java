@@ -72,14 +72,6 @@ public class HttpAIClient implements AIClient {
                 .images(imageInfos)
                 .build();
 
-        System.out.println("=== [AI-API] analyzeImages 시작 ===");
-        System.out.println("userId: " + userId);
-        System.out.println("batchId: " + batchId);
-        System.out.println("imageCount: " + imageUrlList.size());
-        System.out.println("요청 바디: " + analyzeRequest);
-
-        long startTime = System.currentTimeMillis();
-
         try {
             BatchResponse response = restClient
                     .post()
@@ -88,16 +80,9 @@ public class HttpAIClient implements AIClient {
                     .retrieve()
                     .body(BatchResponse.class);
 
-            System.out.println("=== [AI-API] analyzeImages 성공 ===");
-            System.out.println("소요시간: " + (System.currentTimeMillis() - startTime) + "ms");
-            System.out.println("응답: " + response);
-
             return response;
 
         } catch (Exception e) {
-            System.out.println("=== [AI-API] analyzeImages 실패 ===");
-            System.out.println("소요시간: " + (System.currentTimeMillis() - startTime) + "ms");
-            System.out.println("에러: " + e.getMessage());
             e.printStackTrace();
             throw e;
         }
@@ -113,11 +98,6 @@ public class HttpAIClient implements AIClient {
                 .urls(null)
                 .build();
 
-        System.out.println("=== [AI-API] recommendOutfit 시작 ===");
-        System.out.println("userId: " + userId + ", query: " + query);
-
-        long startTime = System.currentTimeMillis();
-
         try {
             OutfitResponse response = restClient
                     .post()
@@ -126,15 +106,9 @@ public class HttpAIClient implements AIClient {
                     .retrieve()
                     .body(OutfitResponse.class);
 
-            System.out.println("=== [AI-API] recommendOutfit 성공 ===");
-            System.out.println("소요시간: " + (System.currentTimeMillis() - startTime) + "ms");
-            System.out.println("응답: " + response);
-
             return response;
 
         } catch (Exception e) {
-            System.out.println("=== [AI-API] recommendOutfit 실패 ===");
-            System.out.println("에러: " + e.getMessage());
             e.printStackTrace();
             throw e;
         }
@@ -142,7 +116,6 @@ public class HttpAIClient implements AIClient {
 
     @Override
     public BatchResponse getBatchStatus(String batchId) {
-        System.out.println("=== [AI-API] getBatchStatus 시작 === batchId: " + batchId);
 
         try {
             BatchResponse response = restClient
@@ -151,11 +124,9 @@ public class HttpAIClient implements AIClient {
                     .retrieve()
                     .body(BatchResponse.class);
 
-            System.out.println("=== [AI-API] getBatchStatus 성공 === 응답: " + response);
             return response;
 
         } catch (Exception e) {
-            System.out.println("=== [AI-API] getBatchStatus 실패 === 에러: " + e.getMessage());
             e.printStackTrace();
             throw e;
         }
@@ -163,8 +134,6 @@ public class HttpAIClient implements AIClient {
 
     @Override
     public EmbeddingResponse saveEmbedding(EmbeddingRequest request) {
-        System.out.println("=== [AI-API] saveEmbedding 시작 === 요청: " + request);
-
         try {
             EmbeddingResponse response = restClient
                     .post()
@@ -172,12 +141,9 @@ public class HttpAIClient implements AIClient {
                     .body(request)
                     .retrieve()
                     .body(EmbeddingResponse.class);
-
-            System.out.println("=== [AI-API] saveEmbedding 성공 === 응답: " + response);
             return response;
 
         } catch (Exception e) {
-            System.out.println("=== [AI-API] saveEmbedding 실패 === 에러: " + e.getMessage());
             e.printStackTrace();
             throw e;
         }
@@ -185,14 +151,9 @@ public class HttpAIClient implements AIClient {
 
     @Override
     public void deleteClothes(Long clothesId) {
-        System.out.println("=== [AI-API] deleteClothes 시작 === clothesId: " + clothesId);
-
         try {
             restClient.delete().uri("/v1/closet/" + clothesId).retrieve();
-            System.out.println("=== [AI-API] deleteClothes 성공 ===");
-
         } catch (Exception e) {
-            System.out.println("=== [AI-API] deleteClothes 실패 === 에러: " + e.getMessage());
             e.printStackTrace();
             throw e;
         }
