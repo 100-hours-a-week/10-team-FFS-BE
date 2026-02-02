@@ -97,8 +97,6 @@ logging:
 
 cloud:
   aws:
-    region:
-      static: ${S3_REGION:ap-northeast-2}
     s3:
       bucket: ${S3_BUCKET_NAME:none}
     stack:
