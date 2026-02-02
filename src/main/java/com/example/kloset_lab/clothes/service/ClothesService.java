@@ -79,9 +79,9 @@ public class ClothesService {
                 .imageUrl(imageUrl)
                 .major(MajorFeature.builder()
                         .category(request.category())
-                        .color(request.color())
-                        .material(request.material())
-                        .styleTags(request.styleTag())
+                        .color(request.color() == null ? List.of() : request.color())
+                        .material(request.material() == null ? List.of() : request.material())
+                        .styleTags(request.styleTag() == null ? List.of() : request.styleTag())
                         .build())
                 .extra(tempClothesTaskRepository
                         .findByTaskId(request.taskId())
