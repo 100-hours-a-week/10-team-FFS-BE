@@ -24,7 +24,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/v1/feeds/{feedId}/comments")
+@RequestMapping("/api")
 @RequiredArgsConstructor
 public class CommentController {
 
@@ -38,7 +38,7 @@ public class CommentController {
      * @param request 댓글 작성 요청
      * @return 생성된 댓글 정보
      */
-    @PostMapping
+    @PostMapping("/v1/feeds/{feedId}/comments")
     public ResponseEntity<ApiResponse<CommentItem>> createComment(
             @AuthenticationPrincipal Long userId,
             @PathVariable Long feedId,
@@ -56,7 +56,7 @@ public class CommentController {
      * @param limit 조회 개수
      * @return 댓글 목록 및 페이지 정보
      */
-    @GetMapping
+    @GetMapping("/v1/feeds/{feedId}/comments")
     public ResponseEntity<ApiResponse<CommentPagedResponse<CommentItem>>> getComments(
             @AuthenticationPrincipal Long userId,
             @PathVariable Long feedId,
@@ -76,7 +76,7 @@ public class CommentController {
      * @param limit 조회 개수
      * @return 대댓글 목록 및 페이지 정보
      */
-    @GetMapping("/{commentId}/replies")
+    @GetMapping("/v1/feeds/{feedId}/comments/{commentId}/replies")
     public ResponseEntity<ApiResponse<CommentPagedResponse<CommentItem>>> getReplies(
             @AuthenticationPrincipal Long userId,
             @PathVariable Long feedId,
@@ -96,7 +96,7 @@ public class CommentController {
      * @param request 댓글 수정 요청
      * @return 수정된 댓글 정보
      */
-    @PatchMapping("/{commentId}")
+    @PatchMapping("/v1/feeds/{feedId}/comments/{commentId}")
     public ResponseEntity<ApiResponse<CommentItem>> updateComment(
             @AuthenticationPrincipal Long userId,
             @PathVariable Long feedId,
@@ -114,7 +114,7 @@ public class CommentController {
      * @param commentId 댓글 ID
      * @return 삭제 성공 응답
      */
-    @DeleteMapping("/{commentId}")
+    @DeleteMapping("/v1/feeds/{feedId}/comments/{commentId}")
     public ResponseEntity<ApiResponse<Void>> deleteComment(
             @AuthenticationPrincipal Long userId, @PathVariable Long feedId, @PathVariable Long commentId) {
         commentService.deleteComment(userId, feedId, commentId);
@@ -129,7 +129,7 @@ public class CommentController {
      * @param commentId 댓글 ID
      * @return 좋아요 응답
      */
-    @PostMapping("/{commentId}/likes")
+    @PostMapping("/v1/feeds/{feedId}/comments/{commentId}/likes")
     public ResponseEntity<ApiResponse<LikeResponse>> likeComment(
             @AuthenticationPrincipal Long userId, @PathVariable Long feedId, @PathVariable Long commentId) {
         LikeResponse response = commentService.likeComment(userId, feedId, commentId);
@@ -144,7 +144,7 @@ public class CommentController {
      * @param commentId 댓글 ID
      * @return 좋아요 응답
      */
-    @DeleteMapping("/{commentId}/likes")
+    @DeleteMapping("/v1/feeds/{feedId}/comments/{commentId}/likes")
     public ResponseEntity<ApiResponse<LikeResponse>> unlikeComment(
             @AuthenticationPrincipal Long userId, @PathVariable Long feedId, @PathVariable Long commentId) {
         LikeResponse response = commentService.unlikeComment(userId, feedId, commentId);
