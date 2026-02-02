@@ -1,4 +1,4 @@
-package com.example.kloset_lab.global.security.config;
+package com.example.kloset_lab.global.config;
 
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationContext;

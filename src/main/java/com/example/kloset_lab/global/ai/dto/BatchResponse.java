@@ -1,6 +1,6 @@
 package com.example.kloset_lab.global.ai.dto;
 
-import com.example.kloset_lab.global.security.config.RawJsonDeserializer;
+import com.example.kloset_lab.global.config.RawJsonDeserializer;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import java.util.List;
 import lombok.Builder;
