@@ -70,7 +70,7 @@ public class UserLifecycleService {
      * 동시 탈퇴 상황: 데드락 방지를 위해 Feed ID 오름차순으로 정렬 후 처리
      */
     private void deleteFeedLikesAndDecrementCounts(Long userId) {
-        List<FeedLike> feedLikes = feedLikeRepository.findAllByUserId(userId);
+        List<FeedLike> feedLikes = feedLikeRepository.findAllActiveByUserId(userId);
 
         if (feedLikes.isEmpty()) {
             return;
@@ -94,7 +94,7 @@ public class UserLifecycleService {
      * 데드락 방지를 위해 Comment ID 오름차순으로 정렬 후 처리
      */
     private void deleteCommentLikesAndDecrementCounts(Long userId) {
-        List<CommentLike> commentLikes = commentLikeRepository.findAllByUserId(userId);
+        List<CommentLike> commentLikes = commentLikeRepository.findAllActiveByUserId(userId);
 
         if (commentLikes.isEmpty()) {
             return;

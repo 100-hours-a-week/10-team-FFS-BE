@@ -23,9 +23,6 @@ public class S3StorageService implements StorageService {
     @Value("${cloud.aws.s3.bucket}")
     private String bucketName;
 
-    @Value("${cloud.aws.region.static}")
-    private String region;
-
     private final S3Client s3Client;
     private final S3Presigner s3Presigner;
 
@@ -74,7 +71,7 @@ public class S3StorageService implements StorageService {
 
     @Override
     public String getFullImageUrl(String objectKey) {
-        return "https://" + bucketName + ".s3." + region + ".amazonaws.com/" + objectKey;
+        return "https://" + bucketName + ".s3.ap-northeast-2.amazonaws.com/" + objectKey;
     }
 
     private String generateObjectKey(String fileName, FileType fileType) {

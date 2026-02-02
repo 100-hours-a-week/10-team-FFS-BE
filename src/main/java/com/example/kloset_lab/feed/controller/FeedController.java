@@ -29,7 +29,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/v1/feeds")
+@RequestMapping("/api")
 @RequiredArgsConstructor
 public class FeedController {
 
@@ -42,7 +42,7 @@ public class FeedController {
      * @param request 피드 생성 요청
      * @return 생성된 피드 상세 정보
      */
-    @PostMapping
+    @PostMapping("/v1/feeds")
     public ResponseEntity<ApiResponse<FeedDetailResponse>> createFeed(
             @AuthenticationPrincipal Long userId, @Valid @RequestBody FeedCreateRequest request) {
         FeedDetailResponse response = feedService.createFeed(userId, request);
@@ -57,7 +57,7 @@ public class FeedController {
      * @param limit  조회 개수
      * @return 피드 목록 및 페이지 정보
      */
-    @GetMapping
+    @GetMapping("/v1/feeds")
     public ResponseEntity<ApiResponse<PagedResponse<FeedListItem>>> getFeeds(
             @AuthenticationPrincipal Long userId,
             @RequestParam(required = false) Long after,
@@ -73,7 +73,7 @@ public class FeedController {
      * @param feedId 조회할 피드 ID
      * @return 피드 상세 정보
      */
-    @GetMapping("/{feedId}")
+    @GetMapping("/v1/feeds/{feedId}")
     public ResponseEntity<ApiResponse<FeedDetailResponse>> getFeed(
             @AuthenticationPrincipal Long userId, @PathVariable Long feedId) {
         FeedDetailResponse response = feedService.getFeed(userId, feedId);
@@ -88,7 +88,7 @@ public class FeedController {
      * @param request 피드 수정 요청
      * @return 수정된 피드 상세 정보
      */
-    @PatchMapping("/{feedId}")
+    @PatchMapping("/v1/feeds/{feedId}")
     public ResponseEntity<ApiResponse<FeedDetailResponse>> updateFeed(
             @AuthenticationPrincipal Long userId,
             @PathVariable Long feedId,
@@ -104,7 +104,7 @@ public class FeedController {
      * @param feedId 삭제할 피드 ID
      * @return 삭제 성공 응답
      */
-    @DeleteMapping("/{feedId}")
+    @DeleteMapping("/v1/feeds/{feedId}")
     public ResponseEntity<ApiResponse<Void>> deleteFeed(
             @AuthenticationPrincipal Long userId, @PathVariable Long feedId) {
         feedService.deleteFeed(userId, feedId);
@@ -118,7 +118,7 @@ public class FeedController {
      * @param feedId 좋아요할 피드 ID
      * @return 좋아요 응답 (좋아요 개수, 좋아요 여부)
      */
-    @PostMapping("/{feedId}/likes")
+    @PostMapping("/v1/feeds/{feedId}/likes")
     public ResponseEntity<ApiResponse<LikeResponse>> likeFeed(
             @AuthenticationPrincipal Long userId, @PathVariable Long feedId) {
         LikeResponse response = feedService.likeFeed(userId, feedId);
@@ -132,7 +132,7 @@ public class FeedController {
      * @param feedId 좋아요 취소할 피드 ID
      * @return 좋아요 응답 (좋아요 개수, 좋아요 여부)
      */
-    @DeleteMapping("/{feedId}/likes")
+    @DeleteMapping("/v1/feeds/{feedId}/likes")
     public ResponseEntity<ApiResponse<LikeResponse>> unlikeFeed(
             @AuthenticationPrincipal Long userId, @PathVariable Long feedId) {
         LikeResponse response = feedService.unlikeFeed(userId, feedId);
@@ -147,7 +147,7 @@ public class FeedController {
      * @param limit  조회 개수
      * @return 좋아요 사용자 목록 및 페이지 정보
      */
-    @GetMapping("/{feedId}/likes")
+    @GetMapping("/v1/feeds/{feedId}/likes")
     public ResponseEntity<ApiResponse<PagedResponse<FeedLikeUserItem>>> getLikedUsers(
             @PathVariable Long feedId,
             @RequestParam(required = false) Long after,

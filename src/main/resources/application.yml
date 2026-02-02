@@ -14,8 +14,7 @@ spring:
         format_sql: true
 
 jwt:
-  access-token-expiration: 3600000      # 1시간 (ms)
-  refresh-token-expiration: 604800000   # 1주일 (ms)
+  secret: ${JWT_SECRET}
 
 management:
   endpoints:

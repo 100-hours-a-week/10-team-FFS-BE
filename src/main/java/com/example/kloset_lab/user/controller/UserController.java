@@ -22,7 +22,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api/v1/users")
+@RequestMapping("/api")
 @RequiredArgsConstructor
 public class UserController {
 
@@ -39,7 +39,7 @@ public class UserController {
      * @param request 회원가입 요청 정보
      * @return 201 Created
      */
-    @PostMapping
+    @PostMapping("/v1/users")
     public ResponseEntity<ApiResponse<Void>> registerUserProfile(
             @AuthenticationPrincipal Long userId, @RequestBody @Valid UserRegisterRequest request) {
         userService.registerUserProfile(userId, request);
@@ -53,7 +53,7 @@ public class UserController {
      * @param userId 인증된 회원 ID
      * @return 200 OK
      */
-    @DeleteMapping
+    @DeleteMapping("/v1/users")
     public ResponseEntity<ApiResponse<Void>> deleteUser(@AuthenticationPrincipal Long userId) {
         userLifecycleService.deleteUser(userId);
         return ApiResponses.ok(Message.USER_DELETED);
@@ -66,7 +66,7 @@ public class UserController {
      * @param request 닉네임 검사 요청
      * @return 사용 가능 여부
      */
-    @GetMapping("/validation/nickname")
+    @GetMapping("/v1/users/validation/nickname")
     public ResponseEntity<ApiResponse<NicknameValidationResponse>> validateNickname(
             @Valid NicknameValidationRequest request) {
         NicknameValidationResult result = userService.validateNicknameWithMessage(request.nickname());
@@ -82,7 +82,7 @@ public class UserController {
      * @param request 생년월일 검사 요청 (yyyy-MM-dd 형식)
      * @return 유효 여부
      */
-    @GetMapping("/validation/birth-date")
+    @GetMapping("/v1/users/validation/birth-date")
     public ResponseEntity<ApiResponse<BirthDateValidationResponse>> validateBirthDate(
             @Valid BirthDateValidationRequest request) {
         BirthDateValidationResult result = userService.validateBirthDate(request.birthDate());
@@ -98,7 +98,7 @@ public class UserController {
      * @param userId 현재 로그인한 사용자 ID
      * @return 옷 개수
      */
-    @GetMapping("/me/clothes/count")
+    @GetMapping("/v1/users/me/clothes/count")
     public ResponseEntity<ApiResponse<ClothesCountResponse>> getMyClothesCount(@AuthenticationPrincipal Long userId) {
         long count = clothesService.getClothesCount(userId);
         ClothesCountResponse response = new ClothesCountResponse(count);
@@ -113,7 +113,7 @@ public class UserController {
      * @param currentUserId 현재 로그인한 유저 ID
      * @return 유저 프로필 정보
      */
-    @GetMapping("/{userId}")
+    @GetMapping("/v1/users/{userId}")
     public ResponseEntity<ApiResponse<UserProfileInfoResponse>> getUserProfile(
             @PathVariable Long userId, @AuthenticationPrincipal Long currentUserId) {
         UserProfileInfoResponse response = userService.getUserProfile(userId, currentUserId);
@@ -129,7 +129,7 @@ public class UserController {
      * @param limit         조회 개수
      * @return 피드 목록 및 페이지 정보
      */
-    @GetMapping("/{userId}/feeds")
+    @GetMapping("/v1/users/{userId}/feeds")
     public ResponseEntity<ApiResponse<PagedResponse<FeedListItem>>> getUserFeeds(
             @AuthenticationPrincipal Long currentUserId,
             @PathVariable Long userId,
@@ -149,7 +149,7 @@ public class UserController {
      * @param category 카테고리 필터 (옵션)
      * @return 옷 목록 및 페이지 정보
      */
-    @GetMapping("/{userId}/clothes")
+    @GetMapping("/v1/users/{userId}/clothes")
     public ResponseEntity<ApiResponse<PagedResponse<ClothesListItem>>> getUserClothes(
             @PathVariable Long userId,
             @RequestParam(required = false) Long after,

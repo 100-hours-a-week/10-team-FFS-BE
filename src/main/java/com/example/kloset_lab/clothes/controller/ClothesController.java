@@ -15,14 +15,14 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api/v1/clothes")
+@RequestMapping("/api")
 @RequiredArgsConstructor
 public class ClothesController {
 
     private final ClothesService clothesService;
     private final ClothesAnalysisService clothesAnalysisService;
 
-    @PostMapping("/analyses")
+    @PostMapping("/v1/clothes/analyses")
     public ResponseEntity<ApiResponse<ClothesAnalysisResponse>> requestAnalysis(
             @AuthenticationPrincipal Long currentUserId, @Valid @RequestBody ClothesAnalysisRequest request) {
         ClothesAnalysisResponse response = clothesAnalysisService.requestAnalysis(currentUserId, request.fileIds());
@@ -30,7 +30,7 @@ public class ClothesController {
         return ApiResponses.accepted(Message.AI_PRECHECK_COMPLETED, response);
     }
 
-    @GetMapping("/analyses/{batchId}")
+    @GetMapping("/v1/clothes/analyses/{batchId}")
     public ResponseEntity<ApiResponse<ClothesPollingResponse>> getAnalysisResult(
             @AuthenticationPrincipal Long currentUserId, @PathVariable String batchId) {
         ClothesPollingResponse response = clothesAnalysisService.getAnalysisResult(currentUserId, batchId);
@@ -38,7 +38,7 @@ public class ClothesController {
         return ApiResponses.ok(Message.CLOTHES_POLLING_RESULT_RETRIEVED, response);
     }
 
-    @PostMapping
+    @PostMapping("/v1/clothes")
     public ResponseEntity<ApiResponse<ClothesDetailResponse>> createClothes(
             @AuthenticationPrincipal Long currentUserId, @RequestBody ClothesCreateRequest request) {
         ClothesDetailResponse response = clothesService.createClothes(currentUserId, request);
@@ -46,7 +46,7 @@ public class ClothesController {
         return ApiResponses.created(Message.CLOTHES_CREATED, response);
     }
 
-    @GetMapping("/{clothesId}")
+    @GetMapping("/v1/clothes/{clothesId}")
     public ResponseEntity<ApiResponse<ClothesDetailResponse>> getClothesDetail(
             @AuthenticationPrincipal Long currentUserId, @PathVariable Long clothesId) {
         ClothesDetailResponse response = clothesService.getClothesDetail(currentUserId, clothesId);
@@ -54,7 +54,7 @@ public class ClothesController {
         return ApiResponses.ok(Message.CLOTHES_DETAIL_RETRIEVED, response);
     }
 
-    @PatchMapping("/{clothesId}")
+    @PatchMapping("/v1/clothes/{clothesId}")
     public ResponseEntity<ApiResponse<ClothesDetailResponse>> updateClothes(
             @AuthenticationPrincipal Long currentUserId,
             @PathVariable Long clothesId,
@@ -64,7 +64,7 @@ public class ClothesController {
         return ApiResponses.ok(Message.CLOTHES_DETAIL_UPDATED, response);
     }
 
-    @DeleteMapping("/{clothesId}")
+    @DeleteMapping("/v1/clothes/{clothesId}")
     public ResponseEntity<ApiResponse<Void>> deleteClothes(
             @AuthenticationPrincipal Long currentUserId, @PathVariable Long clothesId) {
         clothesService.deleteClothes(currentUserId, clothesId);
@@ -72,7 +72,7 @@ public class ClothesController {
         return ApiResponses.ok(Message.CLOTHES_DELETED);
     }
 
-    @GetMapping("/clothes-details")
+    @GetMapping("/v1/clothes/clothes-details")
     public ResponseEntity<ApiResponse<List<FeedClothesDto>>> getClothesDetails(
             @AuthenticationPrincipal Long currentUserId, @RequestParam List<Long> clothesIds) {
         return ApiResponses.ok("옷 세부 정보 반환", clothesService.getClothesDetails(clothesIds));
