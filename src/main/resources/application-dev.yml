@@ -57,26 +57,6 @@ jwt:
   access-token-expiration: 43200000
   refresh-token-expiration: 604800000
 
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info,metrics,env
-      base-path: /actuator
-  endpoint:
-    health:
-      show-details: always
-      show-components: always
-  health:
-    defaults:
-      enabled: true
-    db:
-      enabled: true
-    redis:
-      enabled: true
-  info:
-    env:
-      enabled: true
 
 logging:
   level:
