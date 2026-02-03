@@ -98,7 +98,7 @@ logging:
 cloud:
   aws:
     s3:
-      bucket: ${S3_BUCKET_NAME:none}
+      bucket: ${AWS_S3_BUCKET:none}
     stack:
       auto: false
 
