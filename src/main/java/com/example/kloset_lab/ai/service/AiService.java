@@ -17,6 +17,7 @@ import com.example.kloset_lab.global.ai.dto.ClothesDto;
 import com.example.kloset_lab.global.ai.dto.OutfitResponse;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
+import com.example.kloset_lab.media.service.MediaService;
 import com.example.kloset_lab.media.service.StorageService;
 import com.example.kloset_lab.user.entity.User;
 import com.example.kloset_lab.user.repository.UserRepository;
@@ -40,6 +41,7 @@ public class AiService {
     private final TpoResultClothesRepository tpoResultClothesRepository;
     private final ClothesRepository clothesRepository;
     private final StorageService storageService;
+    private final MediaService mediaService;
 
     /**
      * TPO 코디 생성 요청
@@ -154,6 +156,7 @@ public class AiService {
                             .outfitId(tpoResult.getId())
                             .aiComment(aiComment)
                             .clothes(clothesDtos)
+                            .imageUrl(mediaService.getFileFullUrl(outfit.fileId()))
                             .build();
                 })
                 .toList();
