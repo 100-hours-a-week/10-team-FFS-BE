@@ -59,6 +59,10 @@ dependencies {
 
     // Rate Limiting - Bucket4j
     implementation("com.bucket4j:bucket4j_jdk17-core:8.14.0")
+
+    // Flyway
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-mysql'
 }
 
 spotless {
