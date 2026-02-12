@@ -6,7 +6,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
 
 jwt:
   access-token-expiration: 43200000      # 12시간 (ms)
