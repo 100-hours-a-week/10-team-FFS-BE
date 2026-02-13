@@ -82,7 +82,7 @@ public class ClothesAnalysisService {
 
             // 4단계: 업데이트된 데이터 다시 조회
             batch = tempClothesBatchRepository
-                    .findByBatchId(batchId)
+                    .findByBatchIdWithTasks(batchId)
                     .orElseThrow(() -> new CustomException(ErrorCode.CLOTHES_ANALYSIS_RESULT_NOT_FOUND));
         }
 
@@ -97,7 +97,7 @@ public class ClothesAnalysisService {
     @Transactional(readOnly = true)
     public TempClothesBatch findAndValidateBatch(Long currentUserId, String batchId) {
         TempClothesBatch batch = tempClothesBatchRepository
-                .findByBatchId(batchId)
+                .findByBatchId(batchId) // tasks 조회 안 함 (필요 없음)
                 .orElseThrow(() -> new CustomException(ErrorCode.CLOTHES_ANALYSIS_RESULT_NOT_FOUND));
 
         if (!batch.isOwner(currentUserId)) {
@@ -114,7 +114,7 @@ public class ClothesAnalysisService {
     @Transactional
     public void updateBatchStatus(String batchId, BatchResponse batchResponse) {
         TempClothesBatch batch = tempClothesBatchRepository
-                .findByBatchId(batchId)
+                .findByBatchIdWithTasks(batchId)
                 .orElseThrow(() -> new CustomException(ErrorCode.CLOTHES_ANALYSIS_RESULT_NOT_FOUND));
 
         updateBatchAndTasks(batch, batchResponse);
@@ -167,17 +167,15 @@ public class ClothesAnalysisService {
      * N+1 문제 해결: fileId를 배치로 조회
      */
     private ClothesPollingResponse toPollingResponse(TempClothesBatch batch) {
-        // 1. 모든 fileId 수집
+
         List<Long> fileIds = batch.getTasks().stream()
                 .map(TempClothesTask::getFileId)
                 .filter(fileId -> fileId != null)
                 .distinct()
                 .toList();
 
-        // 2. 한 번에 조회 (N+1 해결!)
         Map<Long, String> fileUrlMap = fileIds.isEmpty() ? Map.of() : mediaService.getFileFullUrlsMap(fileIds);
 
-        // 3. Map에서 URL 가져와서 응답 생성
         List<ClothesPollingResponse.TaskResult> results = batch.getTasks().stream()
                 .map(task -> toTaskResult(task, fileUrlMap))
                 .toList();
