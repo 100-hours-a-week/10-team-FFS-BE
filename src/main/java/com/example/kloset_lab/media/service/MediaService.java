@@ -14,6 +14,8 @@ import com.example.kloset_lab.user.entity.User;
 import com.example.kloset_lab.user.repository.UserRepository;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -81,9 +83,9 @@ public class MediaService {
                 throw new CustomException(ErrorCode.NOT_PENDING_STATE);
             }
         }
-        mediaFileList.forEach(file -> storageService.validateUpload(file.getObjectKey(), file.getFileType()));
-        mediaFileList.forEach(MediaFile::updateFileStatus);
-        mediaFileRepository.saveAll(mediaFileList);
+        // mediaFileList.forEach(file -> storageService.validateUpload(file.getObjectKey(), file.getFileType()));
+        // mediaFileList.forEach(MediaFile::updateFileStatus);
+        // mediaFileRepository.saveAll(mediaFileList);
     }
 
     public List<String> getFileFullUrls(List<Long> fileIdList) {
@@ -110,6 +112,19 @@ public class MediaService {
                 mediaFileRepository.findById(fileId).orElseThrow(() -> new CustomException(ErrorCode.FILE_NOT_FOUND));
 
         return storageService.getFullImageUrl(mediaFile.getObjectKey());
+    }
+
+    public Map<Long, String> getFileFullUrlsMap(List<Long> fileIds) {
+        if (fileIds == null || fileIds.isEmpty()) {
+            return Map.of();
+        }
+
+        List<MediaFile> mediaFiles = mediaFileRepository.findAllById(fileIds);
+
+        return mediaFiles.stream()
+                .filter(file -> file.getStatus().equals(FileStatus.UPLOADED)) // 업로드된 것만
+                .collect(Collectors.toMap(
+                        MediaFile::getId, file -> storageService.getFullImageUrl(file.getObjectKey())));
     }
 
     private void validateFileCount(Purpose purpose, int count) {
