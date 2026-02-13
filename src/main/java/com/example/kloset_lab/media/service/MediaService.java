@@ -95,14 +95,12 @@ public class MediaService {
             throw new CustomException(ErrorCode.FILE_NOT_FOUND);
         }
 
-                for (MediaFile file : mediaFiles) {
+        for (MediaFile file : mediaFiles) {
 
-                    if (!file.getStatus().equals(FileStatus.UPLOADED)) {
-                        throw new CustomException(ErrorCode.FILE_NOT_FOUND);
-                    }
-
-
-                }
+            if (!file.getStatus().equals(FileStatus.UPLOADED)) {
+                throw new CustomException(ErrorCode.FILE_NOT_FOUND);
+            }
+        }
 
         return mediaFiles.stream()
                 .map(MediaFile::getObjectKey)
