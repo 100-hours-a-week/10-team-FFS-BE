@@ -59,17 +59,11 @@ public class ClothesAnalysisService {
      * 옷 분석 결과 폴링 API
      */
     public ClothesPollingResponse getAnalysisResult(Long currentUserId, String batchId) {
-        // 1. 조회 및 검증 (별도 Service → 프록시 거침 ✅)
         TempClothesBatch batch = tempClothesBatchService.findAndValidateBatch(currentUserId, batchId);
 
-        // 2. AI 서버 호출 (커넥션 없음)
         if (!batch.isFinished()) {
             BatchResponse batchResponse = aiClient.getBatchStatus(batchId);
-
-            // 3. 업데이트 (별도 Service → 프록시 거침 ✅)
             tempClothesBatchService.updateBatchStatus(batchId, batchResponse);
-
-            // 4. 업데이트된 데이터 다시 조회 (별도 Service → 프록시 거침 ✅)
             batch = tempClothesBatchService.findByBatchIdWithTasks(batchId);
         }
 

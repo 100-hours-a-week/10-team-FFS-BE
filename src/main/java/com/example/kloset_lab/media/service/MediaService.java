@@ -83,9 +83,9 @@ public class MediaService {
                 throw new CustomException(ErrorCode.NOT_PENDING_STATE);
             }
         }
-        // mediaFileList.forEach(file -> storageService.validateUpload(file.getObjectKey(), file.getFileType()));
-        // mediaFileList.forEach(MediaFile::updateFileStatus);
-        // mediaFileRepository.saveAll(mediaFileList);
+        mediaFileList.forEach(file -> storageService.validateUpload(file.getObjectKey(), file.getFileType()));
+        mediaFileList.forEach(MediaFile::updateFileStatus);
+        mediaFileRepository.saveAll(mediaFileList);
     }
 
     public List<String> getFileFullUrls(List<Long> fileIdList) {
@@ -94,7 +94,7 @@ public class MediaService {
         if (mediaFiles.size() != fileIdList.size()) {
             throw new CustomException(ErrorCode.FILE_NOT_FOUND);
         }
-        /*
+
                 for (MediaFile file : mediaFiles) {
 
                     if (!file.getStatus().equals(FileStatus.UPLOADED)) {
@@ -103,7 +103,7 @@ public class MediaService {
 
 
                 }
-        */
+
         return mediaFiles.stream()
                 .map(MediaFile::getObjectKey)
                 .map(storageService::getFullImageUrl)
