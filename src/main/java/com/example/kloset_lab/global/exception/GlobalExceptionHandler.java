@@ -63,7 +63,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(CustomException.class)
     public ResponseEntity<ApiResponse<Void>> handleCustomException(CustomException e) {
-        log.warn("CustomException: {}", e.getMessage());
+        log.warn("CustomException occurred", e);
         return ApiResponses.error(e.getErrorCode());
     }
 
