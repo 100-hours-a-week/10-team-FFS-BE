@@ -1,6 +1,7 @@
 package com.example.kloset_lab.chat.listener;
 
 import com.example.kloset_lab.chat.constant.ChatConstants;
+import com.example.kloset_lab.chat.dto.LastMessageDto;
 import com.example.kloset_lab.chat.entity.ChatParticipant;
 import com.example.kloset_lab.chat.event.ChatMessageSentEvent;
 import com.example.kloset_lab.chat.event.ChatParticipantLeftEvent;
@@ -58,10 +59,12 @@ public class ChatEventListener {
                             p.getUserId(),
                             com.example.kloset_lab.chat.dto.stomp.ChatRoomUpdateEvent.builder()
                                     .roomId(event.roomId())
-                                    .lastMessageId(event.messageId())
-                                    .lastMessageContent(event.contentPreview())
-                                    .lastMessageType(event.type())
-                                    .lastMessageAt(event.sentAt())
+                                    .lastMessage(LastMessageDto.builder()
+                                            .messageId(event.messageId())
+                                            .content(event.contentPreview())
+                                            .type(event.type())
+                                            .sentAt(event.sentAt())
+                                            .build())
                                     .senderId(event.senderId())
                                     .build()));
         } catch (Exception e) {

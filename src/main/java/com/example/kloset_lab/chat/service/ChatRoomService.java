@@ -79,7 +79,25 @@ public class ChatRoomService {
 
         return chatRoomRepository
                 .findExistingRoomBetweenUsers(userId, opponentUserId)
-                .map(existingRoom -> ChatRoomResult.existing(buildChatRoomResponse(existingRoom, opponentUserId)))
+                .map(existingRoom -> {
+                    // 이전에 나간 사용자라면 participant 재추가 후 Redis 복구
+                    chatParticipantRepository
+                            .findByRoomIdAndUserId(existingRoom.getId(), userId)
+                            .orElseGet(() -> {
+                                chatParticipantRepository.save(ChatParticipant.builder()
+                                        .room(existingRoom)
+                                        .userId(userId)
+                                        .build());
+                                double score = Optional.ofNullable(existingRoom.getLastMessageAt())
+                                        .map(at -> (double) at.toEpochMilli())
+                                        .orElse((double)
+                                                existingRoom.getCreatedAt().toEpochMilli());
+                                eventPublisher.publishEvent(
+                                        new ChatRoomCreatedEvent(userId, opponentUserId, existingRoom.getId(), score));
+                                return null;
+                            });
+                    return ChatRoomResult.existing(buildChatRoomResponse(existingRoom, opponentUserId));
+                })
                 .orElseGet(() -> ChatRoomResult.created(createNewRoom(userId, opponentUserId)));
     }
 
@@ -121,7 +139,8 @@ public class ChatRoomService {
             rebuildRoomCache(userId);
         }
 
-        double maxScore = Optional.ofNullable(cursor).orElse(Double.MAX_VALUE);
+        // 커서가 있으면 -1 적용해 직전 마지막 항목 중복 방지 (score는 epoch millis 정수)
+        double maxScore = Optional.ofNullable(cursor).map(c -> c - 1.0).orElse(Double.MAX_VALUE);
         List<String> roomIdStrs = chatRedisRepository.getRoomsDesc(userId, maxScore, size + 1);
 
         boolean hasNextPage = roomIdStrs.size() > size;
@@ -206,11 +225,13 @@ public class ChatRoomService {
                     });
 
                     // Redis 재구축 시 MongoDB 기준으로 안읽은 메시지 수 복구
+                    // lastReadId 없을 경우 enteredAt 이후 메시지만 카운트 (재진입 사용자 보호)
                     long unreadCount = Optional.ofNullable(participant.getLastReadMessageId())
                             .filter(ObjectId::isValid)
                             .map(lastReadId -> chatMessageRepository.countByRoomIdAndIdGreaterThan(
                                     room.getId(), new ObjectId(lastReadId)))
-                            .orElseGet(() -> chatMessageRepository.countByRoomId(room.getId()));
+                            .orElseGet(() -> chatMessageRepository.countByRoomIdAndCreatedAtGreaterThanEqual(
+                                    room.getId(), participant.getEnteredAt()));
                     if (unreadCount > 0) {
                         chatRedisRepository.setUnread(userId, room.getId(), unreadCount);
                     }
@@ -234,11 +255,14 @@ public class ChatRoomService {
 
         int limit = size > 0 ? size : ChatConstants.DEFAULT_MESSAGE_PAGE_SIZE;
         PageRequest pageable = PageRequest.of(0, limit + 1, Sort.by(Sort.Direction.DESC, "_id"));
+        Instant enteredAt = participant.getEnteredAt();
 
         List<ChatMessage> messages = Optional.ofNullable(cursor)
                 .filter(ObjectId::isValid)
-                .map(c -> chatMessageRepository.findByRoomIdAndIdLessThan(roomId, new ObjectId(c), pageable))
-                .orElseGet(() -> chatMessageRepository.findByRoomId(roomId, pageable));
+                .map(c -> chatMessageRepository.findByRoomIdAndIdLessThanAndCreatedAtGreaterThanEqual(
+                        roomId, new ObjectId(c), enteredAt, pageable))
+                .orElseGet(() ->
+                        chatMessageRepository.findByRoomIdAndCreatedAtGreaterThanEqual(roomId, enteredAt, pageable));
 
         boolean hasNextPage = messages.size() > limit;
         List<ChatMessage> pageMessages = hasNextPage ? messages.subList(0, limit) : messages;
@@ -306,6 +330,10 @@ public class ChatRoomService {
      */
     @Transactional
     public void markAsRead(Long userId, Long roomId, ReadRequest request) {
+        if (!ObjectId.isValid(request.lastReadMessageId())) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST);
+        }
+
         ChatParticipant participant = chatParticipantRepository
                 .findByRoomIdAndUserId(roomId, userId)
                 .orElseThrow(() -> new CustomException(ErrorCode.CHAT_ROOM_ACCESS_DENIED));

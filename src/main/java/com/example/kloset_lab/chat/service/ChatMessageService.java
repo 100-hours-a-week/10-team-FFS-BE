@@ -58,6 +58,9 @@ public class ChatMessageService {
      */
     @Transactional
     public void sendMessage(Long userId, Long roomId, ChatSendRequest req) {
+        // 0. 메시지 타입 유효성 검증
+        validateMessageType(req);
+
         // 1. 참여자·방·미디어 파일 검증 (MySQL 읽기)
         chatParticipantRepository
                 .findByRoomIdAndUserId(roomId, userId)
@@ -69,7 +72,7 @@ public class ChatMessageService {
 
         List<ChatImage> chatImages = validateAndBuildImages(userId, req);
 
-        if (ChatConstants.MSG_TYPE_FEED.equals(req.type()) && req.relatedFeedId() != null) {
+        if (ChatConstants.MSG_TYPE_FEED.equals(req.type())) {
             feedRepository
                     .findById(req.relatedFeedId())
                     .orElseThrow(() -> new CustomException(ErrorCode.FEED_NOT_FOUND));
@@ -120,6 +123,26 @@ public class ChatMessageService {
                 roomId, userId, participants, messageId, contentPreview, req.type(), now, broadcastMessage));
     }
 
+    /**
+     * 메시지 타입 및 타입별 필수 필드 검증
+     *
+     * @param req 메시지 전송 요청
+     */
+    private void validateMessageType(ChatSendRequest req) {
+        String type = Optional.ofNullable(req.type()).orElseThrow(() -> new CustomException(ErrorCode.INVALID_REQUEST));
+        switch (type) {
+            case ChatConstants.MSG_TYPE_TEXT -> {
+                // TEXT: content는 선택적 허용 (빈 메시지 가능)
+            }
+            case ChatConstants.MSG_TYPE_IMAGE -> Optional.ofNullable(req.mediaFileIds())
+                    .filter(ids -> !ids.isEmpty())
+                    .orElseThrow(() -> new CustomException(ErrorCode.INVALID_REQUEST));
+            case ChatConstants.MSG_TYPE_FEED -> Optional.ofNullable(req.relatedFeedId())
+                    .orElseThrow(() -> new CustomException(ErrorCode.INVALID_REQUEST));
+            default -> throw new CustomException(ErrorCode.INVALID_REQUEST);
+        }
+    }
+
     /** 이미지 타입 메시지의 media_file 검증 및 ChatImage 목록 생성 */
     private List<ChatImage> validateAndBuildImages(Long userId, ChatSendRequest req) {
         if (!ChatConstants.MSG_TYPE_IMAGE.equals(req.type())
@@ -152,7 +175,7 @@ public class ChatMessageService {
             chatImages.add(ChatImage.builder()
                     .mediaFileId(mediaFileId)
                     .objectKey(mediaFile.getObjectKey())
-                    .displayOrder(i)
+                    .displayOrder(i + 1)
                     .build());
         }
         return chatImages;

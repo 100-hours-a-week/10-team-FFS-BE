@@ -1,5 +1,6 @@
 package com.example.kloset_lab.chat.config;
 
+import com.example.kloset_lab.auth.entity.TokenType;
 import com.example.kloset_lab.chat.constant.ChatConstants;
 import com.example.kloset_lab.global.security.provider.JwtTokenProvider;
 import java.util.Optional;
@@ -41,7 +42,14 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
                 throw new MessageDeliveryException("인증이 필요합니다.");
             }
 
+            TokenType tokenType = jwtTokenProvider.getTokenTypeFromToken(token);
+            if (tokenType != TokenType.ACTIVE) {
+                log.warn("STOMP CONNECT 인증 실패: ACTIVE 토큰이 아님 (type: {})", tokenType);
+                throw new MessageDeliveryException("가입이 완료된 계정만 채팅을 이용할 수 있습니다.");
+            }
+
             Long userId = jwtTokenProvider.getUserIdFromToken(token);
+            accessor.setUser(() -> String.valueOf(userId));
             accessor.getSessionAttributes().put(ChatConstants.SESSION_ATTR_USER_ID, userId);
             log.debug("STOMP 인증 성공 - userId: {}", userId);
         }
