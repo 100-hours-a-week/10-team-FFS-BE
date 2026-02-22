@@ -18,6 +18,7 @@ public enum ErrorCode {
     TOO_FEW_FILES(HttpStatus.BAD_REQUEST, "too_few_files"),
     UNSUPPORTED_FILE_TYPE(HttpStatus.BAD_REQUEST, "unsupported_file_type"),
     FILE_SIZE_EXCEEDS_10MB(HttpStatus.BAD_REQUEST, "file_size_exceeds_10mb"),
+    CANNOT_CHAT_WITH_SELF(HttpStatus.BAD_REQUEST, "cannot_chat_with_self"),
 
     // 401 Unauthorized
     AUTHENTICATION_REQUIRED(HttpStatus.UNAUTHORIZED, "authentication_required"),
@@ -38,6 +39,7 @@ public enum ErrorCode {
     TPO_RESULT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "tpo_result_access_denied"),
     SHOP_RESULT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "shop_result_access_denied"),
     CLOTHES_ANALYSIS_RESULT_DENIED(HttpStatus.FORBIDDEN, "clothes_analysis_result_denied"),
+    CHAT_ROOM_ACCESS_DENIED(HttpStatus.FORBIDDEN, "chat_room_access_denied"),
 
     // 404 Not Found
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "user_not_found"),
@@ -52,6 +54,8 @@ public enum ErrorCode {
     OUTFIT_NOT_FOUND(HttpStatus.NOT_FOUND, "outfit_not_found"),
     TPO_RESULT_NOT_FOUND(HttpStatus.NOT_FOUND, "tpo_result_not_found"),
     RESULT_NOT_FOUND(HttpStatus.NOT_FOUND, "clothes_analyze_result_not_found"),
+    CHAT_ROOM_NOT_FOUND(HttpStatus.NOT_FOUND, "chat_room_not_found"),
+    CHAT_PARTICIPANT_NOT_FOUND(HttpStatus.NOT_FOUND, "chat_participant_not_found"),
 
     // 409 Conflict
     EXISTING_NICKNAME(HttpStatus.CONFLICT, "existing_nickname"),
@@ -74,6 +78,7 @@ public enum ErrorCode {
     // 500 Internal Server Error
     INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "internal_server_error"),
     IMAGE_PROCESSING_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "image_processing_error"),
+    CHAT_MESSAGE_SAVE_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "chat_message_save_failed"),
 
     // 502 Bad Gateway
     AI_ERROR(HttpStatus.BAD_GATEWAY, "ai_error"),

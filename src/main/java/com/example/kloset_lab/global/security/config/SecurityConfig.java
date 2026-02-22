@@ -47,6 +47,8 @@ public class SecurityConfig {
                         .permitAll()
                         .requestMatchers("/api/v1/presigned-url")
                         .permitAll()
+                        .requestMatchers("/ws/**")
+                        .permitAll()
                         .anyRequest()
                         .authenticated())
                 .exceptionHandling(exception -> exception

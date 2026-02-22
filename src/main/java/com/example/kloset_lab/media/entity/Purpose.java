@@ -8,7 +8,8 @@ public enum Purpose {
     PROFILE(1),
     CLOTHES_TEMP(10),
     CLOTHES(10),
-    OUTFIT(3);
+    OUTFIT(3),
+    CHAT(3);
 
     private final int maxCount;
 
