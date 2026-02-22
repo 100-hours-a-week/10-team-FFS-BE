@@ -37,6 +37,9 @@ management:
       export:
         enabled: true
 
+cdn:
+  base-url: https://${AWS_S3_BUCKET:}.s3.ap-northeast-2.amazonaws.com
+
 rate-limit:
   ai-api-daily-limit: ${RATE_LIMIT_AI_API_DAILY:50}
   general-api-minute-limit: ${RATE_LIMIT_GENERAL_API_MINUTE:100}

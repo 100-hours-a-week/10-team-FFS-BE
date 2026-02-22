@@ -64,6 +64,12 @@ dependencies {
     implementation 'org.flywaydb:flyway-core'
     implementation 'org.flywaydb:flyway-mysql'
 
+    // WebSocket / STOMP
+    implementation 'org.springframework.boot:spring-boot-starter-websocket'
+
+    // MongoDB
+    implementation 'org.springframework.boot:spring-boot-starter-data-mongodb'
+
     // Apache HttpClient 5 (RestClient 커넥션 풀링)
     implementation 'org.apache.httpcomponents.client5:httpclient5'
 
