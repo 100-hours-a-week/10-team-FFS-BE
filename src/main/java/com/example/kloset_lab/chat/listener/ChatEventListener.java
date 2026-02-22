@@ -86,6 +86,8 @@ public class ChatEventListener {
         try {
             chatRedisRepository.addRoomToUser(event.userId(), event.roomId(), event.score());
             chatRedisRepository.addRoomToUser(event.opponentUserId(), event.roomId(), event.score());
+            // 이벤트 발신자(userId)만 0 초기화: 재진입 시 상대방(opponentUserId)의 기존 unread 보존
+            chatRedisRepository.resetUnread(event.userId(), event.roomId());
         } catch (Exception e) {
             log.error("채팅방 생성 후 Redis 캐시 등록 실패 - roomId: {}. rebuildRoomCache로 복구됩니다.", event.roomId(), e);
         }

@@ -42,7 +42,13 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
                 throw new MessageDeliveryException("인증이 필요합니다.");
             }
 
-            TokenType tokenType = jwtTokenProvider.getTokenTypeFromToken(token);
+            TokenType tokenType;
+            try {
+                tokenType = jwtTokenProvider.getTokenTypeFromToken(token);
+            } catch (IllegalArgumentException e) {
+                log.warn("STOMP CONNECT 인증 실패: type claim 없음 또는 알 수 없는 토큰 타입");
+                throw new MessageDeliveryException("인증이 필요합니다.");
+            }
             if (tokenType != TokenType.ACTIVE) {
                 log.warn("STOMP CONNECT 인증 실패: ACTIVE 토큰이 아님 (type: {})", tokenType);
                 throw new MessageDeliveryException("가입이 완료된 계정만 채팅을 이용할 수 있습니다.");

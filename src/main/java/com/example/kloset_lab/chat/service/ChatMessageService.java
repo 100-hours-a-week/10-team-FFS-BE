@@ -132,7 +132,12 @@ public class ChatMessageService {
         String type = Optional.ofNullable(req.type()).orElseThrow(() -> new CustomException(ErrorCode.INVALID_REQUEST));
         switch (type) {
             case ChatConstants.MSG_TYPE_TEXT -> {
-                // TEXT: content는 선택적 허용 (빈 메시지 가능)
+                String content = Optional.ofNullable(req.content())
+                        .filter(c -> !c.isBlank())
+                        .orElseThrow(() -> new CustomException(ErrorCode.INVALID_REQUEST));
+                if (content.length() > 255) {
+                    throw new CustomException(ErrorCode.INVALID_REQUEST);
+                }
             }
             case ChatConstants.MSG_TYPE_IMAGE -> Optional.ofNullable(req.mediaFileIds())
                     .filter(ids -> !ids.isEmpty())
