@@ -64,6 +64,12 @@ dependencies {
     implementation 'org.flywaydb:flyway-core'
     implementation 'org.flywaydb:flyway-mysql'
 
+    // WebSocket / STOMP
+    implementation 'org.springframework.boot:spring-boot-starter-websocket'
+
+    // MongoDB
+    implementation 'org.springframework.boot:spring-boot-starter-data-mongodb'
+
     // Apache HttpClient 5 (RestClient 커넥션 풀링)
     implementation 'org.apache.httpcomponents.client5:httpclient5'
 
@@ -106,6 +112,11 @@ tasks.named('test') {
 checkstyle {
     toolVersion = '10.12.4'
     configFile = file("${rootDir}/config/checkstyle/checkstyle.xml")
+}
+
+// 테스트 코드는 한글/언더스코어 메서드명을 허용하기 위해 Checkstyle 미적용
+tasks.named('checkstyleTest') {
+    enabled = false
 }
 
 jacoco {

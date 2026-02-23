@@ -1,12 +1,27 @@
+server:
+  address: 127.0.0.1
+
 spring:
   datasource:
-    url: jdbc:mysql://${MYSQL_URL:localhost}:${MYSQL_PORT:3306}/${MYSQL_NAME:kloset_lab}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8&useSSL=false&allowPublicKeyRetrieval=true
-    username: ${MYSQL_USER:root}
-    password: ${MYSQL_PASSWORD:}
+    url: jdbc:mysql://${MYSQL_URL}:${MYSQL_PORT}/${MYSQL_NAME}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USER}
+    password: ${MYSQL_PASSWORD}
 
   jpa:
     hibernate:
       ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          time_zone: UTC
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+    mongodb:
+      uri: ${MONGO_URI:mongodb://localhost:27017/kloset}
 
 jwt:
   access-token-expiration: 43200000      # 12시간 (ms)
@@ -39,3 +54,7 @@ cors:
     - '*'
   allow-credentials: true
   max-age: 3600
+
+rate-limit:
+  ai-api-daily-limit: 1000
+  general-api-minute-limit: 100000
