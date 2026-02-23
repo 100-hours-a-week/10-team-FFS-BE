@@ -48,4 +48,13 @@ public interface FeedRepository extends JpaRepository<Feed, Long> {
     @Modifying
     @Query("UPDATE Feed f SET f.deletedAt = :deletedAt WHERE f.user.id = :userId AND f.deletedAt IS NULL")
     void softDeleteAllByUserId(@Param("userId") Long userId, @Param("deletedAt") LocalDateTime deletedAt);
+
+    @Query("SELECT f FROM Feed f " + "WHERE (f.user.id IN ("
+            + "  SELECT fo.followee.id FROM Follow fo WHERE fo.follower.id = :userId"
+            + ") OR f.user.id = :userId) "
+            + "AND f.deletedAt IS NULL "
+            + "AND (:cursor IS NULL OR f.id < :cursor) "
+            + "ORDER BY f.id DESC")
+    Slice<Feed> findFollowingFeedsByCursor(
+            @Param("userId") Long userId, @Param("cursor") Long cursor, Pageable pageable);
 }

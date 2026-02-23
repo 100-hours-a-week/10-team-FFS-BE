@@ -18,6 +18,7 @@ import com.example.kloset_lab.feed.repository.FeedClothesMappingRepository;
 import com.example.kloset_lab.feed.repository.FeedImageRepository;
 import com.example.kloset_lab.feed.repository.FeedLikeRepository;
 import com.example.kloset_lab.feed.repository.FeedRepository;
+import com.example.kloset_lab.follow.repository.FollowRepository;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
 import com.example.kloset_lab.global.response.LikeResponse;
@@ -62,6 +63,7 @@ public class FeedService {
     private final ClothesValidationService clothesValidationService;
     private final MediaService mediaService;
     private final UserService userService;
+    private final FollowRepository followRepository;
 
     /**
      * 피드 생성
@@ -213,7 +215,7 @@ public class FeedService {
      * @param limit  조회 개수
      * @return 좋아요 사용자 목록 및 페이지 정보
      */
-    public PagedResponse<FeedLikeUserItem> getLikedUsers(Long feedId, Long after, int limit) {
+    public PagedResponse<FeedLikeUserItem> getLikedUsers(Long currentUserId, Long feedId, Long after, int limit) {
         if (!feedRepository.existsById(feedId)) {
             throw new CustomException(ErrorCode.FEED_NOT_FOUND);
         }
@@ -226,7 +228,7 @@ public class FeedService {
                 .collect(Collectors.toMap(up -> up.getUser().getId(), Function.identity()));
 
         List<FeedLikeUserItem> items = likes.stream()
-                .map(like -> buildFeedLikeUserItem(like, userProfileMap))
+                .map(like -> buildFeedLikeUserItem(currentUserId, like, userProfileMap))
                 .toList();
 
         Long nextCursor = likeSlice.hasNext() ? likes.getLast().getId() : null;
@@ -238,7 +240,8 @@ public class FeedService {
     /**
      * 피드 좋아요 사용자 아이템 생성
      */
-    private FeedLikeUserItem buildFeedLikeUserItem(FeedLike like, Map<Long, UserProfile> userProfileMap) {
+    private FeedLikeUserItem buildFeedLikeUserItem(
+            Long currentUserId, FeedLike like, Map<Long, UserProfile> userProfileMap) {
         User user = like.getUser();
         UserProfile userProfile = Optional.ofNullable(userProfileMap.get(user.getId()))
                 .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
@@ -251,7 +254,7 @@ public class FeedService {
 
         return FeedLikeUserItem.builder()
                 .userProfile(userProfileDto)
-                .isFollowing(false) // 팔로우 기능 미구현
+                .isFollowing(followRepository.existsByFollowerIdAndFolloweeId(currentUserId, user.getId()))
                 .build();
     }
 
@@ -265,6 +268,34 @@ public class FeedService {
      */
     public PagedResponse<FeedListItem> getFeeds(Long userId, Long after, int limit) {
         Slice<Feed> feedSlice = feedRepository.findByCursor(after, PageRequest.of(0, limit));
+        List<Feed> feeds = feedSlice.getContent();
+
+        List<Long> feedIds = feeds.stream().map(Feed::getId).toList();
+
+        Map<Long, FeedImage> primaryImageMap = feedImageRepository.findByFeedIdInAndPrimaryTrue(feedIds).stream()
+                .collect(Collectors.toMap(fi -> fi.getFeed().getId(), Function.identity()));
+
+        List<Long> userIds =
+                feeds.stream().map(f -> f.getUser().getId()).distinct().toList();
+        Map<Long, UserProfile> userProfileMap = userProfileRepository.findByUserIdIn(userIds).stream()
+                .collect(Collectors.toMap(up -> up.getUser().getId(), Function.identity()));
+
+        Set<Long> likedFeedIds = feedLikeRepository.findByFeedIdInAndUserId(feedIds, userId).stream()
+                .map(fl -> fl.getFeed().getId())
+                .collect(Collectors.toSet());
+
+        List<FeedListItem> items = feeds.stream()
+                .map(feed -> buildFeedListItem(feed, primaryImageMap, userProfileMap, likedFeedIds))
+                .toList();
+
+        Long nextCursor = feedSlice.hasNext() ? feeds.getLast().getId() : null;
+        PageInfo pageInfo = new PageInfo(feedSlice.hasNext(), nextCursor);
+
+        return new PagedResponse<>(items, pageInfo);
+    }
+
+    public PagedResponse<FeedListItem> getFollowingFeeds(Long userId, Long after, int limit) {
+        Slice<Feed> feedSlice = feedRepository.findFollowingFeedsByCursor(userId, after, PageRequest.of(0, limit));
         List<Feed> feeds = feedSlice.getContent();
 
         List<Long> feedIds = feeds.stream().map(Feed::getId).toList();
@@ -429,7 +460,8 @@ public class FeedService {
                 .clothes(feedClothesDtoList.isEmpty() ? null : feedClothesDtoList)
                 .content(feed.getContent())
                 .userProfile(userProfileDto)
-                .isFollowing(false) // 팔로우 기능 미구현
+                .isFollowing(followRepository.existsByFollowerIdAndFolloweeId(
+                        currentUserId, feed.getUser().getId()))
                 .isLiked(isLiked)
                 .isOwner(isOwner)
                 .build();

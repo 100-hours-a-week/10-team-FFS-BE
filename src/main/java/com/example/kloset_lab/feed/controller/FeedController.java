@@ -2,6 +2,7 @@ package com.example.kloset_lab.feed.controller;
 
 import static com.example.kloset_lab.global.constants.PaginationDefaults.FEED_LIST;
 import static com.example.kloset_lab.global.constants.PaginationDefaults.LIKE_USER_LIST;
+import static com.example.kloset_lab.global.response.Message.FOLLOWING_FEED_RETRIEVED;
 
 import com.example.kloset_lab.feed.dto.FeedCreateRequest;
 import com.example.kloset_lab.feed.dto.FeedDetailResponse;
@@ -64,6 +65,19 @@ public class FeedController {
             @RequestParam(defaultValue = FEED_LIST) int limit) {
         PagedResponse<FeedListItem> response = feedService.getFeeds(userId, after, limit);
         return ApiResponses.ok(Message.FEEDS_RETRIEVED, response);
+    }
+
+    /**
+     * 팔로잉 피드 목록 조회
+     * GET /api/v1/feeds/following?after={id}&limit={n}
+     */
+    @GetMapping("/v2/following/feeds")
+    public ResponseEntity<ApiResponse<PagedResponse<FeedListItem>>> getFollowingFeeds(
+            @AuthenticationPrincipal Long userId,
+            @RequestParam(required = false) Long after,
+            @RequestParam(defaultValue = FEED_LIST) int limit) {
+        PagedResponse<FeedListItem> response = feedService.getFollowingFeeds(userId, after, limit);
+        return ApiResponses.ok(FOLLOWING_FEED_RETRIEVED, response);
     }
 
     /**
@@ -149,10 +163,11 @@ public class FeedController {
      */
     @GetMapping("/v1/feeds/{feedId}/likes")
     public ResponseEntity<ApiResponse<PagedResponse<FeedLikeUserItem>>> getLikedUsers(
+            @AuthenticationPrincipal Long userId,
             @PathVariable Long feedId,
             @RequestParam(required = false) Long after,
             @RequestParam(defaultValue = LIKE_USER_LIST) int limit) {
-        PagedResponse<FeedLikeUserItem> response = feedService.getLikedUsers(feedId, after, limit);
+        PagedResponse<FeedLikeUserItem> response = feedService.getLikedUsers(userId, feedId, after, limit);
         return ApiResponses.ok(Message.FEED_LIKES_RETRIEVED, response);
     }
 }
