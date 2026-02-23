@@ -8,7 +8,6 @@ import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.listener.PatternTopic;
 import org.springframework.data.redis.listener.RedisMessageListenerContainer;
-import org.springframework.data.redis.listener.adapter.MessageListenerAdapter;
 
 @Configuration
 @RequiredArgsConstructor
@@ -34,11 +33,15 @@ public class RedisConfig {
 
         // 채팅 메시지 브로드캐스트 구독 (채팅방 ID 패턴)
         container.addMessageListener(
-                new MessageListenerAdapter(chatEventSubscriber, "onRoomMessage"), new PatternTopic("chat:msg:*"));
+                (message, pattern) -> chatEventSubscriber.onRoomMessage(
+                        new String(message.getBody()), new String(message.getChannel())),
+                new PatternTopic("chat:msg:*"));
 
         // 채팅 목록 갱신 이벤트 구독 (사용자 ID 패턴)
         container.addMessageListener(
-                new MessageListenerAdapter(chatEventSubscriber, "onRoomUpdate"), new PatternTopic("chat:update:*"));
+                (message, pattern) -> chatEventSubscriber.onRoomUpdate(
+                        new String(message.getBody()), new String(message.getChannel())),
+                new PatternTopic("chat:update:*"));
 
         return container;
     }
