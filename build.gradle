@@ -114,6 +114,11 @@ checkstyle {
     configFile = file("${rootDir}/config/checkstyle/checkstyle.xml")
 }
 
+// 테스트 코드는 한글/언더스코어 메서드명을 허용하기 위해 Checkstyle 미적용
+tasks.named('checkstyleTest') {
+    enabled = false
+}
+
 jacoco {
     toolVersion = "0.8.11"
 }
