@@ -47,6 +47,12 @@ public class UserProfile extends BaseTimeEntity {
     @Column(name = "gender", nullable = false, columnDefinition = "varchar(10)")
     private Gender gender;
 
+    @Column(name = "follower_count", nullable = false)
+    private Long followerCount = 0L;
+
+    @Column(name = "following_count", nullable = false)
+    private Long followingCount = 0L;
+
     @Builder
     public UserProfile(User user, String nickname, LocalDate birthDate, Gender gender, MediaFile profileFile) {
         this.user = user;
@@ -54,5 +60,25 @@ public class UserProfile extends BaseTimeEntity {
         this.birthDate = birthDate;
         this.gender = gender;
         this.profileFile = profileFile;
+    }
+
+    public void incrementFollowerCount() {
+        this.followerCount++;
+    }
+
+    public void decrementFollowerCount() {
+        if (this.followerCount > 0) {
+            this.followerCount--;
+        }
+    }
+
+    public void incrementFollowingCount() {
+        this.followingCount++;
+    }
+
+    public void decrementFollowingCount() {
+        if (this.followingCount > 0) {
+            this.followingCount--;
+        }
     }
 }

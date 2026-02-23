@@ -52,12 +52,15 @@ public enum ErrorCode {
     OUTFIT_NOT_FOUND(HttpStatus.NOT_FOUND, "outfit_not_found"),
     TPO_RESULT_NOT_FOUND(HttpStatus.NOT_FOUND, "tpo_result_not_found"),
     RESULT_NOT_FOUND(HttpStatus.NOT_FOUND, "clothes_analyze_result_not_found"),
+    FOLLOW_NOT_FOUND(HttpStatus.NOT_FOUND, "follow_not_found"),
+    USER_PROFILE_NOT_FOUND(HttpStatus.NOT_FOUND, "user_profile_not_found"),
 
     // 409 Conflict
     EXISTING_NICKNAME(HttpStatus.CONFLICT, "existing_nickname"),
     ALREADY_EXIST_NICKNAME(HttpStatus.CONFLICT, "already_existing_nickname"),
     NOT_PENDING_STATE(HttpStatus.CONFLICT, "not_pending_state"),
     UPLOADED_FILE_MISMATCH(HttpStatus.CONFLICT, "uploaded_file_mismatch"),
+    ALREADY_FOLLOWING(HttpStatus.CONFLICT, "already_following"),
 
     // 413 Payload Too Large
     FILE_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "file_too_large"),

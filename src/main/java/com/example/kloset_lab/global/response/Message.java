@@ -45,6 +45,7 @@ public class Message {
     public static final String FEED_LIKES_RETRIEVED = "feed_likes_list_retrieved";
     public static final String FEED_LIKED = "like_feed";
     public static final String FEED_LIKE_CANCELLED = "cancle_like_feed";
+    public static final String FOLLOWING_FEED_RETRIEVED = "following_feeds_fetched";
 
     // Comment
     public static final String COMMENTS_RETRIEVED = "comments_retrieved";
@@ -59,4 +60,10 @@ public class Message {
     public static final String TPO_OUTFITS_RETRIEVED = "tpo_outfits_retrieved";
     public static final String REACTION_RECORDED = "reaction_recorded";
     public static final String PRODUCTS_RETRIEVED = "products_retrieved";
+
+    // Follow
+    public static final String FOLLOW_CREATED = "following_created";
+    public static final String FOLLOW_DELETED = "following_removed";
+    public static final String FOLLOWING_RETRIEVED = "following_fetched";
+    public static final String FOLLOWER_RETRIEVED = "followers_fetched";
 }

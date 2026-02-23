@@ -1,5 +1,6 @@
 package com.example.kloset_lab.user.service;
 
+import com.example.kloset_lab.follow.repository.FollowRepository;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
 import com.example.kloset_lab.global.response.Message;
@@ -29,6 +30,7 @@ public class UserService {
     private final MediaFileRepository mediaFileRepository;
     private final UserProfileValidationService userProfileValidationService;
     private final MediaService mediaService;
+    private final FollowRepository followRepository;
 
     /**
      * 회원가입 후 추가 정보 저장
@@ -100,7 +102,12 @@ public class UserService {
 
         UserProfileDto profileDto = new UserProfileDto(targetUserId, profileImageUrl, userProfile.getNickname());
 
-        return new UserProfileInfoResponse(profileDto, isMe);
+        return new UserProfileInfoResponse(
+                profileDto,
+                isMe,
+                userProfile.getFollowerCount(),
+                userProfile.getFollowingCount(),
+                followRepository.existsByFollowerIdAndFolloweeId(currentUserId, targetUserId));
     }
 
     /**
