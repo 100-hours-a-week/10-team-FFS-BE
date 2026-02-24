@@ -291,9 +291,9 @@ public class ChatRoomService {
     private void applyReadEffect(ChatParticipant participant, Long userId, Long roomId, String latestMessageId) {
         if (shouldUpdateLastRead(participant.getLastReadMessageId(), latestMessageId)) {
             participant.updateLastReadMessageId(latestMessageId);
-            // MySQL 커밋 이후 Redis 미읽음 초기화 (AFTER_COMMIT 이벤트)
-            eventPublisher.publishEvent(new ChatReadEvent(userId, roomId));
         }
+        // MySQL 커밋 이후 Redis 미읽음 초기화 (AFTER_COMMIT 이벤트) — lastReadMessageId 갱신 여부와 무관하게 항상 reset
+        eventPublisher.publishEvent(new ChatReadEvent(userId, roomId));
     }
 
     /**
@@ -342,9 +342,9 @@ public class ChatRoomService {
 
         if (shouldUpdateLastRead(participant.getLastReadMessageId(), request.lastReadMessageId())) {
             participant.updateLastReadMessageId(request.lastReadMessageId());
-            // MySQL 커밋 이후 Redis 미읽음 초기화 (AFTER_COMMIT 이벤트)
-            eventPublisher.publishEvent(new ChatReadEvent(userId, roomId));
         }
+        // MySQL 커밋 이후 Redis 미읽음 초기화 (AFTER_COMMIT 이벤트) — lastReadMessageId 갱신 여부와 무관하게 항상 reset
+        eventPublisher.publishEvent(new ChatReadEvent(userId, roomId));
     }
 
     /**
@@ -355,6 +355,9 @@ public class ChatRoomService {
      */
     @Transactional(readOnly = true)
     public UnreadStatusResponse getUnreadStatus(Long userId) {
+        if (chatRedisRepository.getRoomCount(userId) == 0) {
+            rebuildRoomCache(userId);
+        }
         long totalUnread = chatParticipantRepository.findByUserId(userId).stream()
                 .mapToLong(
                         p -> chatRedisRepository.getUnread(userId, p.getRoom().getId()))

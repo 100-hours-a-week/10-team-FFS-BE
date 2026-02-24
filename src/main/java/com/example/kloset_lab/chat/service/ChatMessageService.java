@@ -196,16 +196,7 @@ public class ChatMessageService {
     }
 
     private String buildContentPreview(ChatSendRequest req) {
-        return switch (req.type()) {
-            case ChatConstants.MSG_TYPE_TEXT -> Optional.ofNullable(req.content())
-                    .map(c -> c.length() > ChatConstants.CONTENT_PREVIEW_MAX_LENGTH
-                            ? c.substring(0, ChatConstants.CONTENT_PREVIEW_MAX_LENGTH)
-                            : c)
-                    .orElse("");
-            case ChatConstants.MSG_TYPE_IMAGE -> ChatConstants.PREVIEW_IMAGE;
-            case ChatConstants.MSG_TYPE_FEED -> ChatConstants.PREVIEW_FEED;
-            default -> "";
-        };
+        return ChatConstants.toPreview(req.type(), req.content());
     }
 
     private List<ChatImageDto> buildImageDtos(List<ChatImage> chatImages) {

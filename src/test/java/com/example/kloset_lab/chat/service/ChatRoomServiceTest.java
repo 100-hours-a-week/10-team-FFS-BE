@@ -361,8 +361,8 @@ class ChatRoomServiceTest {
         }
 
         @Test
-        @DisplayName("새 messageId가 현재보다 오래됐으면 lastReadMessageId를 갱신하지 않는다")
-        void 새_messageId_오래됨_갱신_없음() {
+        @DisplayName("새 messageId가 현재보다 오래됐으면 lastReadMessageId는 갱신하지 않지만 unread reset 이벤트는 항상 발행한다")
+        void 새_messageId_오래됨_lastRead_갱신_없음_unread_reset_발행() {
             ChatRoom room = ChatFixture.chatRoom(ChatFixture.ROOM_ID);
             ChatParticipant participant = ChatFixture.chatParticipant(room, ChatFixture.USER_ID);
             participant.updateLastReadMessageId(ChatFixture.VALID_OID); // 현재는 최신 ID
@@ -372,8 +372,9 @@ class ChatRoomServiceTest {
             chatRoomService.markAsRead(
                     ChatFixture.USER_ID, ChatFixture.ROOM_ID, new ReadRequest(ChatFixture.OLDER_OID)); // 오래된 ID로 갱신 요청
 
-            assertThat(participant.getLastReadMessageId()).isEqualTo(ChatFixture.VALID_OID);
-            verifyNoInteractions(eventPublisher);
+            assertThat(participant.getLastReadMessageId())
+                    .isEqualTo(ChatFixture.VALID_OID); // lastReadMessageId 역방향 갱신 방지
+            then(eventPublisher).should().publishEvent(any(ChatReadEvent.class)); // unread reset은 항상 수행
         }
     }
 

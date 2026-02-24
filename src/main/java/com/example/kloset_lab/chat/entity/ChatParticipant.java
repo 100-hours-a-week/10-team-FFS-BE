@@ -78,9 +78,10 @@ public class ChatParticipant {
         this.leftAt = Instant.now();
     }
 
-    /** 채팅방 재진입 — leftAt 초기화 및 enteredAt 갱신 */
+    /** 채팅방 재진입 — leftAt 초기화, enteredAt 갱신, lastReadMessageId 초기화 */
     public void reenter() {
         this.leftAt = null;
         this.enteredAt = Instant.now();
+        this.lastReadMessageId = null;
     }
 }
