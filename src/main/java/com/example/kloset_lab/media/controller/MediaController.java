@@ -3,6 +3,7 @@ package com.example.kloset_lab.media.controller;
 import com.example.kloset_lab.global.response.ApiResponse;
 import com.example.kloset_lab.global.response.ApiResponses;
 import com.example.kloset_lab.global.response.Message;
+import com.example.kloset_lab.media.dto.FileUploadInternalRequest;
 import com.example.kloset_lab.media.dto.FileUploadRequest;
 import com.example.kloset_lab.media.dto.FileUploadResponse;
 import com.example.kloset_lab.media.service.MediaService;
@@ -25,6 +26,16 @@ public class MediaController {
         List<FileUploadResponse> fileUploadResponseList =
                 mediaService.requestFileUpload(userId, fileUploadRequest.purpose(), fileUploadRequest.files());
 
-        return ApiResponses.ok(Message.PRESIGNED_URL_GENERATED, fileUploadResponseList);
+        return ApiResponses.created(Message.PRESIGNED_URL_GENERATED, fileUploadResponseList);
+    }
+
+    @PostMapping("/internal/presigned-url")
+    public ResponseEntity<ApiResponse<List<FileUploadResponse>>> generatePresignedUrlInternal(
+            @RequestBody FileUploadInternalRequest fileUploadRequest) {
+
+        List<FileUploadResponse> fileUploadResponseList = mediaService.requestFileUpload(
+                fileUploadRequest.userId(), fileUploadRequest.purpose(), fileUploadRequest.files());
+
+        return ApiResponses.created(Message.PRESIGNED_URL_GENERATED, fileUploadResponseList);
     }
 }
