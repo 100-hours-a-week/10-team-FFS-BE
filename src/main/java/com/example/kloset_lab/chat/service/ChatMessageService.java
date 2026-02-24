@@ -9,6 +9,7 @@ import com.example.kloset_lab.chat.dto.stomp.ChatBroadcastMessage;
 import com.example.kloset_lab.chat.dto.stomp.ChatSendRequest;
 import com.example.kloset_lab.chat.entity.ChatParticipant;
 import com.example.kloset_lab.chat.entity.ChatRoom;
+import com.example.kloset_lab.chat.entity.RoomType;
 import com.example.kloset_lab.chat.event.ChatMessageSentEvent;
 import com.example.kloset_lab.chat.repository.ChatMessageRepository;
 import com.example.kloset_lab.chat.repository.ChatParticipantRepository;
@@ -116,7 +117,15 @@ public class ChatMessageService {
                 .createdAt(now)
                 .build();
 
-        List<ChatParticipant> participants = chatParticipantRepository.findByRoomId(roomId);
+        // DM: 나간 참여자 자동 재진입 후 전체 브로드캐스트 (채팅목록 재등록 + unread 갱신)
+        // GROUP: 활성 참여자만 브로드캐스트
+        List<ChatParticipant> participants;
+        if (room.getType() == RoomType.DM) {
+            participants = chatParticipantRepository.findByRoomId(roomId);
+            participants.stream().filter(p -> p.getLeftAt() != null).forEach(ChatParticipant::reenter);
+        } else {
+            participants = chatParticipantRepository.findActiveByRoomId(roomId);
+        }
 
         // 5. MySQL 커밋 이후 Redis 캐시·Pub/Sub 처리 (AFTER_COMMIT 이벤트)
         eventPublisher.publishEvent(new ChatMessageSentEvent(
@@ -153,7 +162,7 @@ public class ChatMessageService {
         if (!ChatConstants.MSG_TYPE_IMAGE.equals(req.type())
                 || req.mediaFileIds() == null
                 || req.mediaFileIds().isEmpty()) {
-            return null;
+            return List.of();
         }
 
         if (req.mediaFileIds().size() > Purpose.CHAT.getMaxCount()) {
@@ -200,14 +209,15 @@ public class ChatMessageService {
     }
 
     private List<ChatImageDto> buildImageDtos(List<ChatImage> chatImages) {
-        return Optional.ofNullable(chatImages)
-                .map(images -> images.stream()
-                        .map(img -> ChatImageDto.builder()
-                                .mediaFileId(img.getMediaFileId())
-                                .imageUrl(cdnProperties.getBaseUrl() + "/" + img.getObjectKey())
-                                .displayOrder(img.getDisplayOrder())
-                                .build())
-                        .collect(Collectors.toList()))
-                .orElse(null);
+        if (chatImages == null || chatImages.isEmpty()) {
+            return List.of();
+        }
+        return chatImages.stream()
+                .map(img -> ChatImageDto.builder()
+                        .mediaFileId(img.getMediaFileId())
+                        .imageUrl(cdnProperties.getBaseUrl() + "/" + img.getObjectKey())
+                        .displayOrder(img.getDisplayOrder())
+                        .build())
+                .collect(Collectors.toList());
     }
 }

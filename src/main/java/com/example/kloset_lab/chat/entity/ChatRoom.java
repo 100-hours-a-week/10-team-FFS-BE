@@ -3,6 +3,8 @@ package com.example.kloset_lab.chat.entity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -30,6 +32,10 @@ public class ChatRoom {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "room_type", nullable = false, length = 10)
+    private RoomType type = RoomType.DM;
+
     @Column(name = "deleted_at")
     private Instant deletedAt;
 
@@ -52,6 +58,17 @@ public class ChatRoom {
 
     public static ChatRoom create() {
         return new ChatRoom();
+    }
+
+    /**
+     * 방 유형을 지정하여 채팅방 생성
+     *
+     * @param type 채팅방 유형 (DM / GROUP)
+     */
+    public static ChatRoom create(RoomType type) {
+        ChatRoom room = new ChatRoom();
+        room.type = type;
+        return room;
     }
 
     /**

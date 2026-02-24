@@ -46,9 +46,9 @@ public class ChatEventListener {
             Map<String, String> lastMsgFields = buildLastMsgFields(event);
 
             for (ChatParticipant participant : event.participants()) {
-                chatRedisRepository.addRoomToUser(participant.getUserId(), event.roomId(), score);
-                if (!participant.getUserId().equals(event.senderId())) {
-                    chatRedisRepository.incrementUnread(participant.getUserId(), event.roomId());
+                chatRedisRepository.addRoomToUser(participant.getUser().getId(), event.roomId(), score);
+                if (!participant.getUser().getId().equals(event.senderId())) {
+                    chatRedisRepository.incrementUnread(participant.getUser().getId(), event.roomId());
                 }
             }
             chatRedisRepository.setLastMessage(event.roomId(), lastMsgFields);
@@ -56,7 +56,7 @@ public class ChatEventListener {
             chatEventPublisher.publishRoomMessage(event.roomId(), event.broadcastMessage());
             event.participants()
                     .forEach(p -> chatEventPublisher.publishRoomUpdate(
-                            p.getUserId(),
+                            p.getUser().getId(),
                             com.example.kloset_lab.chat.dto.stomp.ChatRoomUpdateEvent.builder()
                                     .roomId(event.roomId())
                                     .lastMessage(LastMessageDto.builder()
