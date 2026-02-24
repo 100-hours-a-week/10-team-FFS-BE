@@ -79,9 +79,28 @@ public class ChatController {
             @AuthenticationPrincipal Long userId,
             @PathVariable Long roomId,
             @RequestParam(required = false) String cursor,
-            @RequestParam(defaultValue = "30") int limit) {
+            @RequestParam(defaultValue = "50") int limit) {
         ChatMessageListResponse response = chatRoomService.getMessages(userId, roomId, cursor, limit);
         return ApiResponses.ok(Message.CHAT_MESSAGES_RETRIEVED, response);
+    }
+
+    /**
+     * 안읽은 메시지 조회 (정방향 페이지네이션, 오래된순→최신순)
+     *
+     * @param userId 현재 로그인한 사용자 ID
+     * @param roomId 채팅방 ID
+     * @param cursor 이전 페이지 마지막 메시지 ObjectId. null이면 lastReadMessageId 기준
+     * @param limit  조회 개수
+     * @return 메시지 목록 (오래된순)
+     */
+    @GetMapping("/rooms/{roomId}/messages/unread")
+    public ResponseEntity<ApiResponse<ChatMessageListResponse>> getUnreadMessages(
+            @AuthenticationPrincipal Long userId,
+            @PathVariable Long roomId,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "50") int limit) {
+        ChatMessageListResponse response = chatRoomService.getUnreadMessages(userId, roomId, cursor, limit);
+        return ApiResponses.ok(Message.CHAT_UNREAD_MESSAGES_RETRIEVED, response);
     }
 
     /**

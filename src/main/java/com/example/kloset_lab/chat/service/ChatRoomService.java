@@ -297,6 +297,62 @@ public class ChatRoomService {
     }
 
     /**
+     * 안읽은 메시지 정방향 조회 (오래된→최신 ASC)
+     *
+     * @param userId 현재 사용자 ID
+     * @param roomId 채팅방 ID
+     * @param cursor 이전 페이지 마지막 메시지 ObjectId. null이면 lastReadMessageId 기준
+     * @param size   조회 개수
+     * @return 메시지 목록 응답 (오래된순)
+     */
+    @Transactional
+    public ChatMessageListResponse getUnreadMessages(Long userId, Long roomId, String cursor, int size) {
+        ChatParticipant participant = chatParticipantRepository
+                .findByRoomIdAndUserId(roomId, userId)
+                .orElseThrow(() -> new CustomException(ErrorCode.CHAT_ROOM_ACCESS_DENIED));
+
+        int limit = size > 0 ? size : ChatConstants.DEFAULT_MESSAGE_PAGE_SIZE;
+        PageRequest pageable = PageRequest.of(0, limit + 1, Sort.by(Sort.Direction.ASC, "_id"));
+        Instant enteredAt = participant.getEnteredAt();
+
+        // 실효 커서: 요청 cursor > lastReadMessageId > null
+        String effectiveCursor =
+                Optional.ofNullable(cursor).filter(ObjectId::isValid).orElse(participant.getLastReadMessageId());
+
+        List<ChatMessage> messages = Optional.ofNullable(effectiveCursor)
+                .filter(ObjectId::isValid)
+                .map(c -> chatMessageRepository.findByRoomIdAndIdGreaterThanAndCreatedAtGreaterThanEqual(
+                        roomId, new ObjectId(c), enteredAt, pageable))
+                .orElseGet(() ->
+                        chatMessageRepository.findByRoomIdAndCreatedAtGreaterThanEqual(roomId, enteredAt, pageable));
+
+        boolean hasNextPage = messages.size() > limit;
+        List<ChatMessage> pageMessages = hasNextPage ? messages.subList(0, limit) : messages;
+
+        List<ChatMessageItem> items =
+                pageMessages.stream().map(this::buildMessageItem).collect(Collectors.toList());
+
+        // ASC 정렬이므로 마지막 항목이 가장 최신
+        if (!pageMessages.isEmpty()) {
+            String latestMessageId =
+                    pageMessages.get(pageMessages.size() - 1).getId().toHexString();
+            applyReadEffect(participant, userId, roomId, latestMessageId);
+        } else if (cursor == null || !ObjectId.isValid(cursor)) {
+            // 첫 진입 시 메시지 없어도 unread count 0 초기화
+            eventPublisher.publishEvent(new ChatReadEvent(userId, roomId));
+        }
+
+        String nextCursor =
+                hasNextPage ? pageMessages.get(pageMessages.size() - 1).getId().toHexString() : null;
+
+        return ChatMessageListResponse.builder()
+                .messages(items)
+                .hasNextPage(hasNextPage)
+                .nextCursor(nextCursor)
+                .build();
+    }
+
+    /**
      * 채팅방 나가기
      *
      * @param userId 현재 사용자 ID

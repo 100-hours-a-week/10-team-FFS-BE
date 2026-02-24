@@ -63,6 +63,7 @@ public class Message {
     public static final String CHAT_ROOM_LEFT = "chat_room_left";
     public static final String CHAT_MARKED_AS_READ = "chat_marked_as_read";
     public static final String CHAT_UNREAD_STATUS_RETRIEVED = "chat_unread_status_retrieved";
+    public static final String CHAT_UNREAD_MESSAGES_RETRIEVED = "chat_unread_messages_retrieved";
 
     // TPO
     public static final String RECENT_TPO_REQUESTS_RETRIEVED = "recent_tpo_requests_retrieved";
