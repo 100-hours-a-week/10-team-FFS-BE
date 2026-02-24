@@ -46,6 +46,12 @@ dependencies {
     testImplementation 'org.springframework.security:spring-security-test'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 
+    // Testcontainers
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:mongodb'
+    testImplementation 'org.testcontainers:mysql'
+
     // REDIS
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
     implementation "software.amazon.awssdk:s3:2.20.100"
