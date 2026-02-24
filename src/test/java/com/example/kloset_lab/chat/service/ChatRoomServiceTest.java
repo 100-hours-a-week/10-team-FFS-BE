@@ -484,6 +484,206 @@ class ChatRoomServiceTest {
         }
     }
 
+    // ======================== getUnreadMessages ========================
+
+    @Nested
+    @DisplayName("getUnreadMessages")
+    class GetUnreadMessages {
+
+        @Test
+        @DisplayName("참여자가 아닌 경우 CHAT_ROOM_ACCESS_DENIED 예외")
+        void 참여자_아님_예외() {
+            given(chatParticipantRepository.findByRoomIdAndUserId(ChatFixture.ROOM_ID, ChatFixture.USER_ID))
+                    .willReturn(Optional.empty());
+
+            assertCustomException(
+                    () -> chatRoomService.getUnreadMessages(ChatFixture.USER_ID, ChatFixture.ROOM_ID, null, 20),
+                    ErrorCode.CHAT_ROOM_ACCESS_DENIED);
+        }
+
+        @Test
+        @DisplayName("cursor=null, lastReadMessageId 있으면 findByRoomIdAndIdGreaterThan... 호출")
+        void cursor_null_lastReadMessageId_있으면_GreaterThan_호출() {
+            ChatRoom room = ChatFixture.chatRoom(ChatFixture.ROOM_ID);
+            ChatParticipant participant = ChatFixture.chatParticipant(room, ChatFixture.USER_ID);
+            participant.updateLastReadMessageId(ChatFixture.VALID_OID);
+            given(chatParticipantRepository.findByRoomIdAndUserId(ChatFixture.ROOM_ID, ChatFixture.USER_ID))
+                    .willReturn(Optional.of(participant));
+            given(chatMessageRepository.findByRoomIdAndIdGreaterThanAndCreatedAtGreaterThanEqual(
+                            eq(ChatFixture.ROOM_ID), any(ObjectId.class), any(Instant.class), any()))
+                    .willReturn(List.of());
+
+            chatRoomService.getUnreadMessages(ChatFixture.USER_ID, ChatFixture.ROOM_ID, null, 20);
+
+            then(chatMessageRepository)
+                    .should()
+                    .findByRoomIdAndIdGreaterThanAndCreatedAtGreaterThanEqual(
+                            eq(ChatFixture.ROOM_ID), any(ObjectId.class), any(Instant.class), any());
+        }
+
+        @Test
+        @DisplayName("cursor=null, lastReadMessageId 없으면 findByRoomIdAndCreatedAtGreaterThanEqual 호출")
+        void cursor_null_lastReadMessageId_없으면_CreatedAt_호출() {
+            ChatRoom room = ChatFixture.chatRoom(ChatFixture.ROOM_ID);
+            ChatParticipant participant = ChatFixture.chatParticipant(room, ChatFixture.USER_ID);
+            given(chatParticipantRepository.findByRoomIdAndUserId(ChatFixture.ROOM_ID, ChatFixture.USER_ID))
+                    .willReturn(Optional.of(participant));
+            given(chatMessageRepository.findByRoomIdAndCreatedAtGreaterThanEqual(
+                            eq(ChatFixture.ROOM_ID), any(Instant.class), any()))
+                    .willReturn(List.of());
+
+            chatRoomService.getUnreadMessages(ChatFixture.USER_ID, ChatFixture.ROOM_ID, null, 20);
+
+            then(chatMessageRepository)
+                    .should()
+                    .findByRoomIdAndCreatedAtGreaterThanEqual(eq(ChatFixture.ROOM_ID), any(Instant.class), any());
+        }
+
+        @Test
+        @DisplayName("유효한 cursor 있으면 findByRoomIdAndIdGreaterThan... 호출 (페이지네이션)")
+        void 유효한_cursor_GreaterThan_호출() {
+            ChatRoom room = ChatFixture.chatRoom(ChatFixture.ROOM_ID);
+            ChatParticipant participant = ChatFixture.chatParticipant(room, ChatFixture.USER_ID);
+            given(chatParticipantRepository.findByRoomIdAndUserId(ChatFixture.ROOM_ID, ChatFixture.USER_ID))
+                    .willReturn(Optional.of(participant));
+            given(chatMessageRepository.findByRoomIdAndIdGreaterThanAndCreatedAtGreaterThanEqual(
+                            eq(ChatFixture.ROOM_ID), any(ObjectId.class), any(Instant.class), any()))
+                    .willReturn(List.of());
+
+            chatRoomService.getUnreadMessages(ChatFixture.USER_ID, ChatFixture.ROOM_ID, ChatFixture.VALID_OID, 20);
+
+            then(chatMessageRepository)
+                    .should()
+                    .findByRoomIdAndIdGreaterThanAndCreatedAtGreaterThanEqual(
+                            eq(ChatFixture.ROOM_ID), any(ObjectId.class), any(Instant.class), any());
+        }
+
+        @Test
+        @DisplayName("유효하지 않은 cursor면 lastReadMessageId 기준으로 폴백한다")
+        void 유효하지_않은_cursor_lastReadMessageId_폴백() {
+            ChatRoom room = ChatFixture.chatRoom(ChatFixture.ROOM_ID);
+            ChatParticipant participant = ChatFixture.chatParticipant(room, ChatFixture.USER_ID);
+            participant.updateLastReadMessageId(ChatFixture.VALID_OID);
+            given(chatParticipantRepository.findByRoomIdAndUserId(ChatFixture.ROOM_ID, ChatFixture.USER_ID))
+                    .willReturn(Optional.of(participant));
+            given(chatMessageRepository.findByRoomIdAndIdGreaterThanAndCreatedAtGreaterThanEqual(
+                            eq(ChatFixture.ROOM_ID), any(ObjectId.class), any(Instant.class), any()))
+                    .willReturn(List.of());
+
+            chatRoomService.getUnreadMessages(ChatFixture.USER_ID, ChatFixture.ROOM_ID, ChatFixture.INVALID_OID, 20);
+
+            then(chatMessageRepository)
+                    .should()
+                    .findByRoomIdAndIdGreaterThanAndCreatedAtGreaterThanEqual(
+                            eq(ChatFixture.ROOM_ID), any(ObjectId.class), any(Instant.class), any());
+        }
+
+        @Test
+        @DisplayName("메시지가 있으면 applyReadEffect — ChatReadEvent 발행")
+        void 메시지_있으면_읽음_이벤트_발행() {
+            ChatRoom room = ChatFixture.chatRoom(ChatFixture.ROOM_ID);
+            ChatParticipant participant = ChatFixture.chatParticipant(room, ChatFixture.USER_ID);
+            ChatMessage message = ChatFixture.chatMessage(ChatFixture.ROOM_ID, ChatFixture.USER_ID);
+            given(chatParticipantRepository.findByRoomIdAndUserId(ChatFixture.ROOM_ID, ChatFixture.USER_ID))
+                    .willReturn(Optional.of(participant));
+            given(chatMessageRepository.findByRoomIdAndCreatedAtGreaterThanEqual(
+                            eq(ChatFixture.ROOM_ID), any(Instant.class), any()))
+                    .willReturn(List.of(message));
+
+            chatRoomService.getUnreadMessages(ChatFixture.USER_ID, ChatFixture.ROOM_ID, null, 20);
+
+            then(eventPublisher).should().publishEvent(any(ChatReadEvent.class));
+        }
+
+        @Test
+        @DisplayName("첫 진입(cursor=null)이고 메시지 없으면 unread reset 이벤트 발행")
+        void 첫_진입_메시지_없어도_unread_reset_이벤트_발행() {
+            ChatRoom room = ChatFixture.chatRoom(ChatFixture.ROOM_ID);
+            ChatParticipant participant = ChatFixture.chatParticipant(room, ChatFixture.USER_ID);
+            given(chatParticipantRepository.findByRoomIdAndUserId(ChatFixture.ROOM_ID, ChatFixture.USER_ID))
+                    .willReturn(Optional.of(participant));
+            given(chatMessageRepository.findByRoomIdAndCreatedAtGreaterThanEqual(
+                            eq(ChatFixture.ROOM_ID), any(Instant.class), any()))
+                    .willReturn(List.of());
+
+            chatRoomService.getUnreadMessages(ChatFixture.USER_ID, ChatFixture.ROOM_ID, null, 20);
+
+            then(eventPublisher).should().publishEvent(any(ChatReadEvent.class));
+        }
+
+        @Test
+        @DisplayName("페이징 호출(cursor!=null)이고 메시지 없으면 이벤트 미발행")
+        void 페이징_호출_메시지_없으면_이벤트_미발행() {
+            ChatRoom room = ChatFixture.chatRoom(ChatFixture.ROOM_ID);
+            ChatParticipant participant = ChatFixture.chatParticipant(room, ChatFixture.USER_ID);
+            given(chatParticipantRepository.findByRoomIdAndUserId(ChatFixture.ROOM_ID, ChatFixture.USER_ID))
+                    .willReturn(Optional.of(participant));
+            given(chatMessageRepository.findByRoomIdAndIdGreaterThanAndCreatedAtGreaterThanEqual(
+                            eq(ChatFixture.ROOM_ID), any(ObjectId.class), any(Instant.class), any()))
+                    .willReturn(List.of());
+
+            chatRoomService.getUnreadMessages(ChatFixture.USER_ID, ChatFixture.ROOM_ID, ChatFixture.VALID_OID, 20);
+
+            verifyNoInteractions(eventPublisher);
+        }
+
+        @Test
+        @DisplayName("limit+1 반환 시 hasNextPage=true")
+        void limit_plus1_반환시_hasNextPage_true() {
+            ChatRoom room = ChatFixture.chatRoom(ChatFixture.ROOM_ID);
+            ChatParticipant participant = ChatFixture.chatParticipant(room, ChatFixture.USER_ID);
+            // limit=2, 3개 반환 → hasNextPage=true
+            ChatMessage m1 = ChatFixture.chatMessage(ChatFixture.ROOM_ID, ChatFixture.USER_ID);
+            ChatMessage m2 = ChatFixture.chatMessage(ChatFixture.ROOM_ID, ChatFixture.USER_ID);
+            ChatMessage m3 = ChatFixture.chatMessage(ChatFixture.ROOM_ID, ChatFixture.USER_ID);
+            given(chatParticipantRepository.findByRoomIdAndUserId(ChatFixture.ROOM_ID, ChatFixture.USER_ID))
+                    .willReturn(Optional.of(participant));
+            given(chatMessageRepository.findByRoomIdAndCreatedAtGreaterThanEqual(
+                            eq(ChatFixture.ROOM_ID), any(Instant.class), any()))
+                    .willReturn(List.of(m1, m2, m3));
+
+            var response = chatRoomService.getUnreadMessages(ChatFixture.USER_ID, ChatFixture.ROOM_ID, null, 2);
+
+            assertThat(response.hasNextPage()).isTrue();
+        }
+
+        @Test
+        @DisplayName("nextCursor는 마지막 메시지 ID (ASC 정렬 기준 가장 최신)")
+        void nextCursor_마지막_메시지_ID() {
+            ChatRoom room = ChatFixture.chatRoom(ChatFixture.ROOM_ID);
+            ChatParticipant participant = ChatFixture.chatParticipant(room, ChatFixture.USER_ID);
+            ObjectId id1 = new ObjectId(ChatFixture.OLDER_OID);
+            ObjectId id2 = new ObjectId(ChatFixture.VALID_OID);
+            ChatMessage m1 = ChatMessage.builder()
+                    .id(id1)
+                    .roomId(ChatFixture.ROOM_ID)
+                    .senderId(ChatFixture.USER_ID)
+                    .type("TEXT")
+                    .content("첫 번째")
+                    .createdAt(Instant.now())
+                    .build();
+            ChatMessage m2 = ChatMessage.builder()
+                    .id(id2)
+                    .roomId(ChatFixture.ROOM_ID)
+                    .senderId(ChatFixture.USER_ID)
+                    .type("TEXT")
+                    .content("두 번째 (최신)")
+                    .createdAt(Instant.now())
+                    .build();
+            ChatMessage extra = ChatFixture.chatMessage(ChatFixture.ROOM_ID, ChatFixture.USER_ID);
+            given(chatParticipantRepository.findByRoomIdAndUserId(ChatFixture.ROOM_ID, ChatFixture.USER_ID))
+                    .willReturn(Optional.of(participant));
+            // limit=2, 3개 반환 → hasNextPage=true, nextCursor = m2.id (마지막 페이지 항목)
+            given(chatMessageRepository.findByRoomIdAndCreatedAtGreaterThanEqual(
+                            eq(ChatFixture.ROOM_ID), any(Instant.class), any()))
+                    .willReturn(List.of(m1, m2, extra));
+
+            var response = chatRoomService.getUnreadMessages(ChatFixture.USER_ID, ChatFixture.ROOM_ID, null, 2);
+
+            assertThat(response.nextCursor()).isEqualTo(id2.toHexString());
+        }
+    }
+
     // ======================== getUnreadStatus ========================
 
     @Nested
