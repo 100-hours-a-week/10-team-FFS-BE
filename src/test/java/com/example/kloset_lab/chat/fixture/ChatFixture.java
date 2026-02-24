@@ -42,7 +42,7 @@ public class ChatFixture {
 
     /** ChatParticipant 생성 (enteredAt은 Instant.now()로 자동 설정) */
     public static ChatParticipant chatParticipant(ChatRoom room, Long userId) {
-        return ChatParticipant.builder().room(room).userId(userId).build();
+        return ChatParticipant.builder().room(room).user(chatUser(userId)).build();
     }
 
     /** 테스트용 User 생성 (id는 ReflectionTestUtils로 설정) */
