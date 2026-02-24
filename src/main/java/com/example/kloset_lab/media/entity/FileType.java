@@ -6,7 +6,8 @@ import lombok.Getter;
 @Getter
 public enum FileType {
     PNG("image/png", "png"),
-    JPEG("image/jpeg", "jpeg");
+    JPEG("image/jpeg", "jpeg"),
+    WEBP("image/webp", "webp");
 
     private final String mimeType;
     private final String extension;
