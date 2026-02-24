@@ -97,6 +97,8 @@ class ChatRoomServiceTest {
         @DisplayName("상대방이 존재하지 않으면 TARGET_USER_NOT_FOUND 예외")
         void 상대방_없음_예외() {
             ChatRoomCreateRequest req = new ChatRoomCreateRequest(ChatFixture.OPPONENT_ID);
+            given(userRepository.findById(ChatFixture.USER_ID))
+                    .willReturn(Optional.of(ChatFixture.chatUser(ChatFixture.USER_ID)));
             given(userRepository.findById(ChatFixture.OPPONENT_ID)).willReturn(Optional.empty());
 
             assertCustomException(
@@ -104,45 +106,57 @@ class ChatRoomServiceTest {
         }
 
         @Test
-        @DisplayName("기존 방이 있고 참여자가 존재하면 existing() 반환")
+        @DisplayName("기존 방이 있고 참여자가 활성이면 재진입 처리 없이 existing() 반환")
         void 기존_방_참여자_존재_기존_반환() {
             ChatRoom room = ChatFixture.chatRoom(ChatFixture.ROOM_ID);
+            // leftAt = null → 활성 참여자
             ChatParticipant participant = ChatFixture.chatParticipant(room, ChatFixture.USER_ID);
             ChatRoomCreateRequest req = new ChatRoomCreateRequest(ChatFixture.OPPONENT_ID);
 
+            given(userRepository.findById(ChatFixture.USER_ID))
+                    .willReturn(Optional.of(ChatFixture.chatUser(ChatFixture.USER_ID)));
             given(userRepository.findById(ChatFixture.OPPONENT_ID))
                     .willReturn(Optional.of(ChatFixture.chatUser(ChatFixture.OPPONENT_ID)));
             given(chatRoomRepository.findExistingRoomBetweenUsers(ChatFixture.USER_ID, ChatFixture.OPPONENT_ID))
                     .willReturn(Optional.of(room));
-            given(chatParticipantRepository.findByRoomIdAndUserId(ChatFixture.ROOM_ID, ChatFixture.USER_ID))
+            given(chatParticipantRepository.findHistoryByRoomIdAndUserId(ChatFixture.ROOM_ID, ChatFixture.USER_ID))
                     .willReturn(Optional.of(participant));
             given(userProfileRepository.findByUserId(ChatFixture.OPPONENT_ID)).willReturn(Optional.empty());
 
             ChatRoomResult result = chatRoomService.createOrGetRoom(ChatFixture.USER_ID, req);
 
             assertThat(result.created()).isFalse();
+            // 활성 참여자이므로 save 호출 없음
             then(chatParticipantRepository).should(never()).save(any());
+            then(eventPublisher).should(never()).publishEvent(any(ChatRoomCreatedEvent.class));
         }
 
         @Test
-        @DisplayName("기존 방이 있지만 참여자가 없으면 재진입 처리 후 existing() 반환")
+        @DisplayName("기존 방이 있고 참여자가 이전에 나갔으면 reenter() 처리 후 existing() 반환")
         void 기존_방_참여자_없음_재진입() {
             ChatRoom room = ChatFixture.chatRoom(ChatFixture.ROOM_ID);
+            // leftAt 설정 → 나간 참여자
+            ChatParticipant leftParticipant = ChatFixture.chatParticipant(room, ChatFixture.USER_ID);
+            leftParticipant.leave();
             ChatRoomCreateRequest req = new ChatRoomCreateRequest(ChatFixture.OPPONENT_ID);
 
+            given(userRepository.findById(ChatFixture.USER_ID))
+                    .willReturn(Optional.of(ChatFixture.chatUser(ChatFixture.USER_ID)));
             given(userRepository.findById(ChatFixture.OPPONENT_ID))
                     .willReturn(Optional.of(ChatFixture.chatUser(ChatFixture.OPPONENT_ID)));
             given(chatRoomRepository.findExistingRoomBetweenUsers(ChatFixture.USER_ID, ChatFixture.OPPONENT_ID))
                     .willReturn(Optional.of(room));
-            given(chatParticipantRepository.findByRoomIdAndUserId(ChatFixture.ROOM_ID, ChatFixture.USER_ID))
-                    .willReturn(Optional.empty());
-            given(chatParticipantRepository.save(any())).willAnswer(inv -> inv.getArgument(0));
+            given(chatParticipantRepository.findHistoryByRoomIdAndUserId(ChatFixture.ROOM_ID, ChatFixture.USER_ID))
+                    .willReturn(Optional.of(leftParticipant));
             given(userProfileRepository.findByUserId(ChatFixture.OPPONENT_ID)).willReturn(Optional.empty());
 
             ChatRoomResult result = chatRoomService.createOrGetRoom(ChatFixture.USER_ID, req);
 
             assertThat(result.created()).isFalse();
-            then(chatParticipantRepository).should().save(any(ChatParticipant.class));
+            // reenter() 호출로 leftAt이 null로 초기화됨
+            assertThat(leftParticipant.getLeftAt()).isNull();
+            // save 없이 dirty checking으로 처리, 이벤트 발행
+            then(chatParticipantRepository).should(never()).save(any());
             then(eventPublisher).should().publishEvent(any(ChatRoomCreatedEvent.class));
         }
 
@@ -151,6 +165,8 @@ class ChatRoomServiceTest {
         void 기존_방_없음_신규_생성() {
             ChatRoomCreateRequest req = new ChatRoomCreateRequest(ChatFixture.OPPONENT_ID);
 
+            given(userRepository.findById(ChatFixture.USER_ID))
+                    .willReturn(Optional.of(ChatFixture.chatUser(ChatFixture.USER_ID)));
             given(userRepository.findById(ChatFixture.OPPONENT_ID))
                     .willReturn(Optional.of(ChatFixture.chatUser(ChatFixture.OPPONENT_ID)));
             given(chatRoomRepository.findExistingRoomBetweenUsers(ChatFixture.USER_ID, ChatFixture.OPPONENT_ID))
@@ -260,7 +276,8 @@ class ChatRoomServiceTest {
 
             chatRoomService.leaveRoom(ChatFixture.USER_ID, ChatFixture.ROOM_ID);
 
-            then(chatParticipantRepository).should().deleteByRoomIdAndUserId(ChatFixture.ROOM_ID, ChatFixture.USER_ID);
+            // leave() 호출로 leftAt이 설정됨 (hard delete 아닌 soft delete)
+            assertThat(participant.getLeftAt()).isNotNull();
             then(eventPublisher).should().publishEvent(any(ChatParticipantLeftEvent.class));
             then(chatRoomRepository).should(never()).findById(anyLong());
         }
@@ -277,6 +294,7 @@ class ChatRoomServiceTest {
 
             chatRoomService.leaveRoom(ChatFixture.USER_ID, ChatFixture.ROOM_ID);
 
+            assertThat(participant.getLeftAt()).isNotNull();
             assertThat(room.isDeleted()).isTrue();
             then(eventPublisher).should().publishEvent(any(ChatRoomDeletedEvent.class));
         }
