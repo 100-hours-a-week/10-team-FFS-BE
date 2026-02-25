@@ -95,6 +95,8 @@ export KAKAO_CLIENT_ID=$(get_param "/klosetlab/${ENVIRONMENT}/spring/oauth/kakao
 export KAKAO_CLIENT_SECRET=$(get_secure_param "/klosetlab/${ENVIRONMENT}/spring/oauth/kakao/client-secret")
 export KAKAO_REDIRECT_URI=$(get_param "/klosetlab/${ENVIRONMENT}/spring/oauth/kakao/redirect-uri")
 
+export INTERNAL_API_KEY=$(get_secure_param "/klosetlab/${ENVIRONMENT}/spring/security/internal-api-key")
+
 export AWS_S3_BUCKET=$(get_param "/klosetlab/${ENVIRONMENT}/spring/aws/s3/bucket")
 export AI_API_BASE_URL=$(get_param "/klosetlab/${ENVIRONMENT}/spring/ai/api-base-url")
 
