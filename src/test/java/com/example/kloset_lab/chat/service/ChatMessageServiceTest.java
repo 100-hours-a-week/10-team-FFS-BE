@@ -2,18 +2,22 @@ package com.example.kloset_lab.chat.service;
 
 import static com.example.kloset_lab.chat.fixture.ChatFixture.FEED_ID;
 import static com.example.kloset_lab.chat.fixture.ChatFixture.MEDIA_FILE_ID;
+import static com.example.kloset_lab.chat.fixture.ChatFixture.OPPONENT_ID;
 import static com.example.kloset_lab.chat.fixture.ChatFixture.ROOM_ID;
 import static com.example.kloset_lab.chat.fixture.ChatFixture.USER_ID;
 import static com.example.kloset_lab.chat.fixture.ChatFixture.sendFeedRequest;
 import static com.example.kloset_lab.chat.fixture.ChatFixture.sendImageRequest;
 import static com.example.kloset_lab.chat.fixture.ChatFixture.sendTextRequest;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.never;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.mock;
 
 import com.example.kloset_lab.chat.config.CdnProperties;
+import com.example.kloset_lab.chat.constant.ChatConstants;
 import com.example.kloset_lab.chat.document.ChatMessage;
 import com.example.kloset_lab.chat.dto.stomp.ChatSendRequest;
 import com.example.kloset_lab.chat.entity.ChatParticipant;
@@ -33,6 +37,7 @@ import com.example.kloset_lab.media.entity.MediaFile;
 import com.example.kloset_lab.media.entity.Purpose;
 import com.example.kloset_lab.media.repository.MediaFileRepository;
 import com.example.kloset_lab.user.entity.User;
+import com.example.kloset_lab.user.entity.UserProfile;
 import com.example.kloset_lab.user.repository.UserProfileRepository;
 import java.util.List;
 import java.util.Optional;
@@ -40,6 +45,7 @@ import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.springframework.context.ApplicationEventPublisher;
@@ -311,6 +317,180 @@ class ChatMessageServiceTest {
 
             then(chatMessageRepository).should().save(any(ChatMessage.class));
             then(eventPublisher).should().publishEvent(any(ChatMessageSentEvent.class));
+        }
+    }
+
+    // ======================== 실패 정책 ========================
+
+    @Nested
+    @DisplayName("sendMessage 실패 정책")
+    class SendMessageFailurePolicy {
+
+        @Test
+        @DisplayName("MongoDB 저장 실패 시 이벤트 미발행 및 ChatRoom 스냅샷 미갱신")
+        void Mongo_저장_실패시_후속_단계_중단() {
+            ChatRoom room = ChatFixture.chatRoom(ROOM_ID);
+            given(chatParticipantRepository.findByRoomIdAndUserId(ROOM_ID, USER_ID))
+                    .willReturn(Optional.of(ChatFixture.chatParticipant(room, USER_ID)));
+            given(chatRoomRepository.findById(ROOM_ID)).willReturn(Optional.of(room));
+            given(chatMessageRepository.save(any())).willThrow(new RuntimeException("Mongo 저장 실패"));
+
+            assertThatThrownBy(() -> chatMessageService.sendMessage(USER_ID, ROOM_ID, sendTextRequest("안녕")))
+                    .isInstanceOf(RuntimeException.class);
+
+            // 이벤트 미발행 검증
+            then(eventPublisher).should(never()).publishEvent(any());
+            // ChatRoom 스냅샷 미갱신 검증
+            assertThat(room.getLastMessageId()).isNull();
+            assertThat(room.getLastMessageContent()).isNull();
+        }
+    }
+
+    // ======================== 이벤트 페이로드 검증 ========================
+
+    @Nested
+    @DisplayName("sendMessage 이벤트 페이로드 검증")
+    class SendMessagePayload {
+
+        @Test
+        @DisplayName("TEXT 전송 시 이벤트의 contentPreview는 원문 content이고 ChatRoom 스냅샷이 갱신된다")
+        void TEXT_이벤트_페이로드_및_스냅샷() {
+            ChatRoom room = ChatFixture.chatRoom(ROOM_ID);
+            given(chatParticipantRepository.findByRoomIdAndUserId(ROOM_ID, USER_ID))
+                    .willReturn(Optional.of(ChatFixture.chatParticipant(room, USER_ID)));
+            given(chatRoomRepository.findById(ROOM_ID)).willReturn(Optional.of(room));
+            given(userProfileRepository.findByUserId(USER_ID)).willReturn(Optional.empty());
+            given(chatParticipantRepository.findByRoomId(ROOM_ID)).willReturn(List.of(givenParticipant()));
+            given(chatMessageRepository.save(any())).willReturn(ChatFixture.chatMessage(ROOM_ID, USER_ID));
+
+            chatMessageService.sendMessage(USER_ID, ROOM_ID, sendTextRequest("안녕하세요"));
+
+            ArgumentCaptor<ChatMessageSentEvent> captor = ArgumentCaptor.forClass(ChatMessageSentEvent.class);
+            then(eventPublisher).should().publishEvent(captor.capture());
+
+            ChatMessageSentEvent event = captor.getValue();
+            assertThat(event.roomId()).isEqualTo(ROOM_ID);
+            assertThat(event.senderId()).isEqualTo(USER_ID);
+            assertThat(event.messageId()).isEqualTo(ChatFixture.VALID_OID);
+            assertThat(event.contentPreview()).isEqualTo("안녕하세요");
+            assertThat(event.type()).isEqualTo("TEXT");
+            assertThat(event.participants()).hasSize(1);
+            // ChatRoom 스냅샷 갱신 검증
+            assertThat(room.getLastMessageContent()).isEqualTo("안녕하세요");
+            assertThat(room.getLastMessageType()).isEqualTo("TEXT");
+            assertThat(room.getLastMessageId()).isEqualTo(ChatFixture.VALID_OID);
+        }
+
+        @Test
+        @DisplayName("IMAGE 전송 시 이벤트의 contentPreview는 [이미지]이다")
+        void IMAGE_이벤트_페이로드() {
+            User user = ChatFixture.chatUser(USER_ID);
+            MediaFile file = ChatFixture.uploadedChatMediaFile(user);
+            givenParticipantAndRoomFound();
+            given(mediaFileRepository.findById(MEDIA_FILE_ID)).willReturn(Optional.of(file));
+            given(cdnProperties.getBaseUrl()).willReturn("https://cdn.test.com");
+            given(userProfileRepository.findByUserId(USER_ID)).willReturn(Optional.empty());
+            given(chatParticipantRepository.findByRoomId(ROOM_ID)).willReturn(List.of(givenParticipant()));
+            given(chatMessageRepository.save(any())).willReturn(ChatFixture.chatMessage(ROOM_ID, USER_ID));
+
+            chatMessageService.sendMessage(USER_ID, ROOM_ID, sendImageRequest(List.of(MEDIA_FILE_ID)));
+
+            ArgumentCaptor<ChatMessageSentEvent> captor = ArgumentCaptor.forClass(ChatMessageSentEvent.class);
+            then(eventPublisher).should().publishEvent(captor.capture());
+
+            assertThat(captor.getValue().contentPreview()).isEqualTo(ChatConstants.PREVIEW_IMAGE);
+            assertThat(captor.getValue().type()).isEqualTo("IMAGE");
+        }
+
+        @Test
+        @DisplayName("FEED 전송 시 이벤트의 contentPreview는 [피드]이다")
+        void FEED_이벤트_페이로드() {
+            givenParticipantAndRoomFound();
+            given(feedRepository.findById(FEED_ID)).willReturn(Optional.of(mock(Feed.class)));
+            given(userProfileRepository.findByUserId(USER_ID)).willReturn(Optional.empty());
+            given(chatParticipantRepository.findByRoomId(ROOM_ID)).willReturn(List.of(givenParticipant()));
+            given(chatMessageRepository.save(any())).willReturn(ChatFixture.chatMessage(ROOM_ID, USER_ID));
+
+            chatMessageService.sendMessage(USER_ID, ROOM_ID, sendFeedRequest(FEED_ID));
+
+            ArgumentCaptor<ChatMessageSentEvent> captor = ArgumentCaptor.forClass(ChatMessageSentEvent.class);
+            then(eventPublisher).should().publishEvent(captor.capture());
+
+            assertThat(captor.getValue().contentPreview()).isEqualTo(ChatConstants.PREVIEW_FEED);
+            assertThat(captor.getValue().type()).isEqualTo("FEED");
+        }
+
+        @Test
+        @DisplayName("UserProfile이 존재하면 broadcastMessage의 senderNickname이 채워진다")
+        void senderNickname_설정() {
+            UserProfile profile = mock(UserProfile.class);
+            given(profile.getNickname()).willReturn("테스터닉");
+            givenParticipantAndRoomFound();
+            given(userProfileRepository.findByUserId(USER_ID)).willReturn(Optional.of(profile));
+            given(chatParticipantRepository.findByRoomId(ROOM_ID)).willReturn(List.of(givenParticipant()));
+            given(chatMessageRepository.save(any())).willReturn(ChatFixture.chatMessage(ROOM_ID, USER_ID));
+
+            chatMessageService.sendMessage(USER_ID, ROOM_ID, sendTextRequest("닉네임 테스트"));
+
+            ArgumentCaptor<ChatMessageSentEvent> captor = ArgumentCaptor.forClass(ChatMessageSentEvent.class);
+            then(eventPublisher).should().publishEvent(captor.capture());
+
+            assertThat(captor.getValue().broadcastMessage().senderNickname()).isEqualTo("테스터닉");
+        }
+    }
+
+    // ======================== DM/GROUP 분기 ========================
+
+    @Nested
+    @DisplayName("sendMessage DM/GROUP 분기")
+    class SendMessageBranching {
+
+        @Test
+        @DisplayName("DM 방에서 나간 참여자가 있으면 reenter()가 호출되어 leftAt이 null이 된다")
+        void DM_나간_참여자_자동_재진입() {
+            // given
+            ChatRoom dmRoom = ChatFixture.chatRoom(ROOM_ID);
+            given(chatParticipantRepository.findByRoomIdAndUserId(ROOM_ID, USER_ID))
+                    .willReturn(Optional.of(ChatFixture.chatParticipant(dmRoom, USER_ID)));
+            given(chatRoomRepository.findById(ROOM_ID)).willReturn(Optional.of(dmRoom));
+            given(userProfileRepository.findByUserId(USER_ID)).willReturn(Optional.empty());
+            given(chatMessageRepository.save(any())).willReturn(ChatFixture.chatMessage(ROOM_ID, USER_ID));
+
+            ChatParticipant leftParticipant = ChatFixture.chatParticipant(dmRoom, OPPONENT_ID);
+            leftParticipant.leave();
+            ChatParticipant activeParticipant = ChatFixture.chatParticipant(dmRoom, USER_ID);
+            given(chatParticipantRepository.findByRoomId(ROOM_ID))
+                    .willReturn(List.of(activeParticipant, leftParticipant));
+
+            // when
+            chatMessageService.sendMessage(USER_ID, ROOM_ID, sendTextRequest("안녕"));
+
+            // then — DM 경로: findByRoomId 호출, findActiveByRoomId 미호출
+            then(chatParticipantRepository).should().findByRoomId(ROOM_ID);
+            then(chatParticipantRepository).should(never()).findActiveByRoomId(ROOM_ID);
+            // 나간 참여자의 leftAt이 null로 초기화됨을 검증
+            assertThat(leftParticipant.getLeftAt()).isNull();
+        }
+
+        @Test
+        @DisplayName("GROUP 방에서는 findActiveByRoomId만 호출하고 findByRoomId는 호출하지 않는다")
+        void GROUP_활성_참여자만_조회() {
+            // given
+            ChatRoom groupRoom = ChatFixture.chatGroupRoom(ROOM_ID);
+            given(chatParticipantRepository.findByRoomIdAndUserId(ROOM_ID, USER_ID))
+                    .willReturn(Optional.of(ChatFixture.chatParticipant(groupRoom, USER_ID)));
+            given(chatRoomRepository.findById(ROOM_ID)).willReturn(Optional.of(groupRoom));
+            given(userProfileRepository.findByUserId(USER_ID)).willReturn(Optional.empty());
+            given(chatMessageRepository.save(any())).willReturn(ChatFixture.chatMessage(ROOM_ID, USER_ID));
+            given(chatParticipantRepository.findActiveByRoomId(ROOM_ID))
+                    .willReturn(List.of(ChatFixture.chatParticipant(groupRoom, USER_ID)));
+
+            // when
+            chatMessageService.sendMessage(USER_ID, ROOM_ID, sendTextRequest("안녕"));
+
+            // then — GROUP 경로: findActiveByRoomId 호출, findByRoomId 미호출
+            then(chatParticipantRepository).should().findActiveByRoomId(ROOM_ID);
+            then(chatParticipantRepository).should(never()).findByRoomId(ROOM_ID);
         }
     }
 
