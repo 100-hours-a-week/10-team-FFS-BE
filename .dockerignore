@@ -3,7 +3,6 @@
 .gitattributes
 
 .gradle
-build/
 out/
 
 logs/
