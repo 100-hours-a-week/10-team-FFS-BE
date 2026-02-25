@@ -12,6 +12,25 @@ public final class ChatConstants {
     public static final String PREVIEW_IMAGE = "[이미지]";
     public static final String PREVIEW_FEED = "[피드]";
 
+    /**
+     * 메시지 타입·내용으로 미리보기 텍스트 생성
+     *
+     * @param type    메시지 타입 (TEXT / IMAGE / FEED)
+     * @param content 원본 텍스트 (IMAGE·FEED 타입이면 무시)
+     * @return 미리보기 텍스트
+     */
+    public static String toPreview(String type, String content) {
+        return switch (type) {
+            case MSG_TYPE_IMAGE -> PREVIEW_IMAGE;
+            case MSG_TYPE_FEED -> PREVIEW_FEED;
+            default -> content != null
+                    ? (content.length() > CONTENT_PREVIEW_MAX_LENGTH
+                            ? content.substring(0, CONTENT_PREVIEW_MAX_LENGTH)
+                            : content)
+                    : "";
+        };
+    }
+
     // ======================== STOMP 세션 속성 키 ========================
     public static final String SESSION_ATTR_USER_ID = "userId";
 

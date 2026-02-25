@@ -25,6 +25,13 @@ spring:
     open-in-view: false
 
   data:
+    mongodb:
+      host: ${MONGODB_HOST}
+      port: ${MONGODB_PORT:27017}
+      database: ${MONGODB_DATABASE}
+      username: ${MONGODB_USERNAME}
+      password: ${MONGODB_PASSWORD}
+#      authentication-database: admin
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}

@@ -87,19 +87,15 @@ public class ChatOrphanCleanupScheduler {
                     .findFirst()
                     .ifPresentOrElse(
                             actual -> {
+                                String preview = ChatConstants.toPreview(actual.getType(), actual.getContent());
                                 room.updateLastMessage(
-                                        actual.getId().toHexString(),
-                                        Optional.ofNullable(actual.getContent()).orElse(""),
-                                        actual.getType(),
-                                        actual.getCreatedAt());
+                                        actual.getId().toHexString(), preview, actual.getType(), actual.getCreatedAt());
 
                                 Map<String, String> fields = new HashMap<>();
                                 fields.put(
                                         ChatConstants.FIELD_LAST_MESSAGE_ID,
                                         actual.getId().toHexString());
-                                fields.put(
-                                        ChatConstants.FIELD_LAST_MESSAGE_CONTENT,
-                                        Optional.ofNullable(actual.getContent()).orElse(""));
+                                fields.put(ChatConstants.FIELD_LAST_MESSAGE_CONTENT, preview);
                                 fields.put(
                                         ChatConstants.FIELD_LAST_MESSAGE_TYPE,
                                         Optional.ofNullable(actual.getType()).orElse(""));

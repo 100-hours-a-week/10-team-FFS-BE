@@ -27,6 +27,7 @@ import com.example.kloset_lab.chat.repository.ChatParticipantRepository;
 import com.example.kloset_lab.chat.repository.ChatRoomRepository;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
+import com.example.kloset_lab.user.entity.User;
 import com.example.kloset_lab.user.entity.UserProfile;
 import com.example.kloset_lab.user.repository.UserProfileRepository;
 import com.example.kloset_lab.user.repository.UserRepository;
@@ -75,44 +76,45 @@ public class ChatRoomService {
             throw new CustomException(ErrorCode.CANNOT_CHAT_WITH_SELF);
         }
 
+        User currentUser =
+                userRepository.findById(userId).orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
         userRepository.findById(opponentUserId).orElseThrow(() -> new CustomException(ErrorCode.TARGET_USER_NOT_FOUND));
 
         return chatRoomRepository
                 .findExistingRoomBetweenUsers(userId, opponentUserId)
                 .map(existingRoom -> {
-                    // 이전에 나간 사용자라면 participant 재추가 후 Redis 복구
+                    // 이전에 나간 사용자라면 재진입 처리 후 Redis 복구 (soft delete 방식)
                     chatParticipantRepository
-                            .findByRoomIdAndUserId(existingRoom.getId(), userId)
-                            .orElseGet(() -> {
-                                chatParticipantRepository.save(ChatParticipant.builder()
-                                        .room(existingRoom)
-                                        .userId(userId)
-                                        .build());
+                            .findHistoryByRoomIdAndUserId(existingRoom.getId(), userId)
+                            .filter(p -> p.getLeftAt() != null)
+                            .ifPresent(p -> {
+                                p.reenter();
                                 double score = Optional.ofNullable(existingRoom.getLastMessageAt())
                                         .map(at -> (double) at.toEpochMilli())
                                         .orElse((double)
                                                 existingRoom.getCreatedAt().toEpochMilli());
                                 eventPublisher.publishEvent(
                                         new ChatRoomCreatedEvent(userId, opponentUserId, existingRoom.getId(), score));
-                                return null;
                             });
                     return ChatRoomResult.existing(buildChatRoomResponse(existingRoom, opponentUserId));
                 })
-                .orElseGet(() -> ChatRoomResult.created(createNewRoom(userId, opponentUserId)));
+                .orElseGet(() -> ChatRoomResult.created(createNewRoom(currentUser, opponentUserId)));
     }
 
-    private ChatRoomResponse createNewRoom(Long userId, Long opponentUserId) {
+    private ChatRoomResponse createNewRoom(User currentUser, Long opponentUserId) {
         ChatRoom room = ChatRoom.create();
         chatRoomRepository.save(room);
 
         chatParticipantRepository.save(
-                ChatParticipant.builder().room(room).userId(userId).build());
-        chatParticipantRepository.save(
-                ChatParticipant.builder().room(room).userId(opponentUserId).build());
+                ChatParticipant.builder().room(room).user(currentUser).build());
+        chatParticipantRepository.save(ChatParticipant.builder()
+                .room(room)
+                .user(userRepository.getReferenceById(opponentUserId))
+                .build());
 
         double score = (double) Instant.now().toEpochMilli();
         // MySQL 커밋 이후 Redis 캐시 등록 (AFTER_COMMIT 이벤트)
-        eventPublisher.publishEvent(new ChatRoomCreatedEvent(userId, opponentUserId, room.getId(), score));
+        eventPublisher.publishEvent(new ChatRoomCreatedEvent(currentUser.getId(), opponentUserId, room.getId(), score));
 
         return buildChatRoomResponse(room, opponentUserId);
     }
@@ -157,11 +159,11 @@ public class ChatRoomService {
                     .ifPresent(score -> roomScores.put(roomId, score));
 
             chatParticipantRepository.findByRoomId(roomId).stream()
-                    .filter(p -> !p.getUserId().equals(userId))
+                    .filter(p -> !p.getUser().getId().equals(userId))
                     .findFirst()
                     .ifPresent(p -> {
-                        roomToOpponent.put(roomId, p.getUserId());
-                        opponentUserIds.add(p.getUserId());
+                        roomToOpponent.put(roomId, p.getUser().getId());
+                        opponentUserIds.add(p.getUser().getId());
                     });
         }
 
@@ -289,9 +291,65 @@ public class ChatRoomService {
     private void applyReadEffect(ChatParticipant participant, Long userId, Long roomId, String latestMessageId) {
         if (shouldUpdateLastRead(participant.getLastReadMessageId(), latestMessageId)) {
             participant.updateLastReadMessageId(latestMessageId);
-            // MySQL 커밋 이후 Redis 미읽음 초기화 (AFTER_COMMIT 이벤트)
+        }
+        // MySQL 커밋 이후 Redis 미읽음 초기화 (AFTER_COMMIT 이벤트) — lastReadMessageId 갱신 여부와 무관하게 항상 reset
+        eventPublisher.publishEvent(new ChatReadEvent(userId, roomId));
+    }
+
+    /**
+     * 안읽은 메시지 정방향 조회 (오래된→최신 ASC)
+     *
+     * @param userId 현재 사용자 ID
+     * @param roomId 채팅방 ID
+     * @param cursor 이전 페이지 마지막 메시지 ObjectId. null이면 lastReadMessageId 기준
+     * @param size   조회 개수
+     * @return 메시지 목록 응답 (오래된순)
+     */
+    @Transactional
+    public ChatMessageListResponse getUnreadMessages(Long userId, Long roomId, String cursor, int size) {
+        ChatParticipant participant = chatParticipantRepository
+                .findByRoomIdAndUserId(roomId, userId)
+                .orElseThrow(() -> new CustomException(ErrorCode.CHAT_ROOM_ACCESS_DENIED));
+
+        int limit = size > 0 ? size : ChatConstants.DEFAULT_MESSAGE_PAGE_SIZE;
+        PageRequest pageable = PageRequest.of(0, limit + 1, Sort.by(Sort.Direction.ASC, "_id"));
+        Instant enteredAt = participant.getEnteredAt();
+
+        // 실효 커서: 요청 cursor > lastReadMessageId > null
+        String effectiveCursor =
+                Optional.ofNullable(cursor).filter(ObjectId::isValid).orElse(participant.getLastReadMessageId());
+
+        List<ChatMessage> messages = Optional.ofNullable(effectiveCursor)
+                .filter(ObjectId::isValid)
+                .map(c -> chatMessageRepository.findByRoomIdAndIdGreaterThanAndCreatedAtGreaterThanEqual(
+                        roomId, new ObjectId(c), enteredAt, pageable))
+                .orElseGet(() ->
+                        chatMessageRepository.findByRoomIdAndCreatedAtGreaterThanEqual(roomId, enteredAt, pageable));
+
+        boolean hasNextPage = messages.size() > limit;
+        List<ChatMessage> pageMessages = hasNextPage ? messages.subList(0, limit) : messages;
+
+        List<ChatMessageItem> items =
+                pageMessages.stream().map(this::buildMessageItem).collect(Collectors.toList());
+
+        // ASC 정렬이므로 마지막 항목이 가장 최신
+        if (!pageMessages.isEmpty()) {
+            String latestMessageId =
+                    pageMessages.get(pageMessages.size() - 1).getId().toHexString();
+            applyReadEffect(participant, userId, roomId, latestMessageId);
+        } else if (cursor == null || !ObjectId.isValid(cursor)) {
+            // 첫 진입 시 메시지 없어도 unread count 0 초기화
             eventPublisher.publishEvent(new ChatReadEvent(userId, roomId));
         }
+
+        String nextCursor =
+                hasNextPage ? pageMessages.get(pageMessages.size() - 1).getId().toHexString() : null;
+
+        return ChatMessageListResponse.builder()
+                .messages(items)
+                .hasNextPage(hasNextPage)
+                .nextCursor(nextCursor)
+                .build();
     }
 
     /**
@@ -302,11 +360,11 @@ public class ChatRoomService {
      */
     @Transactional
     public void leaveRoom(Long userId, Long roomId) {
-        chatParticipantRepository
+        ChatParticipant participant = chatParticipantRepository
                 .findByRoomIdAndUserId(roomId, userId)
                 .orElseThrow(() -> new CustomException(ErrorCode.CHAT_ROOM_ACCESS_DENIED));
 
-        chatParticipantRepository.deleteByRoomIdAndUserId(roomId, userId);
+        participant.leave();
 
         // MySQL 커밋 이후 Redis 캐시 정리 (AFTER_COMMIT 이벤트)
         eventPublisher.publishEvent(new ChatParticipantLeftEvent(userId, roomId));
@@ -340,9 +398,9 @@ public class ChatRoomService {
 
         if (shouldUpdateLastRead(participant.getLastReadMessageId(), request.lastReadMessageId())) {
             participant.updateLastReadMessageId(request.lastReadMessageId());
-            // MySQL 커밋 이후 Redis 미읽음 초기화 (AFTER_COMMIT 이벤트)
-            eventPublisher.publishEvent(new ChatReadEvent(userId, roomId));
         }
+        // MySQL 커밋 이후 Redis 미읽음 초기화 (AFTER_COMMIT 이벤트) — lastReadMessageId 갱신 여부와 무관하게 항상 reset
+        eventPublisher.publishEvent(new ChatReadEvent(userId, roomId));
     }
 
     /**
@@ -353,6 +411,9 @@ public class ChatRoomService {
      */
     @Transactional(readOnly = true)
     public UnreadStatusResponse getUnreadStatus(Long userId) {
+        if (chatRedisRepository.getRoomCount(userId) == 0) {
+            rebuildRoomCache(userId);
+        }
         long totalUnread = chatParticipantRepository.findByUserId(userId).stream()
                 .mapToLong(
                         p -> chatRedisRepository.getUnread(userId, p.getRoom().getId()))
@@ -378,6 +439,7 @@ public class ChatRoomService {
 
     private ChatMessageItem buildMessageItem(ChatMessage msg) {
         List<ChatImageDto> images = Optional.ofNullable(msg.getImages())
+                .filter(imgs -> !imgs.isEmpty())
                 .map(imgs -> imgs.stream()
                         .map(img -> ChatImageDto.builder()
                                 .mediaFileId(img.getMediaFileId())
@@ -385,7 +447,7 @@ public class ChatRoomService {
                                 .displayOrder(img.getDisplayOrder())
                                 .build())
                         .collect(Collectors.toList()))
-                .orElse(null);
+                .orElse(List.of());
 
         return ChatMessageItem.builder()
                 .messageId(msg.getId().toHexString())

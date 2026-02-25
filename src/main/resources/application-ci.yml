@@ -48,6 +48,7 @@ server:
     include-exception: true
 
 jwt:
+  secret: ci-test-secret-key-must-be-at-least-32-bytes-long
   access-token-expiration: 3600000
   refresh-token-expiration: 604800000
 
@@ -91,3 +92,17 @@ kakao:
   token-uri: https://kauth.kakao.com/oauth/token
   jwks-uri: https://kauth.kakao.com/.well-known/jwks.json
   issuer: https://kauth.kakao.com
+
+ai:
+  api:
+    base-url: http://localhost:8080
+
+internal:
+  api-key: ci-test-internal-key
+
+rate-limit:
+  ai-api-daily-limit: 50
+  general-api-minute-limit: 100
+
+cdn:
+  base-url: http://localhost:8080

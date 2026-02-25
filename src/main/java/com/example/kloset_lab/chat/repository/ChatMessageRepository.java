@@ -51,6 +51,18 @@ public interface ChatMessageRepository extends MongoRepository<ChatMessage, Obje
     List<ChatMessage> findByRoomIdAndCreatedAtGreaterThanEqual(Long roomId, Instant enteredAt, Pageable pageable);
 
     /**
+     * 안읽은 메시지 정방향 조회 (오래된순, cursor 이후 메시지)
+     *
+     * @param roomId    채팅방 ID
+     * @param afterId   이 ID 초과의 메시지만 조회 (커서 페이지네이션)
+     * @param enteredAt 이 시각 이후 메시지만 조회 (입장 시각)
+     * @param pageable  페이징 정보 (sort: _id asc)
+     * @return 메시지 목록
+     */
+    List<ChatMessage> findByRoomIdAndIdGreaterThanAndCreatedAtGreaterThanEqual(
+            Long roomId, ObjectId afterId, Instant enteredAt, Pageable pageable);
+
+    /**
      * 채팅방 전체 메시지 수 조회 (lastReadMessageId가 없는 경우 unread 복구용)
      *
      * @param roomId 채팅방 ID

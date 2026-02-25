@@ -22,13 +22,17 @@ public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long> {
             WHERE cr.deletedAt IS NULL
               AND EXISTS (
                 SELECT 1 FROM ChatParticipant cp1
-                WHERE cp1.room = cr AND cp1.userId = :opponentUserId
+                WHERE cp1.room = cr AND cp1.user.id = :userId
+              )
+              AND EXISTS (
+                SELECT 1 FROM ChatParticipant cp2
+                WHERE cp2.room = cr AND cp2.user.id = :opponentUserId AND cp2.leftAt IS NULL
               )
               AND NOT EXISTS (
-                SELECT 1 FROM ChatParticipant cp2
-                WHERE cp2.room = cr
-                  AND cp2.userId <> :opponentUserId
-                  AND cp2.userId <> :userId
+                SELECT 1 FROM ChatParticipant cp3
+                WHERE cp3.room = cr
+                  AND cp3.user.id <> :userId
+                  AND cp3.user.id <> :opponentUserId
               )
             """)
     Optional<ChatRoom> findExistingRoomBetweenUsers(

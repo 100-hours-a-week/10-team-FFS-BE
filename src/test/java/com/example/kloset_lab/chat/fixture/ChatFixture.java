@@ -4,6 +4,7 @@ import com.example.kloset_lab.chat.document.ChatMessage;
 import com.example.kloset_lab.chat.dto.stomp.ChatSendRequest;
 import com.example.kloset_lab.chat.entity.ChatParticipant;
 import com.example.kloset_lab.chat.entity.ChatRoom;
+import com.example.kloset_lab.chat.entity.RoomType;
 import com.example.kloset_lab.media.entity.FileStatus;
 import com.example.kloset_lab.media.entity.FileType;
 import com.example.kloset_lab.media.entity.MediaFile;
@@ -33,16 +34,24 @@ public class ChatFixture {
     /** 유효하지 않은 ObjectId 문자열 */
     public static final String INVALID_OID = "not-an-objectid";
 
-    /** id와 createdAt이 설정된 ChatRoom 생성 */
+    /** id와 createdAt이 설정된 DM ChatRoom 생성 */
     public static ChatRoom chatRoom(Long id) {
         ChatRoom room = ChatRoom.builder().id(id).build();
         ReflectionTestUtils.setField(room, "createdAt", Instant.now());
         return room;
     }
 
+    /** id와 createdAt이 설정된 GROUP ChatRoom 생성 */
+    public static ChatRoom chatGroupRoom(Long id) {
+        ChatRoom room = ChatRoom.create(RoomType.GROUP);
+        ReflectionTestUtils.setField(room, "id", id);
+        ReflectionTestUtils.setField(room, "createdAt", Instant.now());
+        return room;
+    }
+
     /** ChatParticipant 생성 (enteredAt은 Instant.now()로 자동 설정) */
     public static ChatParticipant chatParticipant(ChatRoom room, Long userId) {
-        return ChatParticipant.builder().room(room).userId(userId).build();
+        return ChatParticipant.builder().room(room).user(chatUser(userId)).build();
     }
 
     /** 테스트용 User 생성 (id는 ReflectionTestUtils로 설정) */
