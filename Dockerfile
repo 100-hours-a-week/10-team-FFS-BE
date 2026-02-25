@@ -16,9 +16,7 @@ RUN chown spring:spring app.jar
 USER spring
 
 # 프로덕션 최적화 JVM 옵션
-ENV SPRING_PROFILES_ACTIVE=prod \
-    SERVER_PORT=8080 \
-    TZ=Asia/Seoul \
+ENV TZ=Asia/Seoul \
     JAVA_OPTS="-XX:+UseContainerSupport \
                -XX:MaxRAMPercentage=70.0 \
                -XX:+UseG1GC \
