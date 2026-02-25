@@ -60,4 +60,4 @@ decorator:
       log-format: "%(executionTime) ms | %(sqlSingleLine)"
 
 internal:
-  api-key: ${INTERNAL_API_KEY}
+  api-key: ${INTERNAL_API_KEY:}
