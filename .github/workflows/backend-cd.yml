@@ -9,8 +9,7 @@ on:
     types:
       - completed
     branches:
-      - dev
-      - main
+      - dev-v1
 
 permissions:
   contents: read

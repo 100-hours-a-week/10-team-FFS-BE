@@ -8,8 +8,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     branches:
-      - dev
-      - main
+      - dev-v1
     # 백엔드 관련 파일이 변경될 때만 실행
     paths:
       - 'src/**'
