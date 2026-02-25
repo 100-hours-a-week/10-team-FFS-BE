@@ -127,10 +127,13 @@ jobs:
           else
             BRANCH="${{ github.ref_name }}"
           fi
+
+          # 슬래시를 하이픈으로 치환
+          SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-')
           
           # 이미지 태그 생성: {branch}-{version}-{sha}
           # 예: dev-1.0.0-abc1234, main-1.0.0-abc1234
-          IMAGE_TAG="${BRANCH}-${VERSION}-${COMMIT_SHA}"
+          IMAGE_TAG="${SAFE_BRANCH}-${VERSION}-${COMMIT_SHA}"
           
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "commit_sha=${COMMIT_SHA}" >> $GITHUB_OUTPUT
