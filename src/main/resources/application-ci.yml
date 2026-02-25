@@ -97,6 +97,9 @@ ai:
   api:
     base-url: http://localhost:8080
 
+internal:
+  api-key: ci-test-internal-key
+
 rate-limit:
   ai-api-daily-limit: 50
   general-api-minute-limit: 100
