@@ -36,6 +36,13 @@ spring:
           max-idle: 8
           min-idle: 2
           max-wait: 3000ms
+    mongodb:
+      host: ${MONGODB_HOST}
+      port: ${MONGODB_PORT:27017}
+      database: ${MONGODB_DATABASE}
+      username: ${MONGODB_USERNAME}
+      password: ${MONGODB_PASSWORD}
+      #authentication-database: admin
 
 server:
   port: ${SERVER_PORT:8080}
