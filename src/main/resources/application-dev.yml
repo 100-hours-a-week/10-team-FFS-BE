@@ -99,6 +99,7 @@ cors:
     - http://15.164.36.40
     - http://15.164.36.40:3000
     - http://15.164.36.40:8080
+    - https://d33bnagyzgkisg.cloudfront.net
   allowed-methods:
     - GET
     - POST
