@@ -11,30 +11,30 @@ on:
       - dev
       - main
     # 백엔드 관련 파일이 변경될 때만 실행
-    paths:
-      - 'src/**'
-      - 'build.gradle'
-      - 'settings.gradle'
-      - 'gradle/**'
-      - 'Dockerfile'
-      - '.dockerignore'
-      - 'config/**'
-      - '.github/workflows/backend-ci.yml'
+    # paths:
+    #   - 'src/**'
+    #   - 'build.gradle'
+    #   - 'settings.gradle'
+    #   - 'gradle/**'
+    #   - 'Dockerfile'
+    #   - '.dockerignore'
+    #   - 'config/**'
+    #   - '.github/workflows/backend-ci.yml'
 
   # Push 이벤트 (Docker 빌드 및 ECR 푸시)
   push:
     branches:
       - dev
       - main
-    paths:
-      - 'src/**'
-      - 'build.gradle'
-      - 'settings.gradle'
-      - 'gradle/**'
-      - 'Dockerfile'
-      - '.dockerignore'
-      - 'config/**'
-      - '.github/workflows/backend-ci.yml'
+    # paths:
+    #   - 'src/**'
+    #   - 'build.gradle'
+    #   - 'settings.gradle'
+    #   - 'gradle/**'
+    #   - 'Dockerfile'
+    #   - '.dockerignore'
+    #   - 'config/**'
+    #   - '.github/workflows/backend-ci.yml'
 
 permissions:
   contents: read
