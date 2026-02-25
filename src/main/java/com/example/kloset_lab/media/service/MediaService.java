@@ -30,9 +30,8 @@ public class MediaService {
 
     @Transactional
     public List<FileUploadResponse> requestFileUpload(
-            Long currentUserId, Purpose purpose, List<FileUploadInfo> fileUploadInfoList) {
-        User user =
-                userRepository.findById(currentUserId).orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
+            Long userId, Purpose purpose, List<FileUploadInfo> fileUploadInfoList) {
+        User user = userRepository.findById(userId).orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
 
         List<FileUploadResponse> fileUploadResponseList = new ArrayList<>();
 
