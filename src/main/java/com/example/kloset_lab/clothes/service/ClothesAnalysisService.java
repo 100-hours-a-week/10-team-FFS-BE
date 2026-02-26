@@ -15,7 +15,6 @@ import com.example.kloset_lab.global.ai.kafka.dto.AnalyzeResult;
 import com.example.kloset_lab.global.ai.kafka.producer.ClothesAnalysisProducer;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
-import com.example.kloset_lab.media.entity.Purpose;
 import com.example.kloset_lab.media.service.MediaService;
 import com.example.kloset_lab.user.entity.User;
 import com.example.kloset_lab.user.repository.UserRepository;
@@ -49,7 +48,7 @@ public class ClothesAnalysisService {
         User user =
                 userRepository.findById(currentUserId).orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
 
-        mediaService.confirmFileUpload(currentUserId, Purpose.CLOTHES_TEMP, fileIds);
+        // mediaService.confirmFileUpload(currentUserId, Purpose.CLOTHES_TEMP, fileIds);
 
         List<String> imageUrls = mediaService.getFileFullUrls(fileIds);
 
