@@ -13,7 +13,7 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.serializer.JsonSerializer;
 
 @Configuration
-@Profile("!test")
+@Profile("!ci")
 public class KafkaProducerConfig {
 
     @Value("${spring.kafka.bootstrap-servers}")
