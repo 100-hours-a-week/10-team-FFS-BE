@@ -2,12 +2,12 @@ package com.example.kloset_lab.global.config;
 
 import com.example.kloset_lab.chat.config.StompAuthChannelInterceptor;
 import lombok.RequiredArgsConstructor;
-import org.springframework.context.annotation.Bean;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.scheduling.TaskScheduler;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
@@ -19,18 +19,15 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     private final StompAuthChannelInterceptor stompAuthChannelInterceptor;
 
+    // @EnableWebSocketMessageBroker 인프라가 생성하는 스케줄러 재사용
+    // - @Lazy: configureMessageBroker 호출 시점에 해당 빈이 아직 초기화 중일 수 있으므로 지연 주입
+    @Lazy
+    @Autowired
+    private TaskScheduler messageBrokerTaskScheduler;
+
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws").setAllowedOriginPatterns("*");
-    }
-
-    @Bean
-    public TaskScheduler brokerTaskScheduler() {
-        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
-        scheduler.setPoolSize(1);
-        scheduler.setThreadNamePrefix("ws-heartbeat-");
-        scheduler.initialize();
-        return scheduler;
     }
 
     @Override
@@ -38,11 +35,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         // 클라이언트 → 서버 메시지 prefix
         registry.setApplicationDestinationPrefixes("/app");
         // 서버 → 클라이언트 브로커 prefix
-        // heartbeat: ALB idle timeout(60s) 이내로 유지하기 위해 30s 주기 설정
-        // TaskScheduler 필수: setHeartbeatValue 사용 시 스케줄러 없으면 IllegalArgumentException 발생
         registry.enableSimpleBroker("/topic", "/user/queue")
                 .setHeartbeatValue(new long[] {30000, 30000})
-                .setTaskScheduler(brokerTaskScheduler());
+                .setTaskScheduler(messageBrokerTaskScheduler);
         // 특정 사용자 목적지 prefix
         registry.setUserDestinationPrefix("/user");
     }
