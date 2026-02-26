@@ -17,8 +17,7 @@ public class ClothesAnalysisProducer {
 
     private static final String TOPIC = "ai.clothes.analyze.request";
 
-    @Qualifier("clothesAnalysisKafkaTemplate")
-    private final KafkaTemplate<String, Object> kafkaTemplate;
+    @Qualifier("clothesAnalysisKafkaTemplate") private final KafkaTemplate<String, Object> kafkaTemplate;
 
     /**
      * AI 옷 분석 요청 이벤트 발행

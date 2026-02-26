@@ -74,10 +74,10 @@ public class TempClothesBatch extends BaseTimeEntity {
         task.setBatch(this);
     }
 
-    public void completeTask(){
+    public void completeTask() {
         this.processing--;
         this.completed++;
-        if(this.completed >= this.total){
+        if (this.completed >= this.total) {
             this.status = BatchStatus.COMPLETED;
         }
     }

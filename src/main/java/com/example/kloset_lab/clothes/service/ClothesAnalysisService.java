@@ -6,10 +6,10 @@ import com.example.kloset_lab.clothes.entity.TempClothesBatch;
 import com.example.kloset_lab.clothes.entity.TempClothesTask;
 import com.example.kloset_lab.clothes.repository.TempClothesBatchRepository;
 import com.example.kloset_lab.clothes.repository.TempClothesTaskRepository;
-import com.example.kloset_lab.global.ai.http.dto.TaskStatus;
 import com.example.kloset_lab.global.ai.http.dto.BatchStatus;
-import com.example.kloset_lab.global.ai.http.dto.Meta;
 import com.example.kloset_lab.global.ai.http.dto.MajorFeature;
+import com.example.kloset_lab.global.ai.http.dto.Meta;
+import com.example.kloset_lab.global.ai.http.dto.TaskStatus;
 import com.example.kloset_lab.global.ai.kafka.dto.AnalyzeRequest;
 import com.example.kloset_lab.global.ai.kafka.dto.AnalyzeResult;
 import com.example.kloset_lab.global.ai.kafka.producer.ClothesAnalysisProducer;
@@ -27,7 +27,6 @@ import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.stream.Task;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -81,22 +80,32 @@ public class ClothesAnalysisService {
 
     @Transactional
     public void handlePreprocessingCompleted(AnalyzeResult result) {
-        TempClothesTask task = tempClothesTaskRepository.findByTaskId(result.taskId()).orElseThrow();
+        TempClothesTask task =
+                tempClothesTaskRepository.findByTaskId(result.taskId()).orElseThrow();
         task.updateFileId(TaskStatus.PREPROCESSING_COMPLETED, result.fileId());
-        log.info("[Service] 전처리 완료 - batchId: {}, taskId: {}, fileId: {}",
-                result.batchId(), result.taskId(), result.fileId());
+        log.info(
+                "[Service] 전처리 완료 - batchId: {}, taskId: {}, fileId: {}",
+                result.batchId(),
+                result.taskId(),
+                result.fileId());
     }
 
     @Transactional
     public void handleAnalysisCompleted(AnalyzeResult result) {
-        TempClothesTask task = tempClothesTaskRepository.findByTaskId(result.taskId()).orElseThrow();
+        TempClothesTask task =
+                tempClothesTaskRepository.findByTaskId(result.taskId()).orElseThrow();
         task.updateAnalyzeResult(TaskStatus.ANALYZING_COMPLETED, result.major(), result.extra());
 
-        TempClothesBatch batch = tempClothesBatchRepository.findByBatchId(result.batchId()).orElseThrow();
+        TempClothesBatch batch =
+                tempClothesBatchRepository.findByBatchId(result.batchId()).orElseThrow();
         batch.completeTask();
 
-        log.info("[Service] 분석 완료 - batchId: {}, taskId: {}, 진행: {}/{}",
-                result.batchId(), result.taskId(), batch.getCompleted(), batch.getTotal());
+        log.info(
+                "[Service] 분석 완료 - batchId: {}, taskId: {}, 진행: {}/{}",
+                result.batchId(),
+                result.taskId(),
+                batch.getCompleted(),
+                batch.getTotal());
     }
 
     /**
