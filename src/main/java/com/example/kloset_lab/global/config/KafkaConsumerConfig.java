@@ -16,6 +16,7 @@ public class KafkaConsumerConfig {
 
     @Value("${spring.kafka.bootstrap-servers}")
     private String bootstrapServers;
+    
     // 공통 컨슈머 설정
     private Map<String, Object> baseConsumerProps(String groupId) {
         Map<String, Object> props = new HashMap<>();
