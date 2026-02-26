@@ -19,8 +19,8 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 public class ClothesController {
 
-    private final ClothesAnalysisService clothesAnalysisService;
     private final ClothesService clothesService;
+    private final ClothesAnalysisService clothesAnalysisService;
 
     @PostMapping("/v1/clothes/analyses")
     public ResponseEntity<ApiResponse<ClothesAnalysisResponse>> requestAnalysis(
