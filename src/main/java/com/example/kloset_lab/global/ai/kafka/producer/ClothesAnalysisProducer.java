@@ -14,7 +14,6 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@Profile("!ci")
 public class ClothesAnalysisProducer {
 
     private static final String TOPIC = "ai.clothes.analyze.request";
