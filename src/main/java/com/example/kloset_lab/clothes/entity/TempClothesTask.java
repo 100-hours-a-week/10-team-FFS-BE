@@ -55,6 +55,17 @@ public class TempClothesTask extends BaseTimeEntity {
         this.extra = extra;
     }
 
+    public void updateFileId(TaskStatus status,Long fileId){
+        this.status = status;
+        this.fileId = fileId;
+    }
+
+    public void updateAnalyzeResult(TaskStatus status,String major, String extra){
+        this.status = status;
+        this.major = major;
+        this.extra = extra;
+    }
+
     public void setBatch(TempClothesBatch tempClothesBatch) {
         this.batch = tempClothesBatch;
     }
