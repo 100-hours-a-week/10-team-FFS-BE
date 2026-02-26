@@ -1,9 +1,9 @@
 package com.example.kloset_lab.clothes.dto;
 
-import com.example.kloset_lab.global.ai.dto.BatchStatus;
-import com.example.kloset_lab.global.ai.dto.MajorFeature;
-import com.example.kloset_lab.global.ai.dto.Meta;
-import com.example.kloset_lab.global.ai.dto.TaskStatus;
+import com.example.kloset_lab.global.ai.http.dto.BatchStatus;
+import com.example.kloset_lab.global.ai.http.dto.MajorFeature;
+import com.example.kloset_lab.global.ai.http.dto.Meta;
+import com.example.kloset_lab.global.ai.http.dto.TaskStatus;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.util.List;
 import lombok.Builder;

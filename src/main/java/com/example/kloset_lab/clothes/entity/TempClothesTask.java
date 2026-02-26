@@ -1,6 +1,6 @@
 package com.example.kloset_lab.clothes.entity;
 
-import com.example.kloset_lab.global.ai.dto.TaskStatus;
+import com.example.kloset_lab.global.ai.http.dto.TaskStatus;
 import com.example.kloset_lab.global.entity.BaseTimeEntity;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -28,7 +28,7 @@ public class TempClothesTask extends BaseTimeEntity {
     private String taskId;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false, columnDefinition = "varchar(20)")
+    @Column(name = "status", nullable = false, columnDefinition = "varchar(50)")
     private TaskStatus status;
 
     @Column(name = "file_id")
@@ -51,6 +51,17 @@ public class TempClothesTask extends BaseTimeEntity {
     public void updateResult(TaskStatus status, Long fileId, String major, String extra) {
         this.status = status;
         this.fileId = fileId;
+        this.major = major;
+        this.extra = extra;
+    }
+
+    public void updateFileId(TaskStatus status, Long fileId) {
+        this.status = status;
+        this.fileId = fileId;
+    }
+
+    public void updateAnalyzeResult(TaskStatus status, String major, String extra) {
+        this.status = status;
         this.major = major;
         this.extra = extra;
     }

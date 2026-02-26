@@ -1,6 +1,6 @@
 package com.example.kloset_lab.clothes.entity;
 
-import com.example.kloset_lab.global.ai.dto.BatchStatus;
+import com.example.kloset_lab.global.ai.http.dto.BatchStatus;
 import com.example.kloset_lab.global.entity.BaseTimeEntity;
 import com.example.kloset_lab.user.entity.User;
 import jakarta.persistence.*;
@@ -72,5 +72,13 @@ public class TempClothesBatch extends BaseTimeEntity {
     public void addTask(TempClothesTask task) {
         this.tasks.add(task);
         task.setBatch(this);
+    }
+
+    public void completeTask() {
+        this.processing--;
+        this.completed++;
+        if (this.completed >= this.total) {
+            this.status = BatchStatus.COMPLETED;
+        }
     }
 }
