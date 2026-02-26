@@ -24,7 +24,7 @@ on:
   # Push 이벤트 (Docker 빌드 및 ECR 푸시)
   push:
     branches:
-      - dev-v1
+      - dev
       - main
     # paths:
     #   - 'src/**'
