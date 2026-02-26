@@ -18,7 +18,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        registry.addEndpoint("/ws").setAllowedOriginPatterns("*").withSockJS();
+        registry.addEndpoint("/ws").setAllowedOriginPatterns("*");
     }
 
     @Override
@@ -26,7 +26,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         // 클라이언트 → 서버 메시지 prefix
         registry.setApplicationDestinationPrefixes("/app");
         // 서버 → 클라이언트 브로커 prefix
-        registry.enableSimpleBroker("/topic", "/user/queue");
+        // heartbeat: ALB idle timeout(60s) 이내로 유지하기 위해 30s 주기 설정
+        registry.enableSimpleBroker("/topic", "/user/queue")
+                .setHeartbeatValue(new long[] {30000, 30000});
         // 특정 사용자 목적지 prefix
         registry.setUserDestinationPrefix("/user");
     }
