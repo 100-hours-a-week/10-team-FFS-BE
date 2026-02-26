@@ -27,8 +27,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registry.setApplicationDestinationPrefixes("/app");
         // 서버 → 클라이언트 브로커 prefix
         // heartbeat: ALB idle timeout(60s) 이내로 유지하기 위해 30s 주기 설정
-        registry.enableSimpleBroker("/topic", "/user/queue")
-                .setHeartbeatValue(new long[] {30000, 30000});
+        registry.enableSimpleBroker("/topic", "/user/queue").setHeartbeatValue(new long[] {30000, 30000});
         // 특정 사용자 목적지 prefix
         registry.setUserDestinationPrefix("/user");
     }
