@@ -34,7 +34,7 @@ public class ClothesAnalysisProducer {
         KafkaEvent kafkaEvent =
                 new KafkaEvent<AnalyzeRequest>(EventType.AI_ANALYSIS_REQUESTED, LocalDateTime.now(), event);
 
-        kafkaTemplate.send(TOPIC, null, kafkaEvent).whenComplete((result, ex) -> {
+        kafkaTemplate.send(TOPIC, kafkaEvent).whenComplete((result, ex) -> {
             if (ex != null) {
                 log.error("Kafka 전송 실패 - taskId: {}", event.taskId(), ex);
             }
