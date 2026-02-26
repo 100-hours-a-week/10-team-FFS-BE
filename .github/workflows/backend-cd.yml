@@ -9,7 +9,7 @@ on:
     types:
       - completed
     branches:
-      - dev-v1
+      - dev
       - main
 
 permissions:
