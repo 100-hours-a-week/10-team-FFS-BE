@@ -202,36 +202,6 @@ jobs:
       # ------------------------------------------------------
       # 7. ASG 생성
       # ------------------------------------------------------
-      - name: Create new ASG
-        id: new-asg
-        run: |
-          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-          NEW_ASG_NAME="klosetlab-staging-v2-app-asg-${TIMESTAMP}"
-          CURRENT_TG_ARN="${{ steps.current-check.outputs.current_tg_arn }}"
-
-          if [ -z "$CURRENT_TG_ARN" ] || [ "$CURRENT_TG_ARN" = "None" ]; then
-            CURRENT_TG_ARN="${{ secrets.DEV_TARGET_GROUP_ARN }}"
-          fi
-
-          aws autoscaling create-auto-scaling-group \
-            --auto-scaling-group-name ${NEW_ASG_NAME} \
-            --launch-template "LaunchTemplateId=${{ secrets.DEV_LAUNCH_TEMPLATE_ID }},Version=${{ steps.new-lt.outputs.new_lt_version }}" \
-            --min-size ${{ steps.current-check.outputs.min }} \
-            --max-size ${{ steps.current-check.outputs.max }} \
-            --desired-capacity ${{ steps.current-check.outputs.desired }} \
-            --target-group-arns ${CURRENT_TG_ARN} \
-            --vpc-zone-identifier "${{ secrets.DEV_SUBNET_IDS }}" \
-            --health-check-type EC2 \
-            --health-check-grace-period 60 \
-            --tags "Key=Name,Value=klosetlab-staging-v2-app,PropagateAtLaunch=true" \
-                   "Key=Environment,Value=staging,PropagateAtLaunch=true" \
-                   "Key=ImageTag,Value=${{ steps.image.outputs.image_tag }},PropagateAtLaunch=true"
-
-          echo "new_asg_name=${NEW_ASG_NAME}" >> $GITHUB_OUTPUT
-
-          echo "### 🟢 New ASG Created" >> $GITHUB_STEP_SUMMARY
-          echo "- **ASG:** \`${NEW_ASG_NAME}\`" >> $GITHUB_STEP_SUMMARY
-
       # - name: Create new ASG
       #   id: new-asg
       #   run: |
@@ -251,8 +221,8 @@ jobs:
       #       --desired-capacity ${{ steps.current-check.outputs.desired }} \
       #       --target-group-arns ${CURRENT_TG_ARN} \
       #       --vpc-zone-identifier "${{ secrets.DEV_SUBNET_IDS }}" \
-      #       --health-check-type ELB \
-      #       --health-check-grace-period 180 \
+      #       --health-check-type EC2 \
+      #       --health-check-grace-period 60 \
       #       --tags "Key=Name,Value=klosetlab-staging-v2-app,PropagateAtLaunch=true" \
       #              "Key=Environment,Value=staging,PropagateAtLaunch=true" \
       #              "Key=ImageTag,Value=${{ steps.image.outputs.image_tag }},PropagateAtLaunch=true"
@@ -262,37 +232,35 @@ jobs:
       #     echo "### 🟢 New ASG Created" >> $GITHUB_STEP_SUMMARY
       #     echo "- **ASG:** \`${NEW_ASG_NAME}\`" >> $GITHUB_STEP_SUMMARY
 
-      # ------------------------------------------------------
-      # 8. ASG 준비 대기 (헬스체크)
-      # ------------------------------------------------------
-      # - name: Wait for new ASG to be ready
-      #   timeout-minutes: 15
-      #   run: |
-      #     NEW_ASG="${{ steps.new-asg.outputs.new_asg_name }}"
-      #     EXPECTED=${{ steps.current-check.outputs.desired }}
+      - name: Create new ASG
+        id: new-asg
+        run: |
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          NEW_ASG_NAME="klosetlab-staging-v2-app-asg-${TIMESTAMP}"
+          CURRENT_TG_ARN="${{ steps.current-check.outputs.current_tg_arn }}"
 
-      #     MAX_RETRIES=90
-      #     RETRY_COUNT=0
+          if [ -z "$CURRENT_TG_ARN" ] || [ "$CURRENT_TG_ARN" = "None" ]; then
+            CURRENT_TG_ARN="${{ secrets.DEV_TARGET_GROUP_ARN }}"
+          fi
 
-      #     while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-      #       HEALTHY_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
-      #         --auto-scaling-group-names ${NEW_ASG} \
-      #         --query 'AutoScalingGroups[0].Instances[?HealthStatus==`Healthy` && LifecycleState==`InService`]' \
-      #         --output json | jq 'length')
+          aws autoscaling create-auto-scaling-group \
+            --auto-scaling-group-name ${NEW_ASG_NAME} \
+            --launch-template "LaunchTemplateId=${{ secrets.DEV_LAUNCH_TEMPLATE_ID }},Version=${{ steps.new-lt.outputs.new_lt_version }}" \
+            --min-size ${{ steps.current-check.outputs.min }} \
+            --max-size ${{ steps.current-check.outputs.max }} \
+            --desired-capacity ${{ steps.current-check.outputs.desired }} \
+            --target-group-arns ${CURRENT_TG_ARN} \
+            --vpc-zone-identifier "${{ secrets.DEV_SUBNET_IDS }}" \
+            --health-check-type ELB \
+            --health-check-grace-period 180 \
+            --tags "Key=Name,Value=klosetlab-staging-v2-app,PropagateAtLaunch=true" \
+                   "Key=Environment,Value=staging,PropagateAtLaunch=true" \
+                   "Key=ImageTag,Value=${{ steps.image.outputs.image_tag }},PropagateAtLaunch=true"
 
-      #       echo "[$((RETRY_COUNT + 1))/$MAX_RETRIES] Healthy instances: ${HEALTHY_INSTANCES} (expected: ${EXPECTED})"
+          echo "new_asg_name=${NEW_ASG_NAME}" >> $GITHUB_OUTPUT
 
-      #       if [ "$HEALTHY_INSTANCES" -ge "$EXPECTED" ]; then
-      #         echo "✅ New ASG is ready!"
-      #         exit 0
-      #       fi
-
-      #       sleep 10
-      #       RETRY_COUNT=$((RETRY_COUNT + 1))
-      #     done
-
-      #     echo "❌ New ASG failed to become healthy"
-      #     exit 1
+          echo "### 🟢 New ASG Created" >> $GITHUB_STEP_SUMMARY
+          echo "- **ASG:** \`${NEW_ASG_NAME}\`" >> $GITHUB_STEP_SUMMARY
 
       - name: Wait for new ASG to be ready
         timeout-minutes: 15
@@ -580,9 +548,9 @@ jobs:
             echo "- **ASG:** \`${BLUE_ASG}\`" >> $GITHUB_STEP_SUMMARY
             echo "- **Capacity:** ${DESIRED} (min: ${MIN}, max: ${MAX})" >> $GITHUB_STEP_SUMMARY
           else
-            echo "blue_desired=2" >> $GITHUB_OUTPUT
-            echo "blue_min=2" >> $GITHUB_OUTPUT
-            echo "blue_max=4" >> $GITHUB_OUTPUT
+            echo "blue_desired=1" >> $GITHUB_OUTPUT
+            echo "blue_min=1" >> $GITHUB_OUTPUT
+            echo "blue_max=2" >> $GITHUB_OUTPUT
             echo "First deployment" >> $GITHUB_STEP_SUMMARY
           fi
 
