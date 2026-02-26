@@ -95,7 +95,7 @@ public class ClothesAnalysisService {
         for (AnalyzeRequest request : requests) {
             TempClothesTask task = TempClothesTask.builder()
                     .taskId(request.taskId())
-                    .status(TaskStatus.ACCEPTED)
+                    .status(TaskStatus.REQUESTED_COMPLETED)
                     .build();
             batch.addTask(task);
         }

@@ -80,7 +80,7 @@ public class MockAIClient implements AIClient {
         List<BatchResponse.TaskResult> results = batchInfo.tasks.keySet().stream()
                 .map(taskId -> BatchResponse.TaskResult.builder()
                         .taskId(taskId)
-                        .status(TaskStatus.PREPROCESSING)
+                        .status(TaskStatus.PREPROCESSING_COMPLETED)
                         .build())
                 .toList();
 
@@ -143,14 +143,14 @@ public class MockAIClient implements AIClient {
                     completed
                             ? BatchResponse.TaskResult.builder()
                                     .taskId(taskId)
-                                    .status(TaskStatus.COMPLETED)
+                                    .status(TaskStatus.ANALYZING_COMPLETED)
                                     .fileId(taskInfo.fileId)
                                     .major(majorJson)
                                     .extra(extraJson)
                                     .build()
                             : BatchResponse.TaskResult.builder()
                                     .taskId(taskId)
-                                    .status(TaskStatus.PREPROCESSING)
+                                    .status(TaskStatus.PREPROCESSING_COMPLETED)
                                     .build());
         }
 

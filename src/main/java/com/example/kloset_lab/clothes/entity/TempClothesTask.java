@@ -28,7 +28,7 @@ public class TempClothesTask extends BaseTimeEntity {
     private String taskId;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false, columnDefinition = "varchar(20)")
+    @Column(name = "status", nullable = false, columnDefinition = "varchar(50)")
     private TaskStatus status;
 
     @Column(name = "file_id")
