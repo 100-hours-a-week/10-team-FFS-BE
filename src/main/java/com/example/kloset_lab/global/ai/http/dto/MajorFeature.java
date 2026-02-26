@@ -1,4 +1,4 @@
-package com.example.kloset_lab.global.ai.dto;
+package com.example.kloset_lab.global.ai.http.dto;
 
 import com.example.kloset_lab.clothes.entity.Category;
 import java.util.List;

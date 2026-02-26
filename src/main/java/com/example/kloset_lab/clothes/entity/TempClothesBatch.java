@@ -1,6 +1,6 @@
 package com.example.kloset_lab.clothes.entity;
 
-import com.example.kloset_lab.global.ai.dto.BatchStatus;
+import com.example.kloset_lab.global.ai.http.dto.BatchStatus;
 import com.example.kloset_lab.global.entity.BaseTimeEntity;
 import com.example.kloset_lab.user.entity.User;
 import jakarta.persistence.*;

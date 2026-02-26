@@ -1,6 +1,6 @@
 package com.example.kloset_lab.ai.dto;
 
-import com.example.kloset_lab.global.ai.dto.ClothesDto;
+import com.example.kloset_lab.global.ai.http.dto.ClothesDto;
 import java.util.List;
 import lombok.Builder;
 

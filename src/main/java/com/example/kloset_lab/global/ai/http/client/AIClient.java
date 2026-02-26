@@ -1,6 +1,6 @@
-package com.example.kloset_lab.global.ai.client;
+package com.example.kloset_lab.global.ai.http.client;
 
-import com.example.kloset_lab.global.ai.dto.*;
+import com.example.kloset_lab.global.ai.http.dto.*;
 import java.util.List;
 
 public interface AIClient {

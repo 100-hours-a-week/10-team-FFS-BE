@@ -1,6 +1,6 @@
 package com.example.kloset_lab.clothes.entity;
 
-import com.example.kloset_lab.global.ai.dto.TaskStatus;
+import com.example.kloset_lab.global.ai.http.dto.TaskStatus;
 import com.example.kloset_lab.global.entity.BaseTimeEntity;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
