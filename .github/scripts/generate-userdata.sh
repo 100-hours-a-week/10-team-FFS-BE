@@ -121,8 +121,6 @@ export MYSQL_DATABASE=$(get_param "/klosetlab/${ENVIRONMENT}/spring/mysql/databa
 export MYSQL_USERNAME=$(get_secure_param "/klosetlab/${ENVIRONMENT}/spring/mysql/username")
 export MYSQL_PASSWORD=$(get_secure_param "/klosetlab/${ENVIRONMENT}/spring/mysql/password")
 
-export FASTAPI_URL=$(get_param "/klosetlab/${ENVIRONMENT}/spring/fastapi/url")
-
 echo "Restoring docker-compose.yml..."
 echo "${COMPOSE_B64}" | base64 -d > docker-compose.yml
 
