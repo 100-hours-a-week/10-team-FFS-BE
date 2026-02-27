@@ -34,8 +34,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     public void configureMessageBroker(MessageBrokerRegistry registry) {
         // 클라이언트 → 서버 메시지 prefix
         registry.setApplicationDestinationPrefixes("/app");
-        // 서버 → 클라이언트 브로커 prefix
-        registry.enableSimpleBroker("/topic", "/user/queue")
+        // 브로커 destination prefix: /topic (브로드캐스트), /queue (user-specific queue 내부 변환 경로)
+        registry.enableSimpleBroker("/topic", "/queue")
                 .setHeartbeatValue(new long[] {30000, 30000})
                 .setTaskScheduler(messageBrokerTaskScheduler);
         // 특정 사용자 목적지 prefix
