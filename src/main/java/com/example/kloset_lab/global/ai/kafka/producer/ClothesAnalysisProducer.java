@@ -16,7 +16,6 @@ import org.springframework.stereotype.Component;
 public class ClothesAnalysisProducer {
 
     private static final String TOPIC = "ai.clothes.analyze.request";
-
     @Qualifier("clothesAnalysisKafkaTemplate") private final KafkaTemplate<String, Object> kafkaTemplate;
 
     /**
