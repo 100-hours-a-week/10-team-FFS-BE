@@ -60,6 +60,7 @@ server:
   error:
     include-message: always
     include-stacktrace: on_param
+  forward-headers-strategy: framework
 
 jwt:
   access-token-expiration: 43200000

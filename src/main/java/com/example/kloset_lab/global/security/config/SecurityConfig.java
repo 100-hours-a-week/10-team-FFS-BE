@@ -53,6 +53,14 @@ public class SecurityConfig {
                         .permitAll()
                         .requestMatchers("/api/internal/presigned-url")
                         .permitAll()
+                        .requestMatchers(
+                                "/swagger",
+                                "/swagger-ui.html",
+                                "/swagger-ui/**",
+                                "/api-docs",
+                                "/api-docs/**",
+                                "/v3/api-docs/**")
+                        .permitAll()
                         .anyRequest()
                         .authenticated())
                 .exceptionHandling(exception -> exception
