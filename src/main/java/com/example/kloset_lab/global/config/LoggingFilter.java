@@ -27,10 +27,13 @@ public class LoggingFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
             return;
         }
+        log.info("Request: {} {}", method, uri);
         long start = System.currentTimeMillis();
-        filterChain.doFilter(request, response);
-        long time = System.currentTimeMillis() - start;
-
-        log.info("Request: {} {} → {} ({}ms)", method, uri, response.getStatus(), time);
+        try {
+            filterChain.doFilter(request, response);
+        } finally {
+            long time = System.currentTimeMillis() - start;
+            log.info("Response: {} {} → {} ({}ms)", method, uri, response.getStatus(), time);
+        }
     }
 }
