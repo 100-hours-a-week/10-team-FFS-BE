@@ -61,7 +61,10 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             Long userId = jwtTokenProvider.getUserIdFromToken(token);
             accessor.setUser(() -> String.valueOf(userId));
             accessor.getSessionAttributes().put(ChatConstants.SESSION_ATTR_USER_ID, userId);
-            log.debug("STOMP 인증 성공 - userId: {}", userId);
+            log.info(
+                    "[DEBUG] STOMP 인증 성공 - userId: {}, principal: {}",
+                    userId,
+                    accessor.getUser().getName());
         }
 
         return message;
