@@ -14,6 +14,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.never;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.mock;
 
 import com.example.kloset_lab.chat.config.CdnProperties;
@@ -32,10 +33,10 @@ import com.example.kloset_lab.feed.repository.FeedRepository;
 import com.example.kloset_lab.global.annotation.ServiceTest;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
-import com.example.kloset_lab.media.entity.FileStatus;
 import com.example.kloset_lab.media.entity.MediaFile;
 import com.example.kloset_lab.media.entity.Purpose;
 import com.example.kloset_lab.media.repository.MediaFileRepository;
+import com.example.kloset_lab.media.service.MediaService;
 import com.example.kloset_lab.user.entity.User;
 import com.example.kloset_lab.user.entity.UserProfile;
 import com.example.kloset_lab.user.repository.UserProfileRepository;
@@ -49,6 +50,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @ServiceTest
 @DisplayName("ChatMessageService 단위 테스트")
@@ -65,6 +67,9 @@ class ChatMessageServiceTest {
 
     @Mock
     private MediaFileRepository mediaFileRepository;
+
+    @Mock
+    private MediaService mediaService;
 
     @Mock
     private FeedRepository feedRepository;
@@ -198,6 +203,9 @@ class ChatMessageServiceTest {
         @DisplayName("IMAGE 파일이 maxCount(3)를 초과하면 TOO_MANY_FILES 예외")
         void IMAGE_파일_수_초과_예외() {
             givenParticipantAndRoomFound();
+            willThrow(new CustomException(ErrorCode.TOO_MANY_FILES))
+                    .given(mediaService)
+                    .confirmFileUpload(USER_ID, Purpose.CHAT, List.of(1L, 2L, 3L, 4L));
 
             assertCustomException(
                     () -> chatMessageService.sendMessage(USER_ID, ROOM_ID, sendImageRequest(List.of(1L, 2L, 3L, 4L))),
@@ -208,7 +216,9 @@ class ChatMessageServiceTest {
         @DisplayName("IMAGE 파일을 찾지 못하면 FILE_NOT_FOUND 예외")
         void IMAGE_mediaFile_없음_예외() {
             givenParticipantAndRoomFound();
-            given(mediaFileRepository.findById(MEDIA_FILE_ID)).willReturn(Optional.empty());
+            willThrow(new CustomException(ErrorCode.FILE_NOT_FOUND))
+                    .given(mediaService)
+                    .confirmFileUpload(USER_ID, Purpose.CHAT, List.of(MEDIA_FILE_ID));
 
             assertCustomException(
                     () -> chatMessageService.sendMessage(USER_ID, ROOM_ID, sendImageRequest(List.of(MEDIA_FILE_ID))),
@@ -218,10 +228,10 @@ class ChatMessageServiceTest {
         @Test
         @DisplayName("IMAGE 파일의 소유자가 다르면 FILE_ACCESS_DENIED 예외")
         void IMAGE_타_사용자_파일_예외() {
-            User otherUser = ChatFixture.chatUser(99L);
-            MediaFile file = ChatFixture.uploadedChatMediaFile(otherUser);
             givenParticipantAndRoomFound();
-            given(mediaFileRepository.findById(MEDIA_FILE_ID)).willReturn(Optional.of(file));
+            willThrow(new CustomException(ErrorCode.FILE_ACCESS_DENIED))
+                    .given(mediaService)
+                    .confirmFileUpload(USER_ID, Purpose.CHAT, List.of(MEDIA_FILE_ID));
 
             assertCustomException(
                     () -> chatMessageService.sendMessage(USER_ID, ROOM_ID, sendImageRequest(List.of(MEDIA_FILE_ID))),
@@ -229,29 +239,29 @@ class ChatMessageServiceTest {
         }
 
         @Test
-        @DisplayName("IMAGE 파일 purpose가 CHAT이 아니면 INVALID_REQUEST 예외")
+        @DisplayName("IMAGE 파일 purpose가 CHAT이 아니면 UPLOADED_FILE_MISMATCH 예외")
         void IMAGE_파일_purpose_불일치_예외() {
-            User user = ChatFixture.chatUser(USER_ID);
-            MediaFile file = ChatFixture.mediaFileWith(user, Purpose.FEED, FileStatus.UPLOADED);
             givenParticipantAndRoomFound();
-            given(mediaFileRepository.findById(MEDIA_FILE_ID)).willReturn(Optional.of(file));
+            willThrow(new CustomException(ErrorCode.UPLOADED_FILE_MISMATCH))
+                    .given(mediaService)
+                    .confirmFileUpload(USER_ID, Purpose.CHAT, List.of(MEDIA_FILE_ID));
 
             assertCustomException(
                     () -> chatMessageService.sendMessage(USER_ID, ROOM_ID, sendImageRequest(List.of(MEDIA_FILE_ID))),
-                    ErrorCode.INVALID_REQUEST);
+                    ErrorCode.UPLOADED_FILE_MISMATCH);
         }
 
         @Test
-        @DisplayName("IMAGE 파일 status가 UPLOADED가 아니면 INVALID_REQUEST 예외")
-        void IMAGE_파일_status_PENDING_예외() {
-            User user = ChatFixture.chatUser(USER_ID);
-            MediaFile file = ChatFixture.mediaFileWith(user, Purpose.CHAT, FileStatus.PENDING);
+        @DisplayName("IMAGE 파일이 이미 UPLOADED 상태이면 NOT_PENDING_STATE 예외")
+        void IMAGE_파일_이미_UPLOADED_NOT_PENDING_STATE_예외() {
             givenParticipantAndRoomFound();
-            given(mediaFileRepository.findById(MEDIA_FILE_ID)).willReturn(Optional.of(file));
+            willThrow(new CustomException(ErrorCode.NOT_PENDING_STATE))
+                    .given(mediaService)
+                    .confirmFileUpload(USER_ID, Purpose.CHAT, List.of(MEDIA_FILE_ID));
 
             assertCustomException(
                     () -> chatMessageService.sendMessage(USER_ID, ROOM_ID, sendImageRequest(List.of(MEDIA_FILE_ID))),
-                    ErrorCode.INVALID_REQUEST);
+                    ErrorCode.NOT_PENDING_STATE);
         }
 
         @Test
@@ -291,8 +301,9 @@ class ChatMessageServiceTest {
         void IMAGE_정상_전송() {
             User user = ChatFixture.chatUser(USER_ID);
             MediaFile file = ChatFixture.uploadedChatMediaFile(user);
+            ReflectionTestUtils.setField(file, "id", MEDIA_FILE_ID);
             givenParticipantAndRoomFound();
-            given(mediaFileRepository.findById(MEDIA_FILE_ID)).willReturn(Optional.of(file));
+            given(mediaFileRepository.findAllById(List.of(MEDIA_FILE_ID))).willReturn(List.of(file));
             given(cdnProperties.getBaseUrl()).willReturn("https://cdn.test.com");
             given(userProfileRepository.findByUserId(USER_ID)).willReturn(Optional.empty());
             given(chatParticipantRepository.findByRoomId(ROOM_ID)).willReturn(List.of(givenParticipant()));
@@ -386,8 +397,9 @@ class ChatMessageServiceTest {
         void IMAGE_이벤트_페이로드() {
             User user = ChatFixture.chatUser(USER_ID);
             MediaFile file = ChatFixture.uploadedChatMediaFile(user);
+            ReflectionTestUtils.setField(file, "id", MEDIA_FILE_ID);
             givenParticipantAndRoomFound();
-            given(mediaFileRepository.findById(MEDIA_FILE_ID)).willReturn(Optional.of(file));
+            given(mediaFileRepository.findAllById(List.of(MEDIA_FILE_ID))).willReturn(List.of(file));
             given(cdnProperties.getBaseUrl()).willReturn("https://cdn.test.com");
             given(userProfileRepository.findByUserId(USER_ID)).willReturn(Optional.empty());
             given(chatParticipantRepository.findByRoomId(ROOM_ID)).willReturn(List.of(givenParticipant()));
