@@ -113,7 +113,7 @@ export REDIS_HOST=$(get_param "/klosetlab/${ENVIRONMENT}/spring/redis-main/host"
 export REDIS_PORT=$(get_param "/klosetlab/${ENVIRONMENT}/spring/redis-main/port")
 export REDIS_PASSWORD=$(get_secure_param "/klosetlab/${ENVIRONMENT}/spring/redis-main/password")
 
-# export KAFKA_BOOTSTRAP_SERVERS=$(get_param "/klosetlab/${ENVIRONMENT}/spring/kafka/bootstrap-servers")
+export KAFKA_BOOTSTRAP_SERVERS=$(get_param "/klosetlab/${ENVIRONMENT}/spring/kafka/bootstrap-servers")
 
 export MYSQL_HOST=$(get_param "/klosetlab/${ENVIRONMENT}/spring/mysql/host")
 export MYSQL_PORT=$(get_param "/klosetlab/${ENVIRONMENT}/spring/mysql/port")
