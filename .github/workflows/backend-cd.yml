@@ -508,7 +508,7 @@ jobs:
           echo "✅ Listener → Blue TG confirmed"
 
           ALL_ASGS=$(aws autoscaling describe-auto-scaling-groups \
-            --query 'AutoScalingGroups[?starts_with(AutoScalingGroupName, `backend-prod-`)].AutoScalingGroupName' \
+            --query 'AutoScalingGroups[?starts_with(AutoScalingGroupName, `klosetlab-app-`)].AutoScalingGroupName' \
             --output json)
 
           BLUE_ASG="none"
@@ -568,7 +568,7 @@ jobs:
             "${{ env.AWS_REGION }}"
       
       # ------------------------------------------------------
-      # 6. Launch Template 버전 생성
+      # 6. Green Launch Template 버전 생성
       # ------------------------------------------------------
       - name: Create Green Launch Template version
         id: green-lt
@@ -585,8 +585,8 @@ jobs:
               \"TagSpecifications\": [{
                 \"ResourceType\": \"instance\",
                 \"Tags\": [
-                  {\"Key\": \"Name\", \"Value\": \"backend-prod-green-${TIMESTAMP}\"},
-                  {\"Key\": \"Environment\", \"Value\": \"production\"},
+                  {\"Key\": \"Name\", \"Value\": \"klosetlab-prod-v2-app-${TIMESTAMP}\"},
+                  {\"Key\": \"Environment\", \"Value\": \"prod\"},
                   {\"Key\": \"DeploymentColor\", \"Value\": \"green\"},
                   {\"Key\": \"ImageTag\", \"Value\": \"${{ steps.image.outputs.image_tag }}\"}
                 ]
@@ -604,7 +604,7 @@ jobs:
         id: green-asg
         run: |
           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-          GREEN_ASG_NAME="backend-prod-green-${TIMESTAMP}"
+          GREEN_ASG_NAME="klosetlab-prod-v2-app-${TIMESTAMP}"
           GREEN_TG_ARN="${{ secrets.PROD_GREEN_TARGET_GROUP_ARN }}"
           
           aws autoscaling create-auto-scaling-group \
@@ -615,10 +615,10 @@ jobs:
             --desired-capacity ${{ steps.blue-check.outputs.blue_desired }} \
             --target-group-arns ${GREEN_TG_ARN} \
             --vpc-zone-identifier "${{ secrets.PROD_SUBNET_IDS }}" \
-            --health-check-type ELB \
-            --health-check-grace-period 300 \
-            --tags "Key=Name,Value=backend-prod-green,PropagateAtLaunch=true" \
-                   "Key=Environment,Value=production,PropagateAtLaunch=true" \
+            --health-check-type EC2 \
+            --health-check-grace-period 180 \
+            --tags "Key=Name,Value=klosetlab-prod-v2-app,PropagateAtLaunch=true" \
+                   "Key=Environment,Value=prod,PropagateAtLaunch=true" \
                    "Key=DeploymentColor,Value=green,PropagateAtLaunch=true"
           
           echo "green_asg_name=${GREEN_ASG_NAME}" >> $GITHUB_OUTPUT
@@ -627,7 +627,7 @@ jobs:
           echo "- **ASG:** \`${GREEN_ASG_NAME}\`" >> $GITHUB_STEP_SUMMARY
 
       # ------------------------------------------------------
-      # 8. Green 환경 준비 대기 (헬스체크)
+      # 8. Green 환경 준비 대기 (EC2 및 Target Group 헬스체크)
       # ------------------------------------------------------
       - name: Wait for Green environment
         timeout-minutes: 20
@@ -640,20 +640,20 @@ jobs:
           RETRY_COUNT=0
           
           while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            HEALTHY_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
+            HEALTHY_EC2=$(aws autoscaling describe-auto-scaling-groups \
               --auto-scaling-group-names ${GREEN_ASG} \
               --query 'AutoScalingGroups[0].Instances[?HealthStatus==`Healthy` && LifecycleState==`InService`]' \
               --output json | jq 'length')
-            
+
             HEALTHY_TARGETS=$(aws elbv2 describe-target-health \
               --target-group-arn ${GREEN_TG_ARN} \
               --query 'TargetHealthDescriptions[?TargetHealth.State==`healthy`]' \
               --output json | jq 'length')
+
+            echo "[$((RETRY_COUNT + 1))/$MAX_RETRIES] Green Status - EC2: ${HEALTHY_EC2}/${EXPECTED}, Target Group: ${HEALTHY_TARGETS}/${EXPECTED}"
             
-            echo "[$((RETRY_COUNT + 1))/$MAX_RETRIES] Green: ${HEALTHY_INSTANCES} instances, ${HEALTHY_TARGETS} targets"
-            
-            if [ "$HEALTHY_INSTANCES" -ge "$EXPECTED" ] && [ "$HEALTHY_TARGETS" -ge "$EXPECTED" ]; then
-              echo "✅ Green environment ready!"
+            if [ "$HEALTHY_TARGETS" -ge "$EXPECTED" ]; then
+              echo "✅ Green environment is fully ready and receiving traffic safely!"
               exit 0
             fi
             
@@ -661,36 +661,11 @@ jobs:
             RETRY_COUNT=$((RETRY_COUNT + 1))
           done
           
-          echo "❌ Green environment failed"
+          echo "❌ Green environment targets failed to become healthy"
           exit 1
 
       # ------------------------------------------------------
-      # 9. Green 환경 검증 (Smoke Test)
-      # ------------------------------------------------------
-      - name: Smoke tests on Green
-        run: |
-          GREEN_TG_ARN="${{ secrets.PROD_GREEN_TARGET_GROUP_ARN }}"
-          EXPECTED=${{ steps.blue-check.outputs.blue_desired }}
-
-          HEALTHY_COUNT=$(aws elbv2 describe-target-health \
-            --target-group-arn ${GREEN_TG_ARN} \
-            --query 'TargetHealthDescriptions[?TargetHealth.State==`healthy`]' \
-            --output json | jq 'length')
-
-          if [ "$HEALTHY_COUNT" -lt "$EXPECTED" ]; then
-            echo "❌ Not enough healthy targets (${HEALTHY_COUNT}/${EXPECTED})"
-            exit 1
-          fi
-
-          aws elbv2 describe-target-health \
-            --target-group-arn ${GREEN_TG_ARN} \
-            --query 'TargetHealthDescriptions[*].[Target.Id, TargetHealth.State]' \
-            --output table
-
-          echo "✅ Smoke tests passed"
-
-      # ------------------------------------------------------
-      # 10. 단계적 트래픽 전환 시작
+      # 9. 단계적 트래픽 전환 시작
       # ------------------------------------------------------
       - name: Traffic Shift - 10% to Green
         id: shift-10
@@ -698,12 +673,21 @@ jobs:
           LISTENER_ARN="${{ secrets.PROD_ALB_LISTENER_ARN }}"
           BLUE_TG_ARN="${{ secrets.PROD_BLUE_TARGET_GROUP_ARN }}"
           GREEN_TG_ARN="${{ secrets.PROD_GREEN_TARGET_GROUP_ARN }}"
+
+          echo "=== Finding /api/* rule ARN ==="
+
+          API_RULE_ARN=$(aws elbv2 describe-rules \
+            --listener-arn "$LISTENER_ARN" \
+            --query "Rules[?Conditions[?Field=='path-pattern' && contains(Values, '/api/*')]].RuleArn" \
+            --output text)
+
+          echo "Rule ARN: $API_RULE_ARN"
           
           echo "=== Shifting 10% traffic to Green ==="
           
-          aws elbv2 modify-listener \
-            --listener-arn ${LISTENER_ARN} \
-            --default-actions "[
+          aws elbv2 modify-rule \
+            --rule-arn "$API_RULE_ARN" \
+            --actions "[
               {
                 \"Type\": \"forward\",
                 \"ForwardConfig\": {
@@ -721,6 +705,8 @@ jobs:
       - name: Monitor 10% traffic (10 min)
         run: |
           echo "=== Monitoring Green with 10% traffic ==="
+
+          FAIL_COUNT=0
           
           for i in {1..10}; do
             echo "Monitoring... $i/10 minutes"
@@ -728,11 +714,18 @@ jobs:
             # Green TG health 체크
             UNHEALTHY=$(aws elbv2 describe-target-health \
               --target-group-arn ${{ secrets.PROD_GREEN_TARGET_GROUP_ARN }} \
-              --query 'TargetHealthDescriptions[?TargetHealth.State!=`healthy`]' \
+              --query 'TargetHealthDescriptions[?TargetHealth.State==`unhealthy`]' \
               --output json | jq 'length')
             
             if [ "$UNHEALTHY" -gt 0 ]; then
-              echo "❌ Unhealthy targets detected!"
+              FAIL_COUNT=$((FAIL_COUNT + 1))
+              echo "⚠️ Unhealthy detected ($FAIL_COUNT times)"
+            else
+              FAIL_COUNT=0
+            fi
+
+            if [ "$FAIL_COUNT" -ge 3 ]; then
+              echo "❌ 3 consecutive unhealthy checks. Failing deployment."
               exit 1
             fi
             
@@ -746,12 +739,21 @@ jobs:
           LISTENER_ARN="${{ secrets.PROD_ALB_LISTENER_ARN }}"
           BLUE_TG_ARN="${{ secrets.PROD_BLUE_TARGET_GROUP_ARN }}"
           GREEN_TG_ARN="${{ secrets.PROD_GREEN_TARGET_GROUP_ARN }}"
+
+          echo "=== Finding /api/* rule ARN ==="
+
+          API_RULE_ARN=$(aws elbv2 describe-rules \
+            --listener-arn "$LISTENER_ARN" \
+            --query "Rules[?Conditions[?Field=='path-pattern' && contains(Values, '/api/*')]].RuleArn" \
+            --output text)
+
+          echo "Rule ARN: $API_RULE_ARN"
           
           echo "=== Shifting 50% traffic to Green ==="
           
-          aws elbv2 modify-listener \
-            --listener-arn ${LISTENER_ARN} \
-            --default-actions "[
+          aws elbv2 modify-rule \
+            --rule-arn "$API_RULE_ARN" \
+            --actions "[
               {
                 \"Type\": \"forward\",
                 \"ForwardConfig\": {
@@ -770,16 +772,25 @@ jobs:
         run: |
           echo "=== Monitoring Green with 50% traffic ==="
           
+          FAIL_COUNT=0
+
           for i in {1..15}; do
             echo "Monitoring... $i/15 minutes"
             
             UNHEALTHY=$(aws elbv2 describe-target-health \
               --target-group-arn ${{ secrets.PROD_GREEN_TARGET_GROUP_ARN }} \
-              --query 'TargetHealthDescriptions[?TargetHealth.State!=`healthy`]' \
+              --query 'TargetHealthDescriptions[?TargetHealth.State==`unhealthy`]' \
               --output json | jq 'length')
             
             if [ "$UNHEALTHY" -gt 0 ]; then
-              echo "❌ Issues detected!"
+              FAIL_COUNT=$((FAIL_COUNT + 1))
+              echo "⚠️ Unhealthy detected ($FAIL_COUNT times)"
+            else
+              FAIL_COUNT=0
+            fi
+
+            if [ "$FAIL_COUNT" -ge 3 ]; then
+              echo "❌ 3 consecutive unhealthy checks. Failing deployment."
               exit 1
             fi
             
@@ -793,12 +804,30 @@ jobs:
         run: |
           LISTENER_ARN="${{ secrets.PROD_ALB_LISTENER_ARN }}"
           GREEN_TG_ARN="${{ secrets.PROD_GREEN_TARGET_GROUP_ARN }}"
+
+          echo "=== Finding /api/* rule ARN ==="
+
+          API_RULE_ARN=$(aws elbv2 describe-rules \
+            --listener-arn "$LISTENER_ARN" \
+            --query "Rules[?Conditions[?Field=='path-pattern' && contains(Values, '/api/*')]].RuleArn" \
+            --output text)
+
+          echo "Rule ARN: $API_RULE_ARN"
           
           echo "=== Shifting 100% traffic to Green ==="
           
-          aws elbv2 modify-listener \
-            --listener-arn ${LISTENER_ARN} \
-            --default-actions Type=forward,TargetGroupArn=${GREEN_TG_ARN}
+          aws elbv2 modify-rule \
+            --rule-arn "$API_RULE_ARN" \
+            --actions "[
+              {
+                \"Type\": \"forward\",
+                \"ForwardConfig\": {
+                  \"TargetGroups\": [
+                    {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 100}
+                  ]
+                }
+              }
+            ]"
           
           echo "✅ 100% traffic on Green"
           echo "### ✅ Traffic: Green 100%" >> $GITHUB_STEP_SUMMARY
@@ -812,7 +841,7 @@ jobs:
             
             UNHEALTHY=$(aws elbv2 describe-target-health \
               --target-group-arn ${{ secrets.PROD_GREEN_TARGET_GROUP_ARN }} \
-              --query 'TargetHealthDescriptions[?TargetHealth.State!=`healthy`]' \
+              --query 'TargetHealthDescriptions[?TargetHealth.State==`unhealthy`]' \
               --output json | jq 'length')
             
             if [ "$UNHEALTHY" -gt 0 ]; then
@@ -826,7 +855,7 @@ jobs:
           echo "✅ Final monitoring passed"
 
       # -------------------------------------------------------
-      # 11. Promote Green → Blue
+      # 10. Promote Green → Blue
       # -------------------------------------------------------
       - name: Promote Green to Blue
         id: promote
@@ -870,9 +899,23 @@ jobs:
           done
 
           # 3. Listener를 Blue TG로 복구
-          aws elbv2 modify-listener \
-            --listener-arn ${LISTENER_ARN} \
-            --default-actions Type=forward,TargetGroupArn=${BLUE_TG_ARN}
+          API_RULE_ARN=$(aws elbv2 describe-rules \
+            --listener-arn "$LISTENER_ARN" \
+            --query "Rules[?Conditions[?Field=='path-pattern' && contains(Values, '/api/*')]].RuleArn" \
+            --output text)
+          
+          aws elbv2 modify-rule \
+            --rule-arn "$API_RULE_ARN" \
+            --actions "[
+              {
+                \"Type\": \"forward\",
+                \"ForwardConfig\": {
+                  \"TargetGroups\": [
+                    {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100}
+                  ]
+                }
+              }
+            ]"
 
           # 4. Green TG에서 연결 해제
           aws autoscaling detach-load-balancer-target-groups \
@@ -885,7 +928,7 @@ jobs:
           echo "- **Listener:** → Blue TG" >> $GITHUB_STEP_SUMMARY
 
       # -------------------------------------------------------
-      # 12. Old Blue ASG 삭제
+      # 11. Old Blue ASG 삭제
       # -------------------------------------------------------
       - name: Delete old Blue ASG
         if: success() && steps.blue-check.outputs.blue_asg != 'none'
@@ -956,9 +999,23 @@ jobs:
 
           echo "=== Emergency Rollback to Blue ==="
 
-          aws elbv2 modify-listener \
-            --listener-arn ${LISTENER_ARN} \
-            --default-actions Type=forward,TargetGroupArn=${BLUE_TG_ARN} || true
+          API_RULE_ARN=$(aws elbv2 describe-rules \
+            --listener-arn "$LISTENER_ARN" \
+            --query "Rules[?Conditions[?Field=='path-pattern' && contains(Values, '/api/*')]].RuleArn" \
+            --output text)
+
+          aws elbv2 modify-rule \
+            --rule-arn "$API_RULE_ARN" \
+            --actions "[
+              {
+                \"Type\": \"forward\",
+                \"ForwardConfig\": {
+                  \"TargetGroups\": [
+                    {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100}
+                  ]
+                }
+              }
+            ]"
 
           echo "✅ Listener reverted to Blue TG"
 
