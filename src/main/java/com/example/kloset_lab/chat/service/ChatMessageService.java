@@ -17,15 +17,16 @@ import com.example.kloset_lab.chat.repository.ChatRoomRepository;
 import com.example.kloset_lab.feed.repository.FeedRepository;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
-import com.example.kloset_lab.media.entity.FileStatus;
 import com.example.kloset_lab.media.entity.MediaFile;
 import com.example.kloset_lab.media.entity.Purpose;
 import com.example.kloset_lab.media.repository.MediaFileRepository;
+import com.example.kloset_lab.media.service.MediaService;
 import com.example.kloset_lab.user.entity.UserProfile;
 import com.example.kloset_lab.user.repository.UserProfileRepository;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -43,6 +44,7 @@ public class ChatMessageService {
     private final ChatRoomRepository chatRoomRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final MediaFileRepository mediaFileRepository;
+    private final MediaService mediaService;
     private final FeedRepository feedRepository;
     private final UserProfileRepository userProfileRepository;
     private final CdnProperties cdnProperties;
@@ -157,7 +159,12 @@ public class ChatMessageService {
         }
     }
 
-    /** 이미지 타입 메시지의 media_file 검증 및 ChatImage 목록 생성 */
+    /**
+     * 이미지 타입 메시지의 media_file 검증(PENDING→UPLOADED 전환) 및 ChatImage 목록 생성
+     *
+     * <p>소유자·purpose·S3 존재 확인 후 파일 상태를 PENDING→UPLOADED로 전환한다.
+     * MongoDB 저장 실패 시 @Transactional 롤백으로 상태가 PENDING으로 자동 복원된다.
+     */
     private List<ChatImage> validateAndBuildImages(Long userId, ChatSendRequest req) {
         if (!ChatConstants.MSG_TYPE_IMAGE.equals(req.type())
                 || req.mediaFileIds() == null
@@ -165,30 +172,19 @@ public class ChatMessageService {
             return List.of();
         }
 
-        if (req.mediaFileIds().size() > Purpose.CHAT.getMaxCount()) {
-            throw new CustomException(ErrorCode.TOO_MANY_FILES);
-        }
+        // 소유자·purpose·S3 존재 확인 후 PENDING → UPLOADED 전환
+        // (TOO_MANY_FILES, FILE_NOT_FOUND, FILE_ACCESS_DENIED, UPLOADED_FILE_MISMATCH, NOT_PENDING_STATE 예외 포함)
+        mediaService.confirmFileUpload(userId, Purpose.CHAT, req.mediaFileIds());
+
+        Map<Long, MediaFile> fileMap = mediaFileRepository.findAllById(req.mediaFileIds()).stream()
+                .collect(Collectors.toMap(MediaFile::getId, f -> f));
 
         List<ChatImage> chatImages = new ArrayList<>();
         for (int i = 0; i < req.mediaFileIds().size(); i++) {
             Long mediaFileId = req.mediaFileIds().get(i);
-            MediaFile mediaFile = mediaFileRepository
-                    .findById(mediaFileId)
-                    .orElseThrow(() -> new CustomException(ErrorCode.FILE_NOT_FOUND));
-
-            if (!mediaFile.getUser().getId().equals(userId)) {
-                throw new CustomException(ErrorCode.FILE_ACCESS_DENIED);
-            }
-            if (mediaFile.getPurpose() != Purpose.CHAT) {
-                throw new CustomException(ErrorCode.INVALID_REQUEST);
-            }
-            if (mediaFile.getStatus() != FileStatus.UPLOADED) {
-                throw new CustomException(ErrorCode.INVALID_REQUEST);
-            }
-
             chatImages.add(ChatImage.builder()
                     .mediaFileId(mediaFileId)
-                    .objectKey(mediaFile.getObjectKey())
+                    .objectKey(fileMap.get(mediaFileId).getObjectKey())
                     .displayOrder(i + 1)
                     .build());
         }
