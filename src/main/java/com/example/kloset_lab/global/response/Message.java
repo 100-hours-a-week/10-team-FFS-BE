@@ -71,6 +71,9 @@ public class Message {
     public static final String REACTION_RECORDED = "reaction_recorded";
     public static final String PRODUCTS_RETRIEVED = "products_retrieved";
 
+    // Shopping
+    public static final String PRODUCTS_FETCHED = "products_fetched";
+
     // Follow
     public static final String FOLLOW_CREATED = "following_created";
     public static final String FOLLOW_DELETED = "following_removed";

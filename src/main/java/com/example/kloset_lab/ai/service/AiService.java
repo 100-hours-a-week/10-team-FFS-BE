@@ -1,5 +1,7 @@
 package com.example.kloset_lab.ai.service;
 
+import com.example.kloset_lab.ai.dto.ShopRecommendationRequest;
+import com.example.kloset_lab.ai.dto.ShopRecommendationResponse;
 import com.example.kloset_lab.ai.dto.TpoFeedbackRequest;
 import com.example.kloset_lab.ai.dto.TpoOutfitsRequest;
 import com.example.kloset_lab.ai.dto.TpoOutfitsResponse;
@@ -15,6 +17,7 @@ import com.example.kloset_lab.clothes.repository.ClothesRepository;
 import com.example.kloset_lab.global.ai.http.client.AIClient;
 import com.example.kloset_lab.global.ai.http.dto.ClothesDto;
 import com.example.kloset_lab.global.ai.http.dto.OutfitResponse;
+import com.example.kloset_lab.global.ai.http.dto.ShopResponse;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
 import com.example.kloset_lab.media.service.MediaService;
@@ -27,6 +30,7 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -42,6 +46,7 @@ public class AiService {
     private final ClothesRepository clothesRepository;
     private final StorageService storageService;
     private final MediaService mediaService;
+    private final CordiSaveService cordiSaveService;
 
     /**
      * TPO 코디 생성 요청
@@ -201,15 +206,59 @@ public class AiService {
     /**
      * TPO 결과 피드백 등록
      *
+     * @param userId 현재 로그인한 사용자 ID
      * @param resultId TPO 결과 ID
      * @param request 피드백 요청 DTO
      */
     @Transactional
-    public void recordReaction(Long resultId, @Valid TpoFeedbackRequest request) {
+    public void recordReaction(Long userId, Long resultId, @Valid TpoFeedbackRequest request) {
         TpoResult tpoResult = tpoResultRepository
-                .findById(resultId)
+                .findByIdWithUser(resultId)
                 .orElseThrow(() -> new CustomException(ErrorCode.TPO_RESULT_NOT_FOUND));
 
+        Long ownerId = tpoResult.getTpoRequest().getUser().getId();
+        if (!ownerId.equals(userId)) {
+            throw new CustomException(ErrorCode.TPO_RESULT_ACCESS_DENIED);
+        }
+
         tpoResult.updateReaction(request.reaction());
+    }
+
+    /**
+     * 쇼핑 검색 기반 코디 추천
+     *
+     * <p>AI-BE 호출(3~10초) 동안 DB 커넥션을 점유하지 않도록 트랜잭션 없이 실행한다.
+     * 사용자 조회는 Spring Data JPA 자체 트랜잭션으로 즉시 반납되고, DB 저장은
+     * AI 응답 수신 후 CordiSaveService의 별도 트랜잭션에서 처리된다.
+     *
+     * @param userId 현재 로그인한 사용자 ID
+     * @param request 쇼핑 코디 추천 요청 DTO
+     * @return 쇼핑 코디 추천 결과
+     */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public ShopRecommendationResponse searchShopOutfits(Long userId, @Valid ShopRecommendationRequest request) {
+        User user = userRepository.findById(userId).orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
+
+        ShopResponse shopResponse = aIClient.searchShop(userId, request.content());
+
+        if (shopResponse == null
+                || shopResponse.outfits() == null
+                || shopResponse.outfits().isEmpty()) {
+            throw new CustomException(ErrorCode.INSUFFICIENT_ITEMS);
+        }
+
+        return cordiSaveService.saveAndBuild(user, request.content(), shopResponse);
+    }
+
+    /**
+     * 쇼핑 코디 피드백 등록
+     *
+     * @param userId 현재 로그인한 사용자 ID
+     * @param resultId 쇼핑 코디 결과 ID
+     * @param request 피드백 요청 DTO
+     */
+    @Transactional
+    public void recordShopReaction(Long userId, Long resultId, @Valid TpoFeedbackRequest request) {
+        cordiSaveService.updateReaction(userId, resultId, request.reaction());
     }
 }

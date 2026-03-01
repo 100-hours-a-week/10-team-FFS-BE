@@ -53,6 +53,7 @@ public enum ErrorCode {
     PARENT_COMMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "parent_comment_not_found"),
     OUTFIT_NOT_FOUND(HttpStatus.NOT_FOUND, "outfit_not_found"),
     TPO_RESULT_NOT_FOUND(HttpStatus.NOT_FOUND, "tpo_result_not_found"),
+    SHOP_RESULT_NOT_FOUND(HttpStatus.NOT_FOUND, "shop_result_not_found"),
     RESULT_NOT_FOUND(HttpStatus.NOT_FOUND, "clothes_analyze_result_not_found"),
     FOLLOW_NOT_FOUND(HttpStatus.NOT_FOUND, "follow_not_found"),
     USER_PROFILE_NOT_FOUND(HttpStatus.NOT_FOUND, "user_profile_not_found"),
