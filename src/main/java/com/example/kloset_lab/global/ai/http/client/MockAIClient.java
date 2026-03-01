@@ -196,7 +196,43 @@ public class MockAIClient implements AIClient {
 
     @Override
     public ShopResponse searchShop(Long userId, String query) {
-        // TODO : V2에서 구현
-        return null;
+        return ShopResponse.builder()
+                .querySummary(query + "에 어울리는 상품 기반 코디입니다.")
+                .outfits(List.of(ShopResponse.ShopOutfit.builder()
+                        .outfitId("outfit_mock_s001")
+                        .items(List.of(
+                                ShopResponse.ShopItem.builder()
+                                        .productId("prod_mock_001")
+                                        .title("모크 스트릿 티셔츠")
+                                        .brand("무신사스탠다드")
+                                        .price(29000)
+                                        .imageUrl("https://image.musinsa.com/mock/001.jpg")
+                                        .link("https://www.musinsa.com/app/goods/001")
+                                        .source("musinsa")
+                                        .category("상의")
+                                        .build(),
+                                ShopResponse.ShopItem.builder()
+                                        .productId("prod_mock_002")
+                                        .title("모크 와이드 데님")
+                                        .brand("무신사스탠다드")
+                                        .price(45000)
+                                        .imageUrl("https://image.musinsa.com/mock/002.jpg")
+                                        .link("https://www.musinsa.com/app/goods/002")
+                                        .source("musinsa")
+                                        .category("하의")
+                                        .build(),
+                                ShopResponse.ShopItem.builder()
+                                        .productId("prod_mock_003")
+                                        .title("모크 스니커즈")
+                                        .brand("나이퀘")
+                                        .price(88000)
+                                        .imageUrl("https://image.musinsa.com/mock/003.jpg")
+                                        .link("https://www.musinsa.com/app/goods/003")
+                                        .source("musinsa")
+                                        .category("신발")
+                                        .build()))
+                        .build()))
+                .sessionId(null)
+                .build();
     }
 }

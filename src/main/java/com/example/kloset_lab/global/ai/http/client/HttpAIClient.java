@@ -1,6 +1,8 @@
 package com.example.kloset_lab.global.ai.http.client;
 
 import com.example.kloset_lab.global.ai.http.dto.*;
+import com.example.kloset_lab.global.exception.CustomException;
+import com.example.kloset_lab.global.exception.ErrorCode;
 import com.example.kloset_lab.media.dto.FileUploadInfo;
 import com.example.kloset_lab.media.dto.FileUploadResponse;
 import com.example.kloset_lab.media.entity.Purpose;
@@ -10,9 +12,13 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 
+@Slf4j
 @RequiredArgsConstructor
 @Component
 public class HttpAIClient implements AIClient {
@@ -164,8 +170,26 @@ public class HttpAIClient implements AIClient {
 
     @Override
     public ShopResponse searchShop(Long userId, String query) {
-        // TODO : V2에서 구현
-        return null;
+        ShopRequest shopRequest = ShopRequest.builder()
+                .userId(userId)
+                .query(query)
+                .sessionId(null)
+                .build();
+
+        try {
+            return restClient
+                    .post()
+                    .uri("/ai/v2/shop/outfit")
+                    .body(shopRequest)
+                    .retrieve()
+                    .body(ShopResponse.class);
+        } catch (ResourceAccessException e) {
+            log.warn("AI-BE 쇼핑 검색 타임아웃: userId={}, query={}", userId, query, e);
+            throw new CustomException(ErrorCode.AI_TIMEOUT);
+        } catch (RestClientException e) {
+            log.warn("AI-BE 쇼핑 검색 오류: userId={}, query={}", userId, query, e);
+            throw new CustomException(ErrorCode.AI_SERVER_ERROR);
+        }
     }
 
     private List<FileUploadInfo> createFileUploadInfos(int count) {

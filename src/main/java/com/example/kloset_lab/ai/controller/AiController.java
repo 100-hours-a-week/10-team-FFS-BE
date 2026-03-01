@@ -1,5 +1,7 @@
 package com.example.kloset_lab.ai.controller;
 
+import com.example.kloset_lab.ai.dto.ShopRecommendationRequest;
+import com.example.kloset_lab.ai.dto.ShopRecommendationResponse;
 import com.example.kloset_lab.ai.dto.TpoFeedbackRequest;
 import com.example.kloset_lab.ai.dto.TpoOutfitsRequest;
 import com.example.kloset_lab.ai.dto.TpoOutfitsResponse;
@@ -51,14 +53,47 @@ public class AiController {
     /**
      * TPO 결과 피드백 등록 API
      *
+     * @param userId 현재 로그인한 사용자 ID
      * @param resultId TPO 결과 ID
      * @param request 피드백 요청 DTO
      * @return 성공 응답
      */
     @PatchMapping("/v1/outfits/feedbacks/{resultId}")
     public ResponseEntity<ApiResponse<Void>> recordReaction(
-            @PathVariable Long resultId, @Valid @RequestBody TpoFeedbackRequest request) {
-        aiService.recordReaction(resultId, request);
+            @AuthenticationPrincipal Long userId,
+            @PathVariable Long resultId,
+            @Valid @RequestBody TpoFeedbackRequest request) {
+        aiService.recordReaction(userId, resultId, request);
+        return ApiResponses.ok(Message.REACTION_RECORDED);
+    }
+
+    /**
+     * 쇼핑 검색 기반 코디 추천 API
+     *
+     * @param userId 현재 로그인한 사용자 ID
+     * @param request 쇼핑 코디 추천 요청 DTO
+     * @return 쇼핑 코디 추천 결과
+     */
+    @PostMapping("/v2/product-recommendations")
+    public ResponseEntity<ApiResponse<ShopRecommendationResponse>> searchShopOutfits(
+            @AuthenticationPrincipal Long userId, @Valid @RequestBody ShopRecommendationRequest request) {
+        return ApiResponses.ok(Message.PRODUCTS_FETCHED, aiService.searchShopOutfits(userId, request));
+    }
+
+    /**
+     * 쇼핑 코디 피드백 등록 API
+     *
+     * @param userId 현재 로그인한 사용자 ID
+     * @param resultId 쇼핑 코디 결과 ID
+     * @param request 피드백 요청 DTO
+     * @return 성공 응답
+     */
+    @PatchMapping("/v2/product-recommendations/feedbacks/{resultId}")
+    public ResponseEntity<ApiResponse<Void>> recordShopReaction(
+            @AuthenticationPrincipal Long userId,
+            @PathVariable Long resultId,
+            @Valid @RequestBody TpoFeedbackRequest request) {
+        aiService.recordShopReaction(userId, resultId, request);
         return ApiResponses.ok(Message.REACTION_RECORDED);
     }
 }
