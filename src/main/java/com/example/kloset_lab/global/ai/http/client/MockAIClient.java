@@ -1,6 +1,6 @@
-package com.example.kloset_lab.global.ai.client;
+package com.example.kloset_lab.global.ai.http.client;
 
-import com.example.kloset_lab.global.ai.dto.*;
+import com.example.kloset_lab.global.ai.http.dto.*;
 import com.example.kloset_lab.media.dto.FileUploadInfo;
 import com.example.kloset_lab.media.dto.FileUploadResponse;
 import com.example.kloset_lab.media.entity.Purpose;
@@ -80,7 +80,7 @@ public class MockAIClient implements AIClient {
         List<BatchResponse.TaskResult> results = batchInfo.tasks.keySet().stream()
                 .map(taskId -> BatchResponse.TaskResult.builder()
                         .taskId(taskId)
-                        .status(TaskStatus.PREPROCESSING)
+                        .status(TaskStatus.PREPROCESSING_COMPLETED)
                         .build())
                 .toList();
 
@@ -143,14 +143,14 @@ public class MockAIClient implements AIClient {
                     completed
                             ? BatchResponse.TaskResult.builder()
                                     .taskId(taskId)
-                                    .status(TaskStatus.COMPLETED)
+                                    .status(TaskStatus.ANALYZING_COMPLETED)
                                     .fileId(taskInfo.fileId)
                                     .major(majorJson)
                                     .extra(extraJson)
                                     .build()
                             : BatchResponse.TaskResult.builder()
                                     .taskId(taskId)
-                                    .status(TaskStatus.PREPROCESSING)
+                                    .status(TaskStatus.PREPROCESSING_COMPLETED)
                                     .build());
         }
 

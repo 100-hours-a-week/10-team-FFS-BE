@@ -9,8 +9,7 @@ on:
     types:
       - completed
     branches:
-      - dev
-      - main
+      - dev-v1
 
 permissions:
   contents: read
@@ -31,7 +30,7 @@ jobs:
     name: Deploy to Staging
     if: |
       github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'dev' &&
+      github.event.workflow_run.head_branch == 'dev-v1' &&
       github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     environment:

@@ -82,6 +82,9 @@ dependencies {
 
     // p6spy SQL 로그
     implementation 'com.github.gavlyukovskiy:p6spy-spring-boot-starter:1.12.0'
+
+    // Kafka
+    implementation 'org.springframework.kafka:spring-kafka'
 }
 
 spotless {

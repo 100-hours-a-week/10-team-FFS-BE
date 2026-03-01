@@ -1,4 +1,4 @@
-package com.example.kloset_lab.global.ai.dto;
+package com.example.kloset_lab.global.ai.http.dto;
 
 import com.example.kloset_lab.media.dto.FileUploadResponse;
 import java.util.List;

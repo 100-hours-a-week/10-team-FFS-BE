@@ -2,7 +2,7 @@ package com.example.kloset_lab.clothes.service;
 
 import com.example.kloset_lab.clothes.entity.TempClothesBatch;
 import com.example.kloset_lab.clothes.repository.TempClothesBatchRepository;
-import com.example.kloset_lab.global.ai.dto.BatchResponse;
+import com.example.kloset_lab.global.ai.http.dto.BatchResponse;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;

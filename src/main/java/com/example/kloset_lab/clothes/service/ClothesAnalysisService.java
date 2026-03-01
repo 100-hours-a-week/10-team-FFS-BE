@@ -5,21 +5,25 @@ import com.example.kloset_lab.clothes.dto.ClothesPollingResponse;
 import com.example.kloset_lab.clothes.entity.TempClothesBatch;
 import com.example.kloset_lab.clothes.entity.TempClothesTask;
 import com.example.kloset_lab.clothes.repository.TempClothesBatchRepository;
-import com.example.kloset_lab.global.ai.client.AIClient;
-import com.example.kloset_lab.global.ai.dto.BatchResponse;
-import com.example.kloset_lab.global.ai.dto.MajorFeature;
-import com.example.kloset_lab.global.ai.dto.Meta;
-import com.example.kloset_lab.global.ai.dto.ValidateResponse;
+import com.example.kloset_lab.clothes.repository.TempClothesTaskRepository;
+import com.example.kloset_lab.global.ai.http.dto.BatchStatus;
+import com.example.kloset_lab.global.ai.http.dto.MajorFeature;
+import com.example.kloset_lab.global.ai.http.dto.Meta;
+import com.example.kloset_lab.global.ai.http.dto.TaskStatus;
+import com.example.kloset_lab.global.ai.kafka.dto.AnalyzeRequest;
+import com.example.kloset_lab.global.ai.kafka.dto.AnalyzeResult;
+import com.example.kloset_lab.global.ai.kafka.producer.ClothesAnalysisProducer;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
-import com.example.kloset_lab.media.entity.Purpose;
 import com.example.kloset_lab.media.service.MediaService;
 import com.example.kloset_lab.user.entity.User;
 import com.example.kloset_lab.user.repository.UserRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -33,62 +37,100 @@ public class ClothesAnalysisService {
     private final UserRepository userRepository;
     private final TempClothesBatchRepository tempClothesBatchRepository;
     private final TempClothesBatchService tempClothesBatchService;
-    private final AIClient aiClient;
     private final ObjectMapper objectMapper;
     private final MediaService mediaService;
+
+    private final ClothesAnalysisProducer clothesAnalysisProducer;
+    private final TempClothesTaskRepository tempClothesTaskRepository;
 
     @Transactional
     public ClothesAnalysisResponse requestAnalysis(Long currentUserId, List<Long> fileIds) {
         User user =
                 userRepository.findById(currentUserId).orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
 
-        mediaService.confirmFileUpload(currentUserId, Purpose.CLOTHES_TEMP, fileIds);
+        // mediaService.confirmFileUpload(currentUserId, Purpose.CLOTHES_TEMP, fileIds);
 
         List<String> imageUrls = mediaService.getFileFullUrls(fileIds);
-        ValidateResponse validateResponse = aiClient.validateImages(currentUserId, imageUrls);
-        BatchResponse batchResponse = aiClient.analyzeImages(currentUserId, validateResponse.getPassedUrls());
 
-        saveBatchAndTasks(user, batchResponse);
+        String batchId = UUID.randomUUID().toString();
+
+        List<AnalyzeRequest> requests = new ArrayList<>();
+
+        for (int i = 0; i < imageUrls.size(); i++) {
+            String taskId = UUID.randomUUID().toString();
+
+            AnalyzeRequest request = new AnalyzeRequest(batchId, taskId, currentUserId, imageUrls.get(i));
+            requests.add(request);
+
+            // Kafka로 분석 요청 발행
+            clothesAnalysisProducer.requestAnalysis(request);
+        }
+
+        // DB 저장
+        saveBatchAndTasks(user, batchId, requests);
 
         return ClothesAnalysisResponse.builder()
-                .batchId(batchResponse.batchId())
-                .total(validateResponse.validationSummary().total())
-                .passed(validateResponse.validationSummary().passed())
-                .failed(validateResponse.validationSummary().failed())
+                .batchId(batchId)
+                .total(imageUrls.size())
+                .passed(imageUrls.size())
+                .failed(0)
                 .build();
+    }
+
+    @Transactional
+    public void handlePreprocessingCompleted(AnalyzeResult result) {
+        TempClothesTask task =
+                tempClothesTaskRepository.findByTaskId(result.taskId()).orElseThrow();
+        task.updateFileId(TaskStatus.PREPROCESSING_COMPLETED, result.fileId());
+        log.info(
+                "[Service] 전처리 완료 - batchId: {}, taskId: {}, fileId: {}",
+                result.batchId(),
+                result.taskId(),
+                result.fileId());
+    }
+
+    @Transactional
+    public void handleAnalysisCompleted(AnalyzeResult result) {
+        TempClothesTask task =
+                tempClothesTaskRepository.findByTaskId(result.taskId()).orElseThrow();
+        task.updateAnalyzeResult(TaskStatus.ANALYZING_COMPLETED, result.major(), result.extra());
+
+        TempClothesBatch batch =
+                tempClothesBatchRepository.findByBatchId(result.batchId()).orElseThrow();
+        batch.completeTask();
+
+        log.info(
+                "[Service] 분석 완료 - batchId: {}, taskId: {}, 진행: {}/{}",
+                result.batchId(),
+                result.taskId(),
+                batch.getCompleted(),
+                batch.getTotal());
     }
 
     /**
      * 옷 분석 결과 폴링 API
      */
+    @Transactional(readOnly = true)
     public ClothesPollingResponse getAnalysisResult(Long currentUserId, String batchId) {
         TempClothesBatch batch = tempClothesBatchService.findAndValidateBatch(currentUserId, batchId);
-
-        if (!batch.isFinished()) {
-            BatchResponse batchResponse = aiClient.getBatchStatus(batchId);
-            tempClothesBatchService.updateBatchStatus(batchId, batchResponse);
-            batch = tempClothesBatchService.findByBatchIdWithTasks(batchId);
-        }
 
         return toPollingResponse(batch);
     }
 
-    private void saveBatchAndTasks(User user, BatchResponse batchResponse) {
+    private void saveBatchAndTasks(User user, String batchId, List<AnalyzeRequest> requests) {
         TempClothesBatch batch = TempClothesBatch.builder()
                 .user(user)
-                .batchId(batchResponse.batchId())
-                .status(batchResponse.status())
-                .total(batchResponse.meta().total())
+                .batchId(batchId)
+                .status(BatchStatus.ACCEPTED)
+                .total(requests.size())
                 .build();
 
-        if (batchResponse.results() != null) {
-            for (BatchResponse.TaskResult result : batchResponse.results()) {
-                TempClothesTask task = TempClothesTask.builder()
-                        .taskId(result.taskId())
-                        .status(result.status())
-                        .build();
-                batch.addTask(task);
-            }
+        for (AnalyzeRequest request : requests) {
+            TempClothesTask task = TempClothesTask.builder()
+                    .taskId(request.taskId())
+                    .status(TaskStatus.REQUESTED_COMPLETED)
+                    .build();
+            batch.addTask(task);
         }
 
         tempClothesBatchRepository.save(batch);
