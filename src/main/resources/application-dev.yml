@@ -25,6 +25,13 @@ spring:
     open-in-view: false
 
   data:
+    mongodb:
+      host: ${MONGODB_HOST}
+      port: ${MONGODB_PORT:27017}
+      database: ${MONGODB_DATABASE}
+      username: ${MONGODB_USERNAME}
+      password: ${MONGODB_PASSWORD}
+#      authentication-database: admin
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
@@ -36,6 +43,7 @@ spring:
           max-idle: 8
           min-idle: 2
           max-wait: 3000ms
+
 
 server:
   port: ${SERVER_PORT:8080}
@@ -52,6 +60,7 @@ server:
   error:
     include-message: always
     include-stacktrace: on_param
+  forward-headers-strategy: framework
 
 jwt:
   access-token-expiration: 43200000
@@ -99,6 +108,7 @@ cors:
     - http://15.164.36.40
     - http://15.164.36.40:3000
     - http://15.164.36.40:8080
+    - https://d33bnagyzgkisg.cloudfront.net
   allowed-methods:
     - GET
     - POST

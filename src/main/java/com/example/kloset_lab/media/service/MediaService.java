@@ -84,7 +84,6 @@ public class MediaService {
         }
         mediaFileList.forEach(file -> storageService.validateUpload(file.getObjectKey(), file.getFileType()));
         mediaFileList.forEach(MediaFile::updateFileStatus);
-        mediaFileRepository.saveAll(mediaFileList);
     }
 
     public List<String> getFileFullUrls(List<Long> fileIdList) {

@@ -76,13 +76,21 @@ public class JwtTokenProvider {
 
     /**
      * Access Token에서 토큰 타입 추출
-     * @param token JWT Access Token
+     * @param token JWT 토큰
      * @return TokenType (ACTIVE / REGISTRATION)
+     * @throws IllegalArgumentException type claim이 없거나 알 수 없는 값인 경우
      */
     public TokenType getTokenTypeFromToken(String token) {
         Claims claims = parseClaims(token);
         String typeString = claims.get(CLAIM_TOKEN_TYPE, String.class);
-        return TokenType.valueOf(typeString);
+        if (typeString == null) {
+            throw new IllegalArgumentException("토큰에 type claim이 존재하지 않습니다.");
+        }
+        try {
+            return TokenType.valueOf(typeString);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("알 수 없는 토큰 타입: " + typeString);
+        }
     }
 
     /**

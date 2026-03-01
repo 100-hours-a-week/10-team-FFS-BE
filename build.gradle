@@ -45,12 +45,19 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.security:spring-security-test'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.2.0'
+
+    // Testcontainers
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:mongodb'
+    testImplementation 'org.testcontainers:mysql'
 
     // REDIS
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
     implementation "software.amazon.awssdk:s3:2.20.100"
 
-
+    // ulid
     implementation 'com.github.f4b6a3:ulid-creator:5.2.3'
 
     // prometheus
@@ -63,6 +70,12 @@ dependencies {
     // Flyway
     implementation 'org.flywaydb:flyway-core'
     implementation 'org.flywaydb:flyway-mysql'
+
+    // WebSocket / STOMP
+    implementation 'org.springframework.boot:spring-boot-starter-websocket'
+
+    // MongoDB
+    implementation 'org.springframework.boot:spring-boot-starter-data-mongodb'
 
     // Apache HttpClient 5 (RestClient 커넥션 풀링)
     implementation 'org.apache.httpcomponents.client5:httpclient5'
@@ -109,6 +122,11 @@ tasks.named('test') {
 checkstyle {
     toolVersion = '10.12.4'
     configFile = file("${rootDir}/config/checkstyle/checkstyle.xml")
+}
+
+// 테스트 코드는 한글/언더스코어 메서드명을 허용하기 위해 Checkstyle 미적용
+tasks.named('checkstyleTest') {
+    enabled = false
 }
 
 jacoco {
