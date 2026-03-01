@@ -30,7 +30,9 @@ public record ShopRecommendationResponse(String outfitSummary, List<OutfitItem> 
      * @param brandName 브랜드명
      * @param category 카테고리
      * @param imageUrl 상품 이미지 URL
+     * @param link 상품 상세 페이지 URL
      */
     @Builder
-    public record ProductItem(String name, Integer price, String brandName, String category, String imageUrl) {}
+    public record ProductItem(
+            String name, Integer price, String brandName, String category, String imageUrl, String link) {}
 }

@@ -56,6 +56,7 @@ public class CordiSaveService {
                                             .brandName(item.brand())
                                             .category(item.category())
                                             .imageUrl(item.imageUrl())
+                                            .link(item.link())
                                             .build())
                                     .toList();
 
