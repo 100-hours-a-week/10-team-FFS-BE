@@ -19,6 +19,8 @@ public class AiFixture {
     public static final String QUERY = "가을 데이트 코디 추천해줘";
     public static final String QUERY_SUMMARY = "가을 감성 캐주얼 코디";
     public static final String OUTFIT_ID = "outfit_s001";
+    public static final String TOP_LINK = "https://example.com/top-link.html";
+    public static final String BOTTOM_LINK = "https://example.com/bottom-link.html";
 
     /** 테스트용 User 생성 (id는 ReflectionTestUtils로 설정) */
     public static User testUser(Long userId) {
@@ -59,6 +61,7 @@ public class AiFixture {
                                         .brand("테스트 브랜드")
                                         .price(29000)
                                         .imageUrl("https://example.com/top.jpg")
+                                        .link(TOP_LINK)
                                         .category("상의")
                                         .build(),
                                 ShopResponse.ShopItem.builder()
@@ -66,6 +69,7 @@ public class AiFixture {
                                         .brand("테스트 브랜드")
                                         .price(39000)
                                         .imageUrl("https://example.com/bottom.jpg")
+                                        .link(BOTTOM_LINK)
                                         .category("하의")
                                         .build()))
                         .build()))

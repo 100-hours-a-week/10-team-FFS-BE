@@ -63,6 +63,8 @@ class CordiSaveServiceTest {
             assertThat(response.outfits()).hasSize(1);
             assertThat(response.outfits().get(0).feedbackId()).isEqualTo(AiFixture.RESULT_ID);
             assertThat(response.outfits().get(0).products()).hasSize(2);
+            assertThat(response.outfits().get(0).products().get(0).link()).isEqualTo(AiFixture.TOP_LINK);
+            assertThat(response.outfits().get(0).products().get(1).link()).isEqualTo(AiFixture.BOTTOM_LINK);
             then(cordiRequestRepository).should().save(any(CordiRequest.class));
             then(cordiResultRepository).should().save(any(CordiResult.class));
         }
