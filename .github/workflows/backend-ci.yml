@@ -61,7 +61,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
-    # MySQL 서비스 컨테이너 (테스트용 데이터베이스)
+    # 서비스 컨테이너 (테스트용 데이터베이스)
     services:
       mysql:
         image: mysql:8.0
@@ -82,6 +82,17 @@ jobs:
         options: >-
           --health-cmd="redis-cli ping"
           --health-interval=5s
+          --health-timeout=5s
+          --health-retries=5
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd="mongosh --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
 
     # 환경 변수 설정
     env:
@@ -91,6 +102,11 @@ jobs:
       DB_NAME: ${{ secrets.DB_NAME }}
       DB_USERNAME: root
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      MONGODB_HOST: localhost
+      MONGODB_PORT: 27017
+      MONGODB_DATABASE: test
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
 
     outputs:
