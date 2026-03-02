@@ -599,7 +599,7 @@ jobs:
               \"TagSpecifications\": [{
                 \"ResourceType\": \"instance\",
                 \"Tags\": [
-                  {\"Key\": \"Name\", \"Value\": \"klosetlab-prod-v2-app-${TIMESTAMP}\"},
+                  {\"Key\": \"Name\", \"Value\": \"klosetlab-app-${TIMESTAMP}\"},
                   {\"Key\": \"Environment\", \"Value\": \"prod\"},
                   {\"Key\": \"DeploymentColor\", \"Value\": \"green\"},
                   {\"Key\": \"ImageTag\", \"Value\": \"${{ steps.image.outputs.image_tag }}\"}
@@ -618,7 +618,7 @@ jobs:
         id: green-asg
         run: |
           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-          GREEN_ASG_NAME="klosetlab-prod-v2-app-${TIMESTAMP}"
+          GREEN_ASG_NAME="klosetlab-app-${TIMESTAMP}"
           GREEN_TG_ARN="${{ secrets.PROD_GREEN_TARGET_GROUP_ARN }}"
           
           aws autoscaling create-auto-scaling-group \
@@ -631,7 +631,7 @@ jobs:
             --vpc-zone-identifier "${{ secrets.PROD_SUBNET_IDS }}" \
             --health-check-type EC2 \
             --health-check-grace-period 180 \
-            --tags "Key=Name,Value=klosetlab-prod-v2-app,PropagateAtLaunch=true" \
+            --tags "Key=Name,Value=klosetlab-app,PropagateAtLaunch=true" \
                    "Key=Environment,Value=prod,PropagateAtLaunch=true" \
                    "Key=DeploymentColor,Value=green,PropagateAtLaunch=true"
           
@@ -817,6 +817,7 @@ jobs:
         id: shift-100
         run: |
           LISTENER_ARN="${{ secrets.PROD_ALB_LISTENER_ARN }}"
+          BLUE_TG_ARN="${{ secrets.PROD_BLUE_TARGET_GROUP_ARN }}"
           GREEN_TG_ARN="${{ secrets.PROD_GREEN_TARGET_GROUP_ARN }}"
 
           echo "=== Finding /api/* rule ARN ==="
@@ -837,6 +838,7 @@ jobs:
                 \"Type\": \"forward\",
                 \"ForwardConfig\": {
                   \"TargetGroups\": [
+                    {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 0},
                     {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 100}
                   ]
                 }
@@ -891,20 +893,20 @@ jobs:
           sleep 30
 
           # 2. Blue TG에서 healthy 확인
-          for i in {1..12}; do
+          for i in {1..20}; do
             HEALTHY_IN_BLUE=$(aws elbv2 describe-target-health \
               --target-group-arn ${BLUE_TG_ARN} \
               --query 'TargetHealthDescriptions[?TargetHealth.State==`healthy`]' \
               --output json | jq 'length')
 
-            echo "[$i/12] Healthy in Blue TG: ${HEALTHY_IN_BLUE}/${EXPECTED}"
+            echo "[$i/20] Healthy in Blue TG: ${HEALTHY_IN_BLUE}/${EXPECTED}"
 
             if [ "$HEALTHY_IN_BLUE" -ge "$EXPECTED" ]; then
               echo "✅ Green instances healthy in Blue TG"
               break
             fi
 
-            if [ "$i" -eq 12 ]; then
+            if [ "$i" -eq 20 ]; then
               echo "❌ Green instances not healthy in Blue TG"
               exit 1
             fi
@@ -925,7 +927,8 @@ jobs:
                 \"Type\": \"forward\",
                 \"ForwardConfig\": {
                   \"TargetGroups\": [
-                    {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100}
+                    {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100},
+                    {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 0}
                   ]
                 }
               }
@@ -1025,7 +1028,8 @@ jobs:
                 \"Type\": \"forward\",
                 \"ForwardConfig\": {
                   \"TargetGroups\": [
-                    {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100}
+                    {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100},
+                    {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 0}
                   ]
                 }
               }
