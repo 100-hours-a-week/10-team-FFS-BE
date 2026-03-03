@@ -107,7 +107,7 @@ jobs:
             BRANCH="${{ github.ref_name }}"
           fi
 
-          SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-')
+          SAFE_BRANCH=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/-\+/-/g')
           IMAGE_TAG="${SAFE_BRANCH}-${VERSION}-${COMMIT_SHA}"
 
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
@@ -398,9 +398,10 @@ jobs:
           ECR_REPOSITORY=${{ steps.ecr-repo.outputs.repository }}
           IMAGE_TAG=${{ needs.test-and-build.outputs.image_tag }}
           BRANCH=${{ github.ref_name }}
+          SAFE_BRANCH=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/-\+/-/g')
 
           IMAGE_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
-          LATEST_TAG="${ECR_REGISTRY}/${ECR_REPOSITORY}:${BRANCH}-latest"
+          LATEST_TAG="${ECR_REGISTRY}/${ECR_REPOSITORY}:${SAFE_BRANCH}-latest"
 
           echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
           echo "latest_tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
@@ -539,9 +540,10 @@ jobs:
           ECR_REPOSITORY=${{ steps.ecr-repo.outputs.repository }}
           IMAGE_TAG=${{ needs.test-and-build.outputs.image_tag }}
           BRANCH=${{ github.ref_name }}
+          SAFE_BRANCH=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/-\+/-/g')
 
           IMAGE_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
-          LATEST_TAG="${ECR_REGISTRY}/${ECR_REPOSITORY}:${BRANCH}-latest"
+          LATEST_TAG="${ECR_REGISTRY}/${ECR_REPOSITORY}:${SAFE_BRANCH}-latest"
 
           echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
           echo "latest_tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
