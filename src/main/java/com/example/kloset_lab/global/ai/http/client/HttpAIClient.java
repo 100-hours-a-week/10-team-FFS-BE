@@ -17,6 +17,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -106,19 +107,57 @@ public class HttpAIClient implements AIClient {
                 .weather(null)
                 .urls(fileUploadResponses)
                 .build();
+        long startedAtNanos = System.nanoTime();
 
         try {
-            return restClient
+            OutfitResponse response = restClient
                     .post()
                     .uri("/v1/closet/outfit")
                     .body(outfitRequest)
                     .retrieve()
                     .body(OutfitResponse.class);
+            log.info("AI-BE TPO 코디 추천 성공: userId={}, elapsedMs={}", userId, elapsedMillis(startedAtNanos));
+            return response;
         } catch (ResourceAccessException e) {
-            log.warn("AI-BE TPO 코디 추천 타임아웃: userId={}", userId, e);
+            int deletedCount = cleanupPendingOutfitFiles(userId, fileUploadResponses);
+            log.warn(
+                    "AI-BE TPO 코디 추천 타임아웃: userId={}, elapsedMs={}, cleanedUpFileCount={}",
+                    userId,
+                    elapsedMillis(startedAtNanos),
+                    deletedCount,
+                    e);
             throw new CustomException(ErrorCode.AI_TIMEOUT);
+        } catch (RestClientResponseException e) {
+            int deletedCount = cleanupPendingOutfitFiles(userId, fileUploadResponses);
+            int statusCode = e.getStatusCode().value();
+
+            if (isUpstreamTimeout(statusCode)) {
+                log.warn(
+                        "AI-BE TPO 코디 추천 업스트림 타임아웃: userId={}, statusCode={}, elapsedMs={}, cleanedUpFileCount={}",
+                        userId,
+                        statusCode,
+                        elapsedMillis(startedAtNanos),
+                        deletedCount,
+                        e);
+                throw new CustomException(ErrorCode.AI_TIMEOUT);
+            }
+
+            log.warn(
+                    "AI-BE TPO 코디 추천 응답 오류: userId={}, statusCode={}, elapsedMs={}, cleanedUpFileCount={}",
+                    userId,
+                    statusCode,
+                    elapsedMillis(startedAtNanos),
+                    deletedCount,
+                    e);
+            throw new CustomException(ErrorCode.AI_SERVER_ERROR);
         } catch (RestClientException e) {
-            log.warn("AI-BE TPO 코디 추천 오류: userId={}", userId, e);
+            int deletedCount = cleanupPendingOutfitFiles(userId, fileUploadResponses);
+            log.warn(
+                    "AI-BE TPO 코디 추천 통신 오류: userId={}, elapsedMs={}, cleanedUpFileCount={}",
+                    userId,
+                    elapsedMillis(startedAtNanos),
+                    deletedCount,
+                    e);
             throw new CustomException(ErrorCode.AI_SERVER_ERROR);
         }
     }
@@ -175,24 +214,80 @@ public class HttpAIClient implements AIClient {
                 .query(query)
                 .sessionId(null)
                 .build();
+        long startedAtNanos = System.nanoTime();
 
         try {
-            return restClient
+            ShopResponse response = restClient
                     .post()
                     .uri("/v2/shop/outfit")
                     .body(shopRequest)
                     .retrieve()
                     .body(ShopResponse.class);
+            log.info("AI-BE 쇼핑 검색 성공: userId={}, elapsedMs={}", userId, elapsedMillis(startedAtNanos));
+            return response;
         } catch (ResourceAccessException e) {
-            log.warn("AI-BE 쇼핑 검색 타임아웃: userId={}, query={}", userId, query, e);
+            log.warn(
+                    "AI-BE 쇼핑 검색 타임아웃: userId={}, query={}, elapsedMs={}",
+                    userId,
+                    query,
+                    elapsedMillis(startedAtNanos),
+                    e);
             throw new CustomException(ErrorCode.AI_TIMEOUT);
+        } catch (RestClientResponseException e) {
+            int statusCode = e.getStatusCode().value();
+
+            if (isUpstreamTimeout(statusCode)) {
+                log.warn(
+                        "AI-BE 쇼핑 검색 업스트림 타임아웃: userId={}, query={}, statusCode={}, elapsedMs={}",
+                        userId,
+                        query,
+                        statusCode,
+                        elapsedMillis(startedAtNanos),
+                        e);
+                throw new CustomException(ErrorCode.AI_TIMEOUT);
+            }
+
+            log.warn(
+                    "AI-BE 쇼핑 검색 응답 오류: userId={}, query={}, statusCode={}, elapsedMs={}",
+                    userId,
+                    query,
+                    statusCode,
+                    elapsedMillis(startedAtNanos),
+                    e);
+            throw new CustomException(ErrorCode.AI_SERVER_ERROR);
         } catch (RestClientException e) {
-            log.warn("AI-BE 쇼핑 검색 오류: userId={}, query={}", userId, query, e);
+            log.warn(
+                    "AI-BE 쇼핑 검색 통신 오류: userId={}, query={}, elapsedMs={}",
+                    userId,
+                    query,
+                    elapsedMillis(startedAtNanos),
+                    e);
             throw new CustomException(ErrorCode.AI_SERVER_ERROR);
         }
     }
 
     private List<FileUploadInfo> createFileUploadInfos(int count) {
         return Collections.nCopies(count, new FileUploadInfo("ai_result.jpeg", "image/jpeg"));
+    }
+
+    private int cleanupPendingOutfitFiles(Long userId, List<FileUploadResponse> fileUploadResponses) {
+        List<Long> fileIds =
+                fileUploadResponses.stream().map(FileUploadResponse::fileId).toList();
+
+        try {
+            return mediaService.deletePendingFiles(userId, Purpose.OUTFIT, fileIds);
+        } catch (Exception cleanupException) {
+            log.error(
+                    "AI-BE TPO 코디 추천 실패 후 media_file 정리 실패: userId={}, fileIds={}", userId, fileIds, cleanupException);
+            return 0;
+        }
+    }
+
+    private boolean isUpstreamTimeout(int statusCode) {
+        return statusCode == 408 || statusCode == 504;
+    }
+
+    private long elapsedMillis(long startedAtNanos) {
+        return (System.nanoTime() - startedAtNanos) / 1_000_000;
     }
 }
