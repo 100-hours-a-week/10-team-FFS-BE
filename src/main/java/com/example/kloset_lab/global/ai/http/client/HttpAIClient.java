@@ -108,18 +108,18 @@ public class HttpAIClient implements AIClient {
                 .build();
 
         try {
-            OutfitResponse response = restClient
+            return restClient
                     .post()
                     .uri("/v1/closet/outfit")
                     .body(outfitRequest)
                     .retrieve()
                     .body(OutfitResponse.class);
-
-            return response;
-
-        } catch (Exception e) {
-            e.printStackTrace();
-            throw e;
+        } catch (ResourceAccessException e) {
+            log.warn("AI-BE TPO 코디 추천 타임아웃: userId={}", userId, e);
+            throw new CustomException(ErrorCode.AI_TIMEOUT);
+        } catch (RestClientException e) {
+            log.warn("AI-BE TPO 코디 추천 오류: userId={}", userId, e);
+            throw new CustomException(ErrorCode.AI_SERVER_ERROR);
         }
     }
 
