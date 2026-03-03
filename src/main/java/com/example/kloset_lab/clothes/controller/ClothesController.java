@@ -4,15 +4,19 @@ import com.example.kloset_lab.clothes.dto.*;
 import com.example.kloset_lab.clothes.service.ClothesAnalysisService;
 import com.example.kloset_lab.clothes.service.ClothesService;
 import com.example.kloset_lab.feed.dto.FeedClothesDto;
+import com.example.kloset_lab.feed.dto.FeedListItem;
 import com.example.kloset_lab.global.response.ApiResponse;
 import com.example.kloset_lab.global.response.ApiResponses;
 import com.example.kloset_lab.global.response.Message;
+import com.example.kloset_lab.global.response.PagedResponse;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+
+import static com.example.kloset_lab.global.constants.PaginationDefaults.FEED_LIST;
 
 @RestController
 @RequestMapping("/api")
@@ -75,6 +79,15 @@ public class ClothesController {
     @GetMapping("/v1/clothes/clothes-details")
     public ResponseEntity<ApiResponse<List<FeedClothesDto>>> getClothesDetails(
             @AuthenticationPrincipal Long currentUserId, @RequestParam List<Long> clothesIds) {
-        return ApiResponses.ok("옷 세부 정보 반환", clothesService.getClothesDetails(clothesIds));
+        return ApiResponses.ok(Message.CLOTHES_FEED_DETAIL, clothesService.getClothesDetails(clothesIds));
+    }
+
+    @GetMapping("/v1/clothes/{clothesId}/feeds")
+    public ResponseEntity<ApiResponse<PagedResponse<FeedListItem>>> getClothesFeeds(
+            @AuthenticationPrincipal Long currentUserId,
+            @PathVariable Long clothesId,
+            @RequestParam(required = false) Long after,
+            @RequestParam(defaultValue = FEED_LIST) int limit) {
+        return ApiResponses.ok(Message.CLOTHES_FEED, clothesService.getClothesFeeds(clothesId, currentUserId, after, limit));
     }
 }

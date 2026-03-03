@@ -35,6 +35,9 @@ public class Message {
     public static final String CLOTHES_DETAIL_RETRIEVED = "clothes_detail_retrieved";
     public static final String CLOTHES_DETAIL_UPDATED = "clothes_detail_updated";
     public static final String CLOTHES_DELETED = "clothes_deleted";
+    public static final String CLOTHES_FEED_DETAIL = "clothes_feed_detail";
+    public static final String CLOTHES_FEED = "clothes_feed_retrieved";
+
 
     // Feed
     public static final String FEED_CREATED = "feed_created";
