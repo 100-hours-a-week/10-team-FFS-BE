@@ -127,6 +127,26 @@ public class MediaService {
                         MediaFile::getId, file -> storageService.getFullImageUrl(file.getObjectKey())));
     }
 
+    @Transactional
+    public int deletePendingFiles(Long userId, Purpose purpose, List<Long> fileIds) {
+        if (fileIds == null || fileIds.isEmpty()) {
+            return 0;
+        }
+
+        List<MediaFile> pendingFiles = mediaFileRepository.findAllById(fileIds).stream()
+                .filter(file -> file.getUser().getId().equals(userId))
+                .filter(file -> file.getPurpose().equals(purpose))
+                .filter(file -> file.getStatus() == FileStatus.PENDING)
+                .toList();
+
+        if (pendingFiles.isEmpty()) {
+            return 0;
+        }
+
+        mediaFileRepository.deleteAll(pendingFiles);
+        return pendingFiles.size();
+    }
+
     private void validateFileCount(Purpose purpose, int count) {
         if (count < 1) {
             throw new CustomException(ErrorCode.TOO_FEW_FILES);

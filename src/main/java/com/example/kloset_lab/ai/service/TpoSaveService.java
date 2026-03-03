@@ -138,11 +138,13 @@ public class TpoSaveService {
 
                     String aiComment = buildAiComment(outfit);
 
+                    String imageUrl = outfit.fileId() != null ? mediaService.getFileFullUrl(outfit.fileId()) : null;
+
                     return TpoOutfitsResponse.OutfitItem.builder()
                             .outfitId(tpoResult.getId())
                             .aiComment(aiComment)
                             .clothes(clothesDtos)
-                            .imageUrl(mediaService.getFileFullUrl(outfit.fileId()))
+                            .imageUrl(imageUrl)
                             .build();
                 })
                 .toList();
