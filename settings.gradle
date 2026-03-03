@@ -1,1 +1,6 @@
 rootProject.name = 'kloset-lab'
+
+include 'module-common'
+include 'module-domain'
+include 'module-api'
+include 'module-chat'

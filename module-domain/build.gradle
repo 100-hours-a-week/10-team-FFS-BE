@@ -1,0 +1,11 @@
+plugins {
+    id 'java-library'
+}
+
+dependencies {
+    api project(':module-common')
+    api 'org.springframework.boot:spring-boot-starter-data-jpa'
+
+    // MongoDB (채팅 메시지 등 향후 도메인 확장 대비)
+    api 'org.springframework.boot:spring-boot-starter-data-mongodb'
+}

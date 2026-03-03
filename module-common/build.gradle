@@ -1,0 +1,23 @@
+plugins {
+    id 'java-library'
+}
+
+dependencies {
+    api 'org.springframework.boot:spring-boot-starter-web'
+    api 'org.springframework.boot:spring-boot-starter-security'
+    api 'org.springframework.boot:spring-boot-starter-validation'
+
+    // JWT
+    api 'io.jsonwebtoken:jjwt-api:0.12.6'
+    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+
+    // ULID
+    api 'com.github.f4b6a3:ulid-creator:5.2.3'
+
+    // JPA (BaseEntity 등 공유 엔티티 슈퍼클래스에 필요)
+    api 'org.springframework.boot:spring-boot-starter-data-jpa'
+
+    // Redis (API/Chat 서버 모두 사용. api 스코프로 transitive 제공)
+    api 'org.springframework.boot:spring-boot-starter-data-redis'
+}

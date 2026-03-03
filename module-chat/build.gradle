@@ -1,0 +1,30 @@
+plugins {
+    id 'org.springframework.boot'
+}
+
+dependencies {
+    implementation project(':module-domain')
+
+    // DB
+    runtimeOnly 'com.mysql:mysql-connector-j'
+
+    // S3 (채팅 이미지 확인용 FileUploadValidator 구현체: S3FileUploadValidator)
+    implementation "software.amazon.awssdk:s3:2.20.100"
+
+    // WebSocket / STOMP
+    implementation 'org.springframework.boot:spring-boot-starter-websocket'
+
+    // 모니터링
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'io.micrometer:micrometer-registry-prometheus'
+
+    // 테스트
+    testImplementation 'org.springframework.security:spring-security-test'
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:mysql'
+    testImplementation 'org.testcontainers:mongodb'
+}
+
+bootJar { archiveFileName = 'chat.jar' }
+tasks.named('jar') { enabled = false }

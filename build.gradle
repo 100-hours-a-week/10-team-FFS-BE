@@ -1,165 +1,84 @@
 plugins {
-    id 'java'
-    id 'org.springframework.boot' version '3.5.9'
-    id 'io.spring.dependency-management' version '1.1.7'
-    id 'com.diffplug.spotless' version '6.25.0'
-    id 'checkstyle'
-    id 'jacoco'
+    id 'org.springframework.boot' version '3.5.9' apply false
+    id 'io.spring.dependency-management' version '1.1.7' apply false
+    id 'com.diffplug.spotless' version '6.25.0' apply false
 }
 
-group = 'com.example'
-version = '0.0.1-SNAPSHOT'
-description = 'Demo project for Spring Boot'
-
-java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
-    }
+allprojects {
+    group = 'com.example'
+    version = '0.0.1-SNAPSHOT'
+    repositories { mavenCentral() }
 }
 
-configurations {
-    compileOnly {
-        extendsFrom annotationProcessor
-    }
-}
+subprojects {
+    apply plugin: 'java'
+    apply plugin: 'io.spring.dependency-management'
+    apply plugin: 'com.diffplug.spotless'
+    apply plugin: 'checkstyle'
+    apply plugin: 'jacoco'
 
-repositories {
-    mavenCentral()
-}
-
-dependencies {
-    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
-    implementation 'org.springframework.boot:spring-boot-starter-security'
-    implementation 'org.springframework.boot:spring-boot-starter-validation'
-    implementation 'org.springframework.boot:spring-boot-starter-web'
-    implementation 'org.springframework.boot:spring-boot-starter-actuator'
-
-    // JWT
-    implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
-    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
-    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
-
-    compileOnly 'org.projectlombok:lombok'
-    runtimeOnly 'com.mysql:mysql-connector-j'
-    annotationProcessor 'org.projectlombok:lombok'
-    testImplementation 'org.springframework.boot:spring-boot-starter-test'
-    testImplementation 'org.springframework.security:spring-security-test'
-    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.2.0'
-
-    // Testcontainers
-    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
-    testImplementation 'org.testcontainers:junit-jupiter'
-    testImplementation 'org.testcontainers:mongodb'
-    testImplementation 'org.testcontainers:mysql'
-
-    // REDIS
-    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
-    implementation "software.amazon.awssdk:s3:2.20.100"
-
-    // ulid
-    implementation 'com.github.f4b6a3:ulid-creator:5.2.3'
-
-    // prometheus
-    implementation 'org.springframework.boot:spring-boot-starter-actuator'
-    implementation 'io.micrometer:micrometer-registry-prometheus'
-
-    // Rate Limiting - Bucket4j
-    implementation("com.bucket4j:bucket4j_jdk17-core:8.14.0")
-
-    // Flyway
-    implementation 'org.flywaydb:flyway-core'
-    implementation 'org.flywaydb:flyway-mysql'
-
-    // WebSocket / STOMP
-    implementation 'org.springframework.boot:spring-boot-starter-websocket'
-
-    // MongoDB
-    implementation 'org.springframework.boot:spring-boot-starter-data-mongodb'
-
-    // Apache HttpClient 5 (RestClient 커넥션 풀링)
-    implementation 'org.apache.httpcomponents.client5:httpclient5'
-
-    // p6spy SQL 로그
-    implementation 'com.github.gavlyukovskiy:p6spy-spring-boot-starter:1.12.0'
-
-    // Kafka
-    implementation 'org.springframework.kafka:spring-kafka'
-}
-
-spotless {
-    java {
-        // import 순서 정의
-        importOrder(
-                'java',
-                'javax',
-                'lombok',
-                'org.springframework',
-                '',
-                '\\#',
-                'org.junit',
-                '\\#org.junit',
-                'com.example',
-                '\\#com.example'
-        )
-        // 사용하지 않는 import 제거
-        removeUnusedImports()
-        // Palantir 자바 포맷 적용
-        palantirJavaFormat()
-        // 어노테이션 정렬
-        formatAnnotations()
-        // 공백 제거
-        trimTrailingWhitespace()
-        // 끝부분 New Line 처리
-        endWithNewline()
-    }
-}
-
-tasks.named('test') {
-    useJUnitPlatform()
-}
-
-checkstyle {
-    toolVersion = '10.12.4'
-    configFile = file("${rootDir}/config/checkstyle/checkstyle.xml")
-}
-
-// 테스트 코드는 한글/언더스코어 메서드명을 허용하기 위해 Checkstyle 미적용
-tasks.named('checkstyleTest') {
-    enabled = false
-}
-
-jacoco {
-    toolVersion = "0.8.11"
-}
-
-jacocoTestReport {
-    dependsOn test
-
-    reports {
-        xml.required = true
-        html.required = true
-    }
-}
-
-jacocoTestCoverageVerification {
-    violationRules {
-        rule {
-            limit {
-                minimum = 0.70  // 70% 커버리지
-            }
+    // java-library 모듈(module-common, module-domain)은 Spring Boot 플러그인을 적용하지 않아
+    // BOM이 자동 주입되지 않으므로 subprojects 레벨에서 명시한다.
+    // Spring Boot 플러그인을 적용하는 모듈(module-api, module-chat)은 중복이지만 동일 버전으로 무해하다.
+    dependencyManagement {
+        imports {
+            mavenBom "org.springframework.boot:spring-boot-dependencies:3.5.9"
         }
     }
+
+    java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
+
+    // Spring Boot 플러그인이 없는 모듈(module-common, module-domain)에서도
+    // @ConfigurationProperties 생성자 바인딩이 동작하도록 -parameters 플래그를 명시한다.
+    // (Spring Boot 플러그인은 자동으로 이 플래그를 추가하지만, java-library 모듈은 그렇지 않다)
+    tasks.withType(JavaCompile).configureEach {
+        options.compilerArgs << '-parameters'
+    }
+
+    configurations {
+        compileOnly { extendsFrom annotationProcessor }
+    }
+
+    dependencies {
+        compileOnly 'org.projectlombok:lombok'
+        annotationProcessor 'org.projectlombok:lombok'
+        testImplementation 'org.springframework.boot:spring-boot-starter-test'
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    }
+
+    spotless {
+        java {
+            importOrder('java', 'javax', 'lombok', 'org.springframework', '',
+                    '\\#', 'org.junit', '\\#org.junit', 'com.example', '\\#com.example')
+            removeUnusedImports()
+            palantirJavaFormat()
+            formatAnnotations()
+            trimTrailingWhitespace()
+            endWithNewline()
+        }
+    }
+
+    checkstyle {
+        toolVersion = '10.12.4'
+        configFile = file("${rootDir}/config/checkstyle/checkstyle.xml")
+    }
+
+    // 테스트 코드는 한글/언더스코어 메서드명을 허용하기 위해 Checkstyle 미적용
+    tasks.named('checkstyleTest') { enabled = false }
+
+    jacoco { toolVersion = "0.8.11" }
+
+    jacocoTestReport {
+        dependsOn test
+        reports { xml.required = true; html.required = true }
+    }
+
+    jacocoTestCoverageVerification {
+        violationRules { rule { limit { minimum = 0.70 } } }
+    }
+
+    tasks.named('test') {
+        useJUnitPlatform()
+        finalizedBy jacocoTestReport
+    }
 }
-
-test {
-    finalizedBy jacocoTestReport
-}
-
-tasks.named('jar') {
-    enabled = false
-}
-
-
-
-

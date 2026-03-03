@@ -42,20 +42,5 @@ out/
 !.env.template
 env
 
-### Local Test Config (contains credentials) ###
-src/test/resources/application-local.yml
-
-### DB Local Setting ###
-mysql_data/
-
 ### OS Files (Mac) ###
 .DS_Store
-
-CLAUDE.md
-AGENT.MD
-
-docs/
-k6/
-mongodb_data/
-monitoring/
-logs/
