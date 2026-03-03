@@ -2,6 +2,8 @@ package com.example.kloset_lab.feed.repository;
 
 import com.example.kloset_lab.feed.entity.Feed;
 import java.time.LocalDateTime;
+import java.util.List;
+
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -57,4 +59,14 @@ public interface FeedRepository extends JpaRepository<Feed, Long> {
             + "ORDER BY f.id DESC")
     Slice<Feed> findFollowingFeedsByCursor(
             @Param("userId") Long userId, @Param("cursor") Long cursor, Pageable pageable);
+
+    @Query("SELECT f FROM Feed f " +
+            "JOIN FeedClothesMapping m ON m.feed.id = f.id " +
+            "WHERE m.clothes.id = :clothesId " +
+            "AND (:after IS NULL OR f.id < :after) " +
+            "ORDER BY f.id DESC")
+    Slice<Feed> findByClothesIdByCursor(
+            @Param("clothesId") Long clothesId,
+            @Param("after") Long after,
+            Pageable pageable);
 }
