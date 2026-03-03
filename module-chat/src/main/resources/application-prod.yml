@@ -86,7 +86,9 @@ cloud:
 
 cors:
   allowed-origins:
-    - ${CORS_ALLOWED_ORIGINS:}
+    - https://klosetlab.site
+    - https://www.klosetlab.site
+    - https://d11enmpr5837xn.cloudfront.net
   allowed-methods:
     - GET
     - POST

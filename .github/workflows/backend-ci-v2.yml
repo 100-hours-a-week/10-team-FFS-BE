@@ -1,0 +1,630 @@
+name: Backend CI V2
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - dev
+      - main
+
+  push:
+    branches:
+      - dev
+      - main
+      - "feat/#228-multiModule-migration"
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+  id-token: write
+
+concurrency:
+  group: ci-v2-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# ============================================================
+# Jobs
+# ============================================================
+jobs:
+  # ========================================================
+  # Job 1: 빌드 및 테스트 (공통)
+  # ========================================================
+  test-and-build:
+    name: Test and Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          MYSQL_DATABASE: ${{ secrets.DB_NAME }}
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+      redis:
+        image: redis:7.2
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=5
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd="mongosh --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      SPRING_PROFILES_ACTIVE: ci
+      DB_HOST: localhost
+      DB_PORT: 3306
+      DB_NAME: ${{ secrets.DB_NAME }}
+      DB_USERNAME: root
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      MONGODB_HOST: localhost
+      MONGODB_PORT: 27017
+      MONGODB_DATABASE: test
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+
+    outputs:
+      coverage: ${{ steps.coverage.outputs.coverage }}
+      version: ${{ steps.version.outputs.version }}
+      image_tag: ${{ steps.version.outputs.image_tag }}
+      commit_sha: ${{ steps.version.outputs.commit_sha }}
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version info
+        id: version
+        run: |
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          VERSION=${LATEST_TAG#v}
+
+          COMMIT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            BRANCH="${{ github.head_ref }}"
+          else
+            BRANCH="${{ github.ref_name }}"
+          fi
+
+          SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-')
+          IMAGE_TAG="${SAFE_BRANCH}-${VERSION}-${COMMIT_SHA}"
+
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "commit_sha=${COMMIT_SHA}" >> $GITHUB_OUTPUT
+          echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+
+          echo "### Version Info" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version:** ${VERSION}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${COMMIT_SHA}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** ${BRANCH}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image Tag:** ${IMAGE_TAG}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Run Checkstyle
+        if: github.event_name == 'pull_request'
+        id: checkstyle
+        run: ./gradlew checkstyleMain checkstyleTest
+        continue-on-error: false
+
+      - name: Build with Gradle (api + chat)
+        id: build
+        run: ./gradlew :module-api:bootJar :module-chat:bootJar -x test
+
+      - name: Run tests with coverage
+        if: github.event_name == 'pull_request'
+        id: test
+        run: ./gradlew test jacocoTestReport --parallel
+
+      - name: Verify test coverage
+        if: github.event_name == 'pull_request'
+        id: coverage
+        run: |
+          ./gradlew jacocoTestCoverageVerification || true
+
+          # 멀티모듈: module-api 리포트 기준으로 커버리지 측정
+          REPORT_PATH="module-api/build/reports/jacoco/test/html/index.html"
+          if [ -f "$REPORT_PATH" ]; then
+            COVERAGE=$(grep -oE 'Total[^0-9]*([0-9]+)%' "$REPORT_PATH" | grep -oE '[0-9]+' | head -1 || echo "0")
+          else
+            COVERAGE="0"
+          fi
+
+          echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
+          echo "### Test Coverage: ${COVERAGE}%" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$COVERAGE" -lt 70 ]; then
+            echo "::warning::Test coverage is below 70% (${COVERAGE}%)"
+          fi
+        continue-on-error: true
+
+      - name: Publish test results
+        if: github.event_name == 'pull_request' && always()
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        with:
+          files: |
+            **/build/test-results/**/*.xml
+          check_name: Test Results
+
+      - name: Upload test reports
+        if: github.event_name == 'pull_request' && failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-${{ steps.version.outputs.commit_sha }}
+          path: |
+            **/build/reports/tests/test/
+            **/build/reports/jacoco/test/html/
+          retention-days: 7
+
+      # API JAR 저장
+      - name: Upload API JAR artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-jar-${{ steps.version.outputs.commit_sha }}
+          path: module-api/build/libs/api.jar
+          retention-days: 7
+
+      # Chat JAR 저장
+      - name: Upload Chat JAR artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chat-jar-${{ steps.version.outputs.commit_sha }}
+          path: module-chat/build/libs/chat.jar
+          retention-days: 7
+
+      - name: Comment PR with results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const coverage = '${{ steps.coverage.outputs.coverage }}' || 'N/A';
+            const checkstyle = '${{ steps.checkstyle.outcome }}';
+            const build = '${{ steps.build.outcome }}';
+            const test = '${{ steps.test.outcome }}';
+            const version = '${{ steps.version.outputs.version }}';
+            const imageTag = '${{ steps.version.outputs.image_tag }}';
+
+            const getIcon = (status) => status === 'success' ? '✅' : status === 'failure' ? '❌' : '⚠️';
+            const getCoverageColor = (cov) => {
+              const num = parseInt(cov);
+              if (num >= 80) return '🟢';
+              if (num >= 70) return '🟡';
+              return '🔴';
+            };
+
+            const body = `## 🔍 Backend CI V2 Results
+
+            | Check | Status | Details |
+            |-------|--------|---------|
+            | 🔍 Code Style | ${getIcon(checkstyle)} ${checkstyle} | Checkstyle 검사 |
+            | 🏗️ Build | ${getIcon(build)} ${build} | API + Chat Gradle 빌드 |
+            | 🧪 Tests | ${getIcon(test)} ${test} | 단위 테스트 |
+            | 📊 Coverage | ${getCoverageColor(coverage)} ${coverage}% | 테스트 커버리지 |
+
+            ### 📦 Build Information
+            - **Version:** \`${version}\`
+            - **Image Tag:** \`${imageTag}\`
+            - **Branch:** \`${{ github.head_ref }}\` → \`${{ github.base_ref }}\`
+            - **Commit:** \`${context.payload.pull_request.head.sha.substring(0, 7)}\`
+
+            [📊 전체 리포트 보기](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            `;
+
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.data.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('Backend CI V2 Results')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body
+              });
+            }
+
+  # ========================================================
+  # Job 2: Docker 빌드 검증 - API (PR만)
+  # ========================================================
+  docker-validate-api:
+    name: Docker Validate (API)
+    needs: test-and-build
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Download API JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: api-jar-${{ needs.test-and-build.outputs.commit_sha }}
+          path: module-api/build/libs/
+
+      - name: Lint Dockerfile.api
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile.api
+          failure-threshold: warning
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build API Docker image (validation only)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.api
+          push: false
+          tags: test-api:${{ needs.test-and-build.outputs.image_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ========================================================
+  # Job 3: Docker 빌드 검증 - Chat (PR만)
+  # ========================================================
+  docker-validate-chat:
+    name: Docker Validate (Chat)
+    needs: test-and-build
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Download Chat JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: chat-jar-${{ needs.test-and-build.outputs.commit_sha }}
+          path: module-chat/build/libs/
+
+      - name: Lint Dockerfile.chat
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile.chat
+          failure-threshold: warning
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Chat Docker image (validation only)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.chat
+          push: false
+          tags: test-chat:${{ needs.test-and-build.outputs.image_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ========================================================
+  # Job 4: API Docker 빌드 및 ECR 푸시 (Push 이벤트만)
+  # ========================================================
+  deploy-api:
+    name: Deploy API to ECR
+    needs: test-and-build
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat/#228-multiModule-migration')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Download API JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: api-jar-${{ needs.test-and-build.outputs.commit_sha }}
+          path: module-api/build/libs/
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          role-session-name: GitHubActions-API-${{ github.run_id }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set ECR repository
+        id: ecr-repo
+        run: |
+          if [ "${{ github.ref_name }}" == "main" ]; then
+            echo "repository=${{ secrets.PROD_ECR_APP_REPOSITORY }}" >> $GITHUB_OUTPUT
+          else
+            echo "repository=${{ secrets.DEV_ECR_APP_REPOSITORY }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Extract Docker metadata
+        id: meta
+        run: |
+          ECR_REGISTRY=${{ steps.ecr-login.outputs.registry }}
+          ECR_REPOSITORY=${{ steps.ecr-repo.outputs.repository }}
+          IMAGE_TAG=${{ needs.test-and-build.outputs.image_tag }}
+          BRANCH=${{ github.ref_name }}
+
+          IMAGE_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+          LATEST_TAG="${ECR_REGISTRY}/${ECR_REPOSITORY}:${BRANCH}-latest"
+
+          echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+          echo "latest_tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
+          echo "ecr_registry=${ECR_REGISTRY}" >> $GITHUB_OUTPUT
+          echo "ecr_repository=${ECR_REPOSITORY}" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push API Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.api
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image_uri }}
+            ${{ steps.meta.outputs.latest_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+          build-args: |
+            VERSION=${{ needs.test-and-build.outputs.version }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            VCS_REF=${{ github.sha }}
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.meta.outputs.image_uri }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+        continue-on-error: true
+
+      - name: Save API build metadata
+        run: |
+          mkdir -p build-info
+          cat > build-info/docker-metadata-api.json <<EOF
+          {
+            "service": "api",
+            "imageUri": "${{ steps.meta.outputs.image_uri }}",
+            "latestTag": "${{ steps.meta.outputs.latest_tag }}",
+            "ecrRegistry": "${{ steps.meta.outputs.ecr_registry }}",
+            "ecrRepository": "${{ steps.meta.outputs.ecr_repository }}",
+            "imageTag": "${{ needs.test-and-build.outputs.image_tag }}",
+            "version": "${{ needs.test-and-build.outputs.version }}",
+            "branch": "${{ github.ref_name }}",
+            "commitSha": "${{ github.sha }}",
+            "buildTime": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          }
+          EOF
+          cat build-info/docker-metadata-api.json
+
+      - name: Upload API build metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-metadata-api-${{ github.sha }}
+          path: build-info/docker-metadata-api.json
+          retention-days: 90
+
+      - name: Send Discord notification on success
+        if: success()
+        uses: tsickert/discord-webhook@v5.3.0
+        with:
+          webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          username: "Backend CI/CD Bot"
+          embed-title: "✅ [API] Docker 이미지 ECR 푸시 성공"
+          embed-description: |
+            **브랜치:** `${{ github.ref_name }}`
+            **이미지 태그:** `${{ needs.test-and-build.outputs.image_tag }}`
+            **ECR URI:** `${{ steps.meta.outputs.image_uri }}`
+            [🔗 Actions 보기](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          embed-color: 3066993
+
+      - name: Send Discord notification on failure
+        if: failure()
+        uses: tsickert/discord-webhook@v5.3.0
+        with:
+          webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          username: "Backend CI/CD Bot"
+          embed-title: "❌ [API] Docker 이미지 ECR 푸시 실패"
+          embed-description: |
+            **브랜치:** `${{ github.ref_name }}`
+            [🔗 Actions 로그 보기](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          embed-color: 15158332
+
+  # ========================================================
+  # Job 5: Chat Docker 빌드 및 ECR 푸시 (Push 이벤트만)
+  # ========================================================
+  deploy-chat:
+    name: Deploy Chat to ECR
+    needs: test-and-build
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat/#228-multiModule-migration')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Download Chat JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: chat-jar-${{ needs.test-and-build.outputs.commit_sha }}
+          path: module-chat/build/libs/
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          role-session-name: GitHubActions-Chat-${{ github.run_id }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set ECR repository
+        id: ecr-repo
+        run: |
+          if [ "${{ github.ref_name }}" == "main" ]; then
+            echo "repository=${{ secrets.PROD_ECR_CHAT_REPOSITORY }}" >> $GITHUB_OUTPUT
+          else
+            echo "repository=${{ secrets.DEV_ECR_CHAT_REPOSITORY }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Extract Docker metadata
+        id: meta
+        run: |
+          ECR_REGISTRY=${{ steps.ecr-login.outputs.registry }}
+          ECR_REPOSITORY=${{ steps.ecr-repo.outputs.repository }}
+          IMAGE_TAG=${{ needs.test-and-build.outputs.image_tag }}
+          BRANCH=${{ github.ref_name }}
+
+          IMAGE_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+          LATEST_TAG="${ECR_REGISTRY}/${ECR_REPOSITORY}:${BRANCH}-latest"
+
+          echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+          echo "latest_tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
+          echo "ecr_registry=${ECR_REGISTRY}" >> $GITHUB_OUTPUT
+          echo "ecr_repository=${ECR_REPOSITORY}" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Chat Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.chat
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image_uri }}
+            ${{ steps.meta.outputs.latest_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+          build-args: |
+            VERSION=${{ needs.test-and-build.outputs.version }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            VCS_REF=${{ github.sha }}
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.meta.outputs.image_uri }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+        continue-on-error: true
+
+      - name: Save Chat build metadata
+        run: |
+          mkdir -p build-info
+          cat > build-info/docker-metadata-chat.json <<EOF
+          {
+            "service": "chat",
+            "imageUri": "${{ steps.meta.outputs.image_uri }}",
+            "latestTag": "${{ steps.meta.outputs.latest_tag }}",
+            "ecrRegistry": "${{ steps.meta.outputs.ecr_registry }}",
+            "ecrRepository": "${{ steps.meta.outputs.ecr_repository }}",
+            "imageTag": "${{ needs.test-and-build.outputs.image_tag }}",
+            "version": "${{ needs.test-and-build.outputs.version }}",
+            "branch": "${{ github.ref_name }}",
+            "commitSha": "${{ github.sha }}",
+            "buildTime": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          }
+          EOF
+          cat build-info/docker-metadata-chat.json
+
+      - name: Upload Chat build metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-metadata-chat-${{ github.sha }}
+          path: build-info/docker-metadata-chat.json
+          retention-days: 90
+
+      - name: Send Discord notification on success
+        if: success()
+        uses: tsickert/discord-webhook@v5.3.0
+        with:
+          webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          username: "Backend CI/CD Bot"
+          embed-title: "✅ [Chat] Docker 이미지 ECR 푸시 성공"
+          embed-description: |
+            **브랜치:** `${{ github.ref_name }}`
+            **이미지 태그:** `${{ needs.test-and-build.outputs.image_tag }}`
+            **ECR URI:** `${{ steps.meta.outputs.image_uri }}`
+            [🔗 Actions 보기](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          embed-color: 3066993
+
+      - name: Send Discord notification on failure
+        if: failure()
+        uses: tsickert/discord-webhook@v5.3.0
+        with:
+          webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          username: "Backend CI/CD Bot"
+          embed-title: "❌ [Chat] Docker 이미지 ECR 푸시 실패"
+          embed-description: |
+            **브랜치:** `${{ github.ref_name }}`
+            [🔗 Actions 로그 보기](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          embed-color: 15158332

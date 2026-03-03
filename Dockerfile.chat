@@ -1,0 +1,26 @@
+FROM eclipse-temurin:21-jre
+
+LABEL description="Chat Server"
+
+WORKDIR /app
+
+RUN groupadd -r spring && useradd -r -g spring spring
+
+RUN mkdir -p /app/logs
+
+COPY module-chat/build/libs/chat.jar app.jar
+
+RUN chown -R spring:spring /app
+
+USER spring
+
+ENV TZ=Asia/Seoul \
+    JAVA_OPTS="-XX:+UseContainerSupport \
+               -XX:MaxRAMPercentage=70.0 \
+               -XX:+UseG1GC \
+               -XX:+UseStringDeduplication \
+               -Djava.security.egd=file:/dev/./urandom"
+
+EXPOSE 8081
+
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]

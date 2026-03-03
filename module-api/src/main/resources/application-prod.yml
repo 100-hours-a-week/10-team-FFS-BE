@@ -15,7 +15,7 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
-    show-sql: true
+    show-sql: false
     properties:
       hibernate:
         format_sql: true
@@ -93,9 +93,9 @@ kakao:
 
 cors:
   allowed-origins:
-    - http://localhost:3000
-    - http://localhost:5173
-    - http://localhost:8080
+    - https://klosetlab.site
+    - https://www.klosetlab.site
+    - https://d11enmpr5837xn.cloudfront.net
   allowed-methods:
     - GET
     - POST
