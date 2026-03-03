@@ -116,10 +116,7 @@ public class HttpAIClient implements AIClient {
                     .body(outfitRequest)
                     .retrieve()
                     .body(OutfitResponse.class);
-            log.info(
-                    "AI-BE TPO 코디 추천 성공: userId={}, elapsedMs={}",
-                    userId,
-                    elapsedMillis(startedAtNanos));
+            log.info("AI-BE TPO 코디 추천 성공: userId={}, elapsedMs={}", userId, elapsedMillis(startedAtNanos));
             return response;
         } catch (ResourceAccessException e) {
             int deletedCount = cleanupPendingOutfitFiles(userId, fileUploadResponses);
@@ -226,10 +223,7 @@ public class HttpAIClient implements AIClient {
                     .body(shopRequest)
                     .retrieve()
                     .body(ShopResponse.class);
-            log.info(
-                    "AI-BE 쇼핑 검색 성공: userId={}, elapsedMs={}",
-                    userId,
-                    elapsedMillis(startedAtNanos));
+            log.info("AI-BE 쇼핑 검색 성공: userId={}, elapsedMs={}", userId, elapsedMillis(startedAtNanos));
             return response;
         } catch (ResourceAccessException e) {
             log.warn(
@@ -277,16 +271,14 @@ public class HttpAIClient implements AIClient {
     }
 
     private int cleanupPendingOutfitFiles(Long userId, List<FileUploadResponse> fileUploadResponses) {
-        List<Long> fileIds = fileUploadResponses.stream().map(FileUploadResponse::fileId).toList();
+        List<Long> fileIds =
+                fileUploadResponses.stream().map(FileUploadResponse::fileId).toList();
 
         try {
             return mediaService.deletePendingFiles(userId, Purpose.OUTFIT, fileIds);
         } catch (Exception cleanupException) {
             log.error(
-                    "AI-BE TPO 코디 추천 실패 후 media_file 정리 실패: userId={}, fileIds={}",
-                    userId,
-                    fileIds,
-                    cleanupException);
+                    "AI-BE TPO 코디 추천 실패 후 media_file 정리 실패: userId={}, fileIds={}", userId, fileIds, cleanupException);
             return 0;
         }
     }
