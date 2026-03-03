@@ -294,6 +294,33 @@ public class FeedService {
         return new PagedResponse<>(items, pageInfo);
     }
 
+    public PagedResponse<FeedListItem> getClothesFeeds(Long clothesId, Long currentId, Long after, int limit) {
+        Slice<Feed> feedSlice = feedRepository.findByClothesIdByCursor(clothesId, after, PageRequest.of(0, limit));
+        List<Feed> feeds = feedSlice.getContent();
+
+        List<Long> feedIds = feeds.stream().map(Feed::getId).toList();
+
+        Map<Long, FeedImage> primaryImageMap = feedImageRepository.findByFeedIdInAndPrimaryTrue(feedIds).stream()
+                .collect(Collectors.toMap(fi -> fi.getFeed().getId(), Function.identity()));
+
+        List<Long> userIds = feeds.stream().map(f -> f.getUser().getId()).distinct().toList();
+        Map<Long, UserProfile> userProfileMap = userProfileRepository.findByUserIdIn(userIds).stream()
+                .collect(Collectors.toMap(up -> up.getUser().getId(), Function.identity()));
+
+        Set<Long> likedFeedIds = feedLikeRepository.findByFeedIdInAndUserId(feedIds, currentId).stream()
+                .map(fl -> fl.getFeed().getId())
+                .collect(Collectors.toSet());
+
+        List<FeedListItem> items = feeds.stream()
+                .map(feed -> buildFeedListItem(feed, primaryImageMap, userProfileMap, likedFeedIds))
+                .toList();
+
+        Long nextCursor = feedSlice.hasNext() ? feeds.getLast().getId() : null;
+        PageInfo pageInfo = new PageInfo(feedSlice.hasNext(), nextCursor);
+
+        return new PagedResponse<>(items, pageInfo);
+    }
+
     public PagedResponse<FeedListItem> getFollowingFeeds(Long userId, Long after, int limit) {
         Slice<Feed> feedSlice = feedRepository.findFollowingFeedsByCursor(userId, after, PageRequest.of(0, limit));
         List<Feed> feeds = feedSlice.getContent();
