@@ -179,7 +179,7 @@ public class HttpAIClient implements AIClient {
         try {
             return restClient
                     .post()
-                    .uri("/ai/v2/shop/outfit")
+                    .uri("/v2/shop/outfit")
                     .body(shopRequest)
                     .retrieve()
                     .body(ShopResponse.class);
