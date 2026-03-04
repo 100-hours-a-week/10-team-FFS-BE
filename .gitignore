@@ -44,3 +44,11 @@ env
 
 ### OS Files (Mac) ###
 .DS_Store
+
+mongodb_data
+monitoring
+mysql_data
+docs
+k6
+logs
+module-api/src/test/java/com/example/kloset_lab/loadtest
