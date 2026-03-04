@@ -45,6 +45,7 @@ env
 ### OS Files (Mac) ###
 .DS_Store
 
+### Private documents ###
 mongodb_data
 monitoring
 mysql_data
@@ -52,3 +53,7 @@ docs
 k6
 logs
 module-api/src/test/java/com/example/kloset_lab/loadtest
+
+### Past CI/CD Script ###
+backend-cd.yml
+backend-ci.yml
