@@ -7,8 +7,6 @@ import com.example.kloset_lab.media.dto.FileUploadInfo;
 import com.example.kloset_lab.media.dto.FileUploadResponse;
 import com.example.kloset_lab.media.entity.Purpose;
 import com.example.kloset_lab.media.service.MediaService;
-import com.github.f4b6a3.ulid.UlidCreator;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +15,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -24,75 +23,6 @@ import org.springframework.web.client.RestClientException;
 public class HttpAIClient implements AIClient {
     private final RestClient restClient;
     private final MediaService mediaService;
-
-    @Override
-    public ValidateResponse validateImages(Long userId, List<String> imageUrlList) {
-        return ValidateResponse.builder()
-                .success(true)
-                .validationSummary(ValidateResponse.ValidationSummary.builder()
-                        .total(imageUrlList.size())
-                        .passed(imageUrlList.size())
-                        .failed(0)
-                        .build())
-                .validationResults(imageUrlList.stream()
-                        .map(url -> ValidateResponse.ValidationResult.builder()
-                                .originUrl(url)
-                                .passed(true)
-                                .build())
-                        .toList())
-                .build();
-        // TODO: V2에서 어뷰징 처리 기능 연동
-        /*
-        ValidateRequest validateRequest =
-                ValidateRequest.builder().userId(userId).images(imageUrlList).build();
-        return restClient
-                .post()
-                .uri("/v1/closet/validate")
-                .body(validateRequest)
-                .retrieve()
-                .body(ValidateResponse.class);
-        */
-    }
-
-    @Override
-    public BatchResponse analyzeImages(Long userId, List<String> imageUrlList) {
-        List<FileUploadInfo> fileUploadInfos = createFileUploadInfos(imageUrlList.size());
-        List<FileUploadResponse> fileUploadResponses =
-                mediaService.requestFileUpload(userId, Purpose.CLOTHES, fileUploadInfos);
-
-        List<AnalyzeRequest.ImageInfo> imageInfos = new ArrayList<>();
-        for (int i = 0; i < imageUrlList.size(); i++) {
-            AnalyzeRequest.ImageInfo imageInfo = AnalyzeRequest.ImageInfo.builder()
-                    .sequence(i)
-                    .targetImage(imageUrlList.get(i))
-                    .taskId(UlidCreator.getUlid().toString())
-                    .fileUploadInfo(fileUploadResponses.get(i))
-                    .build();
-            imageInfos.add(imageInfo);
-        }
-
-        String batchId = UlidCreator.getUlid().toString();
-        AnalyzeRequest analyzeRequest = AnalyzeRequest.builder()
-                .userId(userId)
-                .batchId(batchId)
-                .images(imageInfos)
-                .build();
-
-        try {
-            BatchResponse response = restClient
-                    .post()
-                    .uri("/v1/closet/analyze")
-                    .body(analyzeRequest)
-                    .retrieve()
-                    .body(BatchResponse.class);
-
-            return response;
-
-        } catch (Exception e) {
-            e.printStackTrace();
-            throw e;
-        }
-    }
 
     @Override
     public OutfitResponse recommendOutfit(Long userId, String query) {
@@ -106,6 +36,7 @@ public class HttpAIClient implements AIClient {
                 .weather(null)
                 .urls(fileUploadResponses)
                 .build();
+        long startedAtNanos = System.nanoTime();
 
         try {
             OutfitResponse response = restClient
@@ -114,30 +45,49 @@ public class HttpAIClient implements AIClient {
                     .body(outfitRequest)
                     .retrieve()
                     .body(OutfitResponse.class);
-
+            log.info("AI-BE TPO 코디 추천 성공: userId={}, elapsedMs={}", userId, elapsedMillis(startedAtNanos));
             return response;
+        } catch (ResourceAccessException e) {
+            int deletedCount = cleanupPendingOutfitFiles(userId, fileUploadResponses);
+            log.warn(
+                    "AI-BE TPO 코디 추천 타임아웃: userId={}, elapsedMs={}, cleanedUpFileCount={}",
+                    userId,
+                    elapsedMillis(startedAtNanos),
+                    deletedCount,
+                    e);
+            throw new CustomException(ErrorCode.AI_TIMEOUT);
+        } catch (RestClientResponseException e) {
+            int deletedCount = cleanupPendingOutfitFiles(userId, fileUploadResponses);
+            int statusCode = e.getStatusCode().value();
 
-        } catch (Exception e) {
-            e.printStackTrace();
-            throw e;
-        }
-    }
+            if (isUpstreamTimeout(statusCode)) {
+                log.warn(
+                        "AI-BE TPO 코디 추천 업스트림 타임아웃: userId={}, statusCode={}, elapsedMs={}, cleanedUpFileCount={}",
+                        userId,
+                        statusCode,
+                        elapsedMillis(startedAtNanos),
+                        deletedCount,
+                        e);
+                throw new CustomException(ErrorCode.AI_TIMEOUT);
+            }
 
-    @Override
-    public BatchResponse getBatchStatus(String batchId) {
-
-        try {
-            BatchResponse response = restClient
-                    .get()
-                    .uri("/v1/closet/batches/" + batchId)
-                    .retrieve()
-                    .body(BatchResponse.class);
-
-            return response;
-
-        } catch (Exception e) {
-            e.printStackTrace();
-            throw e;
+            log.warn(
+                    "AI-BE TPO 코디 추천 응답 오류: userId={}, statusCode={}, elapsedMs={}, cleanedUpFileCount={}",
+                    userId,
+                    statusCode,
+                    elapsedMillis(startedAtNanos),
+                    deletedCount,
+                    e);
+            throw new CustomException(ErrorCode.AI_SERVER_ERROR);
+        } catch (RestClientException e) {
+            int deletedCount = cleanupPendingOutfitFiles(userId, fileUploadResponses);
+            log.warn(
+                    "AI-BE TPO 코디 추천 통신 오류: userId={}, elapsedMs={}, cleanedUpFileCount={}",
+                    userId,
+                    elapsedMillis(startedAtNanos),
+                    deletedCount,
+                    e);
+            throw new CustomException(ErrorCode.AI_SERVER_ERROR);
         }
     }
 
@@ -175,24 +125,80 @@ public class HttpAIClient implements AIClient {
                 .query(query)
                 .sessionId(null)
                 .build();
+        long startedAtNanos = System.nanoTime();
 
         try {
-            return restClient
+            ShopResponse response = restClient
                     .post()
-                    .uri("/ai/v2/shop/outfit")
+                    .uri("/v2/shop/outfit")
                     .body(shopRequest)
                     .retrieve()
                     .body(ShopResponse.class);
+            log.info("AI-BE 쇼핑 검색 성공: userId={}, elapsedMs={}", userId, elapsedMillis(startedAtNanos));
+            return response;
         } catch (ResourceAccessException e) {
-            log.warn("AI-BE 쇼핑 검색 타임아웃: userId={}, query={}", userId, query, e);
+            log.warn(
+                    "AI-BE 쇼핑 검색 타임아웃: userId={}, query={}, elapsedMs={}",
+                    userId,
+                    query,
+                    elapsedMillis(startedAtNanos),
+                    e);
             throw new CustomException(ErrorCode.AI_TIMEOUT);
+        } catch (RestClientResponseException e) {
+            int statusCode = e.getStatusCode().value();
+
+            if (isUpstreamTimeout(statusCode)) {
+                log.warn(
+                        "AI-BE 쇼핑 검색 업스트림 타임아웃: userId={}, query={}, statusCode={}, elapsedMs={}",
+                        userId,
+                        query,
+                        statusCode,
+                        elapsedMillis(startedAtNanos),
+                        e);
+                throw new CustomException(ErrorCode.AI_TIMEOUT);
+            }
+
+            log.warn(
+                    "AI-BE 쇼핑 검색 응답 오류: userId={}, query={}, statusCode={}, elapsedMs={}",
+                    userId,
+                    query,
+                    statusCode,
+                    elapsedMillis(startedAtNanos),
+                    e);
+            throw new CustomException(ErrorCode.AI_SERVER_ERROR);
         } catch (RestClientException e) {
-            log.warn("AI-BE 쇼핑 검색 오류: userId={}, query={}", userId, query, e);
+            log.warn(
+                    "AI-BE 쇼핑 검색 통신 오류: userId={}, query={}, elapsedMs={}",
+                    userId,
+                    query,
+                    elapsedMillis(startedAtNanos),
+                    e);
             throw new CustomException(ErrorCode.AI_SERVER_ERROR);
         }
     }
 
     private List<FileUploadInfo> createFileUploadInfos(int count) {
         return Collections.nCopies(count, new FileUploadInfo("ai_result.jpeg", "image/jpeg"));
+    }
+
+    private int cleanupPendingOutfitFiles(Long userId, List<FileUploadResponse> fileUploadResponses) {
+        List<Long> fileIds =
+                fileUploadResponses.stream().map(FileUploadResponse::fileId).toList();
+
+        try {
+            return mediaService.deletePendingFiles(userId, Purpose.OUTFIT, fileIds);
+        } catch (Exception cleanupException) {
+            log.error(
+                    "AI-BE TPO 코디 추천 실패 후 media_file 정리 실패: userId={}, fileIds={}", userId, fileIds, cleanupException);
+            return 0;
+        }
+    }
+
+    private boolean isUpstreamTimeout(int statusCode) {
+        return statusCode == 408 || statusCode == 504;
+    }
+
+    private long elapsedMillis(long startedAtNanos) {
+        return (System.nanoTime() - startedAtNanos) / 1_000_000;
     }
 }

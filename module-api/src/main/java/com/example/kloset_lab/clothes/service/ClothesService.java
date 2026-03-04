@@ -12,6 +12,9 @@ import com.example.kloset_lab.clothes.entity.Clothes;
 import com.example.kloset_lab.clothes.repository.ClothesRepository;
 import com.example.kloset_lab.clothes.repository.TempClothesTaskRepository;
 import com.example.kloset_lab.feed.dto.FeedClothesDto;
+import com.example.kloset_lab.feed.dto.FeedListItem;
+import com.example.kloset_lab.feed.repository.FeedRepository;
+import com.example.kloset_lab.feed.service.FeedService;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
 import com.example.kloset_lab.global.response.PageInfo;
@@ -45,6 +48,8 @@ public class ClothesService {
     private final StorageService storageService;
     private final AIClient aiClient;
     private final TempClothesTaskRepository tempClothesTaskRepository;
+    private final FeedRepository feedRepository;
+    private final FeedService feedService;
 
     @Transactional
     public ClothesDetailResponse createClothes(Long currentUserId, ClothesCreateRequest request) {
@@ -201,5 +206,11 @@ public class ClothesService {
                     .build());
         }
         return feedClothesDtos;
+    }
+
+    public PagedResponse<FeedListItem> getClothesFeeds(Long clothesId, Long currnetId, Long after, int limit) {
+        clothesRepository.findById(clothesId).orElseThrow(() -> new CustomException(ErrorCode.CLOTHES_NOT_FOUND));
+
+        return feedService.getClothesFeeds(clothesId, currnetId, after, limit);
     }
 }

@@ -100,6 +100,7 @@ public class TpoSaveService {
                             .build())
                     .toArray(ClothesDto[]::new);
 
+            String imageUrl = outfit.fileId() != null ? mediaService.getFileFullUrl(outfit.fileId()) : null;
             outfitItems.add(TpoOutfitsResponse.OutfitItem.builder()
                     .outfitId(tpoResult.getId())
                     .aiComment(outfit.description()
@@ -107,7 +108,7 @@ public class TpoSaveService {
                                     .map(notice -> " " + notice)
                                     .orElse(""))
                     .clothes(clothesDtos)
-                    .imageUrl(mediaService.getFileFullUrl(outfit.fileId()))
+                    .imageUrl(imageUrl)
                     .build());
         }
 

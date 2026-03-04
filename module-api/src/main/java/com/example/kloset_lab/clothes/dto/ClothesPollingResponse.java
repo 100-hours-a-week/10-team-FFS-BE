@@ -1,16 +1,21 @@
 package com.example.kloset_lab.clothes.dto;
 
-import com.example.kloset_lab.ai.entity.BatchStatus;
-import com.example.kloset_lab.ai.entity.TaskStatus;
 import com.example.kloset_lab.ai.infrastructure.http.dto.MajorFeature;
-import com.example.kloset_lab.ai.infrastructure.http.dto.Meta;
+import com.example.kloset_lab.clothes.entity.BatchStatus;
+import com.example.kloset_lab.clothes.entity.SourceStatus;
+import com.example.kloset_lab.clothes.entity.TaskStatus;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.util.List;
 import lombok.Builder;
 
 @Builder
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public record ClothesPollingResponse(String batchId, BatchStatus status, Meta meta, List<TaskResult> results) {
+public record ClothesPollingResponse(String batchId, BatchStatus status, List<SourceResult> results) {
+
+    @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record SourceResult(
+            String sourceId, SourceStatus status, Boolean passed, Integer detectedCount, List<TaskResult> tasks) {}
 
     @Builder
     @JsonInclude(JsonInclude.Include.NON_NULL)

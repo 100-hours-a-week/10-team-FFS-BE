@@ -47,6 +47,10 @@ public class ClothesAnalysisConsumer {
             EventType eventType = event.eventType();
 
             switch (eventType) {
+                case EventType.AI_ANALYSIS_ABUSING_COMPLETED -> clothesAnalysisService.handleAbusingCompleted(
+                        event.data());
+                case EventType.AI_ANALYSIS_SEGMENTATION_COMPLETED -> clothesAnalysisService.handleSegmentationCompleted(
+                        event.data());
                 case EventType.AI_ANALYSIS_PREPROCESSING_COMPLETED -> clothesAnalysisService
                         .handlePreprocessingCompleted(event.data());
                 case EventType.AI_ANALYSIS_ANALYZING_COMPLETED -> clothesAnalysisService.handleAnalysisCompleted(
@@ -59,7 +63,7 @@ public class ClothesAnalysisConsumer {
             log.info("[Consumer] offset 커밋 완료 - partition: {}, offset: {}", record.partition(), record.offset());
 
         } catch (JsonProcessingException e) {
-            log.warn("[Consumer] json 형식 에러");
+            log.warn("[Consumer] json 형식 에러", e);
         } catch (Exception e) {
             log.error(
                     "[Consumer] 메시지 처리 실패 - partition: {}, offset: {}, error: {}",
