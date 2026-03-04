@@ -1,1 +1,0 @@
-ALTER TABLE temp_clothes_task MODIFY COLUMN status VARCHAR(50) NOT NULL;
