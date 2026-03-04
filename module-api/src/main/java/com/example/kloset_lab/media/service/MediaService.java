@@ -5,6 +5,7 @@ import com.example.kloset_lab.global.exception.ErrorCode;
 import com.example.kloset_lab.media.dto.FileUploadInfo;
 import com.example.kloset_lab.media.dto.FileUploadResponse;
 import com.example.kloset_lab.media.dto.PresignedUrlInfo;
+import com.example.kloset_lab.media.entity.FileStatus;
 import com.example.kloset_lab.media.entity.FileType;
 import com.example.kloset_lab.media.entity.MediaFile;
 import com.example.kloset_lab.media.entity.Purpose;
@@ -105,6 +106,26 @@ public class MediaService {
         return mediaFiles.stream()
                 .collect(Collectors.toMap(
                         MediaFile::getId, file -> storageService.getFullImageUrl(file.getObjectKey())));
+    }
+
+    @Transactional
+    public int deletePendingFiles(Long userId, Purpose purpose, List<Long> fileIds) {
+        if (fileIds == null || fileIds.isEmpty()) {
+            return 0;
+        }
+
+        List<MediaFile> pendingFiles = mediaFileRepository.findAllById(fileIds).stream()
+                .filter(file -> file.getUser().getId().equals(userId))
+                .filter(file -> file.getPurpose().equals(purpose))
+                .filter(file -> file.getStatus() == FileStatus.PENDING)
+                .toList();
+
+        if (pendingFiles.isEmpty()) {
+            return 0;
+        }
+
+        mediaFileRepository.deleteAll(pendingFiles);
+        return pendingFiles.size();
     }
 
     private void validateFileCount(Purpose purpose, int count) {

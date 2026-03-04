@@ -26,16 +26,16 @@ public class ClothesAnalysisProducer {
     public void requestAnalysis(AnalyzeRequest event) {
 
         log.info(
-                "[Producer] 옷 분석 요청 전송 - batchId: {}, taskId: {}, userId: {}",
+                "[Producer] 옷 분석 요청 전송 - batchId: {}, sourceId: {}, userId: {}",
                 event.batchId(),
-                event.taskId(),
+                event.sourceId(),
                 event.userId());
         KafkaEvent kafkaEvent =
                 new KafkaEvent<AnalyzeRequest>(EventType.AI_ANALYSIS_REQUESTED, LocalDateTime.now(), event);
 
         kafkaTemplate.send(TOPIC, kafkaEvent).whenComplete((result, ex) -> {
             if (ex != null) {
-                log.error("Kafka 전송 실패 - taskId: {}", event.taskId(), ex);
+                log.error("Kafka 전송 실패 - sourceId: {}", event.sourceId(), ex);
             }
         });
     }

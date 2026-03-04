@@ -57,4 +57,11 @@ public interface FeedRepository extends JpaRepository<Feed, Long> {
             + "ORDER BY f.id DESC")
     Slice<Feed> findFollowingFeedsByCursor(
             @Param("userId") Long userId, @Param("cursor") Long cursor, Pageable pageable);
+
+    @Query("SELECT f FROM Feed f " + "JOIN FeedClothesMapping m ON m.feed.id = f.id "
+            + "WHERE m.clothes.id = :clothesId "
+            + "AND (:after IS NULL OR f.id < :after) "
+            + "ORDER BY f.id DESC")
+    Slice<Feed> findByClothesIdByCursor(
+            @Param("clothesId") Long clothesId, @Param("after") Long after, Pageable pageable);
 }

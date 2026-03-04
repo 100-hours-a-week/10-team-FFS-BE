@@ -5,6 +5,9 @@ import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 
 public record AnalyzeResult(
         String batchId,
+        String sourceId,
+        Boolean passed,
+        Integer segmentation,
         String taskId,
         Long fileId,
         @JsonDeserialize(using = RawJsonDeserializer.class) String major,
