@@ -6,6 +6,7 @@ on:
     branches:
       - dev
       - main
+      - "feat/#228-multiModule-migration"
 
   push:
     branches:
