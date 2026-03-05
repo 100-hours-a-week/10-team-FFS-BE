@@ -9,11 +9,10 @@ import com.example.kloset_lab.clothes.dto.ClothesListItem;
 import com.example.kloset_lab.clothes.dto.ClothesUpdateRequest;
 import com.example.kloset_lab.clothes.entity.Category;
 import com.example.kloset_lab.clothes.entity.Clothes;
+import com.example.kloset_lab.clothes.repository.AnalyzeTaskRepository;
 import com.example.kloset_lab.clothes.repository.ClothesRepository;
-import com.example.kloset_lab.clothes.repository.TempClothesTaskRepository;
 import com.example.kloset_lab.feed.dto.FeedClothesDto;
 import com.example.kloset_lab.feed.dto.FeedListItem;
-import com.example.kloset_lab.feed.repository.FeedRepository;
 import com.example.kloset_lab.feed.service.FeedService;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
@@ -47,9 +46,8 @@ public class ClothesService {
     private final MediaService mediaService;
     private final StorageService storageService;
     private final AIClient aiClient;
-    private final TempClothesTaskRepository tempClothesTaskRepository;
-    private final FeedRepository feedRepository;
     private final FeedService feedService;
+    private final AnalyzeTaskRepository analyzeTaskRepository;
 
     @Transactional
     public ClothesDetailResponse createClothes(Long currentUserId, ClothesCreateRequest request) {
@@ -88,7 +86,7 @@ public class ClothesService {
                         .material(request.material() == null ? List.of() : request.material())
                         .styleTags(request.styleTag() == null ? List.of() : request.styleTag())
                         .build())
-                .extra(tempClothesTaskRepository
+                .extra(analyzeTaskRepository
                         .findByTaskId(request.taskId())
                         .orElseThrow(() -> new CustomException(ErrorCode.RESULT_NOT_FOUND))
                         .getExtra())
