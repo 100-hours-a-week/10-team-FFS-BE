@@ -19,16 +19,15 @@ management:
   endpoints:
     web:
       exposure:
-        include: prometheus,health,info
-
-  endpoint:
-    prometheus:
-      enabled: true
-
+        include: prometheus,health
   prometheus:
+    endpoint:
+      prometheus:
+        enabled: true
     metrics:
       export:
-        enabled: true
+        prometheus:
+          enabled: true
 
 server:
   port: 8081

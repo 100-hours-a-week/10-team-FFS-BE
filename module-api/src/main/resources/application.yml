@@ -31,16 +31,15 @@ management:
   endpoints:
     web:
       exposure:
-        include: prometheus,health,info
-
-  endpoint:
-    prometheus:
-      enabled: true
-
+        include: prometheus,health
   prometheus:
+    endpoint:
+      prometheus:
+        enabled: true
     metrics:
       export:
-        enabled: true
+        prometheus:
+          enabled: true
 
 cdn:
   base-url: https://${AWS_S3_BUCKET:}.s3.ap-northeast-2.amazonaws.com
