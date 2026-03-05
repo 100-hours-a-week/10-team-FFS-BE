@@ -64,6 +64,45 @@ echo "Docker version:"
 docker --version
 docker compose version
 
+# Install node_exporter
+echo "Installing node_exporter..."
+NODE_EXPORTER_VERSION="1.7.0"
+curl -fsSL "https://github.com/prometheus/node_exporter/releases/download/v${NODE_EXPORTER_VERSION}/node_exporter-${NODE_EXPORTER_VERSION}.linux-amd64.tar.gz" -o /tmp/node_exporter.tar.gz
+tar xzf /tmp/node_exporter.tar.gz -C /tmp/
+mv /tmp/node_exporter-${NODE_EXPORTER_VERSION}.linux-amd64/node_exporter /usr/local/bin/
+rm -rf /tmp/node_exporter*
+useradd -rs /bin/false node_exporter || true
+
+cat > /etc/systemd/system/node_exporter.service <<'SYSTEMD_EOF'
+[Unit]
+Description=Node Exporter
+After=network.target
+
+[Service]
+User=node_exporter
+ExecStart=/usr/local/bin/node_exporter
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+SYSTEMD_EOF
+
+systemctl daemon-reload
+systemctl enable node_exporter
+systemctl start node_exporter
+
+# Run cAdvisor
+echo "Starting cAdvisor..."
+docker run -d \
+  --name cadvisor \
+  --restart unless-stopped \
+  --volume /:/rootfs:ro \
+  --volume /var/run:/var/run:ro \
+  --volume /sys:/sys:ro \
+  --volume /var/lib/docker/:/var/lib/docker:ro \
+  --publish 8888:8080 \
+  gcr.io/cadvisor/cadvisor:v0.47.2
+
 # 작업 디렉토리
 APP_DIR="/home/ubuntu/app"
 mkdir -p ${APP_DIR}
