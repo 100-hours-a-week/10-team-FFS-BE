@@ -82,7 +82,7 @@ public class ClothesController {
         return ApiResponses.ok(Message.CLOTHES_FEED_DETAIL, clothesService.getClothesDetails(clothesIds));
     }
 
-    @GetMapping("/v1/clothes/{clothesId}/feeds")
+    @GetMapping("/v2/clothes/{clothesId}/feeds")
     public ResponseEntity<ApiResponse<PagedResponse<FeedListItem>>> getClothesFeeds(
             @AuthenticationPrincipal Long currentUserId,
             @PathVariable Long clothesId,
