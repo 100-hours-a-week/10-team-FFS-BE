@@ -6,13 +6,11 @@ on:
     branches:
       - dev
       - main
-      - "feat/#228-multiModule-migration"
 
   push:
     branches:
       - dev
       - main
-      - "feat/#228-multiModule-migration"
 
 permissions:
   contents: read
@@ -354,7 +352,7 @@ jobs:
   deploy-api:
     name: Deploy API to ECR
     needs: test-and-build
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat/#228-multiModule-migration')
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -496,7 +494,7 @@ jobs:
   deploy-chat:
     name: Deploy Chat to ECR
     needs: test-and-build
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat/#228-multiModule-migration')
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
