@@ -8,7 +8,6 @@ on:
     branches:
       - dev
       - main
-      - "feat/#228-multiModule-migration"
 
 permissions:
   contents: read
@@ -30,7 +29,7 @@ jobs:
     name: Deploy API to Staging
     if: |
       github.event.workflow_run.conclusion == 'success' &&
-      (github.event.workflow_run.head_branch == 'dev' || github.event.workflow_run.head_branch == 'feat/#228-multiModule-migration') &&
+      github.event.workflow_run.head_branch == 'dev' &&
       github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     environment:
@@ -318,7 +317,7 @@ jobs:
     name: Deploy Chat to Staging
     if: |
       github.event.workflow_run.conclusion == 'success' &&
-      (github.event.workflow_run.head_branch == 'dev' || github.event.workflow_run.head_branch == 'feat/#228-multiModule-migration') &&
+      github.event.workflow_run.head_branch == 'dev' &&
       github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     environment:
@@ -822,6 +821,118 @@ jobs:
           echo "❌ Green ASG failed to become healthy"
           exit 1
 
+      # === CANARY DEPLOYMENT (API) ===
+      # 아래 카나리 배포 스텝을 활성화하려면:
+      # 1. 이 섹션의 주석(#)을 해제
+      # 2. Rollback 스텝의 "CANARY ROLLBACK" 섹션도 함께 주석 해제
+      # 3. 기존 "Switch traffic Blue → Green" 스텝은 그대로 유지 (100% 전환은 카나리 통과 후 실행)
+      #
+      # - name: "Canary: Traffic Shift - 10% to Green"
+      #   id: canary-shift-10
+      #   run: |
+      #     API_RULE_ARN="${{ steps.blue-check.outputs.api_rule_arn }}"
+      #     BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
+      #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+      #
+      #     aws elbv2 modify-rule \
+      #       --rule-arn ${API_RULE_ARN} \
+      #       --actions "[{
+      #         \"Type\": \"forward\",
+      #         \"ForwardConfig\": {
+      #           \"TargetGroups\": [
+      #             {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 90},
+      #             {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 10}
+      #           ]
+      #         }
+      #       }]"
+      #
+      #     echo "✅ Canary: 10% traffic on Green"
+      #     echo "canary_shifted=true" >> $GITHUB_OUTPUT
+      #
+      # - name: "Canary: Monitor 10% traffic (10 min)"
+      #   run: |
+      #     echo "=== Monitoring Green with 10% traffic ==="
+      #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+      #     FAIL_COUNT=0
+      #
+      #     for i in {1..10}; do
+      #       echo "Monitoring... $i/10 minutes"
+      #
+      #       UNHEALTHY=$(aws elbv2 describe-target-health \
+      #         --target-group-arn ${GREEN_TG_ARN} \
+      #         --query 'TargetHealthDescriptions[?TargetHealth.State==`unhealthy`]' \
+      #         --output json | jq 'length')
+      #
+      #       if [ "$UNHEALTHY" -gt 0 ]; then
+      #         FAIL_COUNT=$((FAIL_COUNT + 1))
+      #         echo "⚠️ Unhealthy detected ($FAIL_COUNT times)"
+      #       else
+      #         FAIL_COUNT=0
+      #       fi
+      #
+      #       if [ "$FAIL_COUNT" -ge 3 ]; then
+      #         echo "❌ 3 consecutive unhealthy checks. Failing deployment."
+      #         exit 1
+      #       fi
+      #
+      #       sleep 60
+      #     done
+      #
+      #     echo "✅ 10% traffic monitoring passed"
+      #
+      # - name: "Canary: Traffic Shift - 50% to Green"
+      #   id: canary-shift-50
+      #   run: |
+      #     API_RULE_ARN="${{ steps.blue-check.outputs.api_rule_arn }}"
+      #     BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
+      #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+      #
+      #     aws elbv2 modify-rule \
+      #       --rule-arn ${API_RULE_ARN} \
+      #       --actions "[{
+      #         \"Type\": \"forward\",
+      #         \"ForwardConfig\": {
+      #           \"TargetGroups\": [
+      #             {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 50},
+      #             {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 50}
+      #           ]
+      #         }
+      #       }]"
+      #
+      #     echo "✅ Canary: 50% traffic on Green"
+      #
+      # - name: "Canary: Monitor 50% traffic (15 min)"
+      #   run: |
+      #     echo "=== Monitoring Green with 50% traffic ==="
+      #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+      #     FAIL_COUNT=0
+      #
+      #     for i in {1..15}; do
+      #       echo "Monitoring... $i/15 minutes"
+      #
+      #       UNHEALTHY=$(aws elbv2 describe-target-health \
+      #         --target-group-arn ${GREEN_TG_ARN} \
+      #         --query 'TargetHealthDescriptions[?TargetHealth.State==`unhealthy`]' \
+      #         --output json | jq 'length')
+      #
+      #       if [ "$UNHEALTHY" -gt 0 ]; then
+      #         FAIL_COUNT=$((FAIL_COUNT + 1))
+      #         echo "⚠️ Unhealthy detected ($FAIL_COUNT times)"
+      #       else
+      #         FAIL_COUNT=0
+      #       fi
+      #
+      #       if [ "$FAIL_COUNT" -ge 3 ]; then
+      #         echo "❌ 3 consecutive unhealthy checks. Failing deployment."
+      #         exit 1
+      #       fi
+      #
+      #       sleep 60
+      #     done
+      #
+      #     echo "✅ 50% traffic monitoring passed"
+      # === END CANARY DEPLOYMENT (API) ===
+
       - name: Switch traffic Blue → Green
         id: traffic-switch
         run: |
@@ -843,6 +954,31 @@ jobs:
 
           echo "✅ Traffic switched: Blue(0%) → Green(100%)"
           echo "traffic_switched=true" >> $GITHUB_OUTPUT
+
+      # === CANARY FINAL MONITORING (API) ===
+      # - name: "Canary: Final monitoring after 100% switch (10 min)"
+      #   run: |
+      #     echo "=== Final monitoring on Green (zero tolerance) ==="
+      #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+      #
+      #     for i in {1..10}; do
+      #       echo "Final check... $i/10 minutes"
+      #
+      #       UNHEALTHY=$(aws elbv2 describe-target-health \
+      #         --target-group-arn ${GREEN_TG_ARN} \
+      #         --query 'TargetHealthDescriptions[?TargetHealth.State==`unhealthy`]' \
+      #         --output json | jq 'length')
+      #
+      #       if [ "$UNHEALTHY" -gt 0 ]; then
+      #         echo "❌ Unhealthy target detected in final monitoring!"
+      #         exit 1
+      #       fi
+      #
+      #       sleep 60
+      #     done
+      #
+      #     echo "✅ Final monitoring passed"
+      # === END CANARY FINAL MONITORING (API) ===
 
       - name: Remove Blue ASG
         if: success() && steps.blue-check.outputs.blue_asg != 'none'
@@ -867,6 +1003,24 @@ jobs:
           API_RULE_ARN="${{ steps.blue-check.outputs.api_rule_arn }}"
           BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
           GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+
+          # === CANARY ROLLBACK (API) ===
+          # 카나리 단계에서 실패 시 Blue 100%로 원복
+          # if [ "${{ steps.canary-shift-10.outputs.canary_shifted }}" = "true" ]; then
+          #   aws elbv2 modify-rule \
+          #     --rule-arn ${API_RULE_ARN} \
+          #     --actions "[{
+          #       \"Type\": \"forward\",
+          #       \"ForwardConfig\": {
+          #         \"TargetGroups\": [
+          #           {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100},
+          #           {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 0}
+          #         ]
+          #       }
+          #     }]" || true
+          #   echo "⚠️ Canary rollback: Traffic reverted to Blue 100%"
+          # fi
+          # === END CANARY ROLLBACK (API) ===
 
           # 트래픽이 이미 전환된 경우 원복
           if [ "${{ steps.traffic-switch.outputs.traffic_switched }}" = "true" ]; then
@@ -988,25 +1142,44 @@ jobs:
           BLUE_TG_ARN="${{ secrets.PROD_CHAT_BLUE_TARGET_GROUP_ARN }}"
           GREEN_TG_ARN="${{ secrets.PROD_CHAT_GREEN_TARGET_GROUP_ARN }}"
 
+          # WebSocket 규칙 (/ws*)
           CHAT_RULE_ARN=$(aws elbv2 describe-rules \
             --listener-arn ${LISTENER_ARN} \
-            --query "Rules[?Conditions[?Field=='path-pattern' && contains(Values, '/ws/*')]].RuleArn" \
+            --query "Rules[?Conditions[?Field=='path-pattern' && contains(Values, '/ws*')]].RuleArn" \
             --output text)
 
+          # Chat API 규칙 (/api/v2/chat*)
+          CHAT_API_RULE_ARN=$(aws elbv2 describe-rules \
+            --listener-arn ${LISTENER_ARN} \
+            --query "Rules[?Conditions[?Field=='path-pattern' && contains(Values, '/api/v2/chat*')]].RuleArn" \
+            --output text)
+
+          # WebSocket 규칙이 Blue TG를 가리키는지 확인
           CURRENT_TG_ARN=$(aws elbv2 describe-rules \
             --rule-arns ${CHAT_RULE_ARN} \
             --query 'Rules[0].Actions[0].ForwardConfig.TargetGroups[0].TargetGroupArn' \
             --output text)
 
+          # Chat API 규칙이 Blue TG를 가리키는지 확인
+          API_CURRENT_TG_ARN=$(aws elbv2 describe-rules \
+            --rule-arns ${CHAT_API_RULE_ARN} \
+            --query 'Rules[0].Actions[0].ForwardConfig.TargetGroups[0].TargetGroupArn' \
+            --output text)
+
           echo "chat_rule_arn=${CHAT_RULE_ARN}" >> $GITHUB_OUTPUT
+          echo "chat_api_rule_arn=${CHAT_API_RULE_ARN}" >> $GITHUB_OUTPUT
           echo "blue_tg_arn=${BLUE_TG_ARN}" >> $GITHUB_OUTPUT
           echo "green_tg_arn=${GREEN_TG_ARN}" >> $GITHUB_OUTPUT
 
           if [ "$CURRENT_TG_ARN" != "$BLUE_TG_ARN" ]; then
-            echo "❌ Listener is not pointing to Blue TG!"
+            echo "❌ /ws* rule is not pointing to Blue TG!"
             exit 1
           fi
-          echo "✅ Listener → Blue TG confirmed"
+          if [ "$API_CURRENT_TG_ARN" != "$BLUE_TG_ARN" ]; then
+            echo "❌ /api/v2/chat* rule is not pointing to Blue TG!"
+            exit 1
+          fi
+          echo "✅ Both Chat rules → Blue TG confirmed"
 
           ALL_ASGS=$(aws autoscaling describe-auto-scaling-groups \
             --query 'AutoScalingGroups[?starts_with(AutoScalingGroupName, `klosetlab-chat-`)].AutoScalingGroupName' \
@@ -1152,13 +1325,158 @@ jobs:
           echo "❌ Green Chat ASG failed to become healthy"
           exit 1
 
+      # === CANARY DEPLOYMENT (Chat) ===
+      # 아래 카나리 배포 스텝을 활성화하려면:
+      # 1. 이 섹션의 주석(#)을 해제
+      # 2. Rollback 스텝의 "CANARY ROLLBACK" 섹션도 함께 주석 해제
+      # 3. 기존 "Switch traffic Blue → Green" 스텝은 그대로 유지 (100% 전환은 카나리 통과 후 실행)
+      # 4. Chat은 /ws* 와 /api/v2/chat* 두 규칙을 모두 전환해야 함
+      #
+      # - name: "Canary: Traffic Shift - 10% to Green"
+      #   id: canary-shift-10
+      #   run: |
+      #     CHAT_RULE_ARN="${{ steps.blue-check.outputs.chat_rule_arn }}"
+      #     CHAT_API_RULE_ARN="${{ steps.blue-check.outputs.chat_api_rule_arn }}"
+      #     BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
+      #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+      #
+      #     # /ws* 규칙 10% 전환
+      #     aws elbv2 modify-rule \
+      #       --rule-arn ${CHAT_RULE_ARN} \
+      #       --actions "[{
+      #         \"Type\": \"forward\",
+      #         \"ForwardConfig\": {
+      #           \"TargetGroups\": [
+      #             {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 90},
+      #             {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 10}
+      #           ]
+      #         }
+      #       }]"
+      #
+      #     # /api/v2/chat* 규칙 10% 전환
+      #     aws elbv2 modify-rule \
+      #       --rule-arn ${CHAT_API_RULE_ARN} \
+      #       --actions "[{
+      #         \"Type\": \"forward\",
+      #         \"ForwardConfig\": {
+      #           \"TargetGroups\": [
+      #             {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 90},
+      #             {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 10}
+      #           ]
+      #         }
+      #       }]"
+      #
+      #     echo "✅ Canary: 10% traffic on Green (both /ws* and /api/v2/chat*)"
+      #     echo "canary_shifted=true" >> $GITHUB_OUTPUT
+      #
+      # - name: "Canary: Monitor 10% traffic (10 min)"
+      #   run: |
+      #     echo "=== Monitoring Green with 10% traffic ==="
+      #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+      #     FAIL_COUNT=0
+      #
+      #     for i in {1..10}; do
+      #       echo "Monitoring... $i/10 minutes"
+      #
+      #       UNHEALTHY=$(aws elbv2 describe-target-health \
+      #         --target-group-arn ${GREEN_TG_ARN} \
+      #         --query 'TargetHealthDescriptions[?TargetHealth.State==`unhealthy`]' \
+      #         --output json | jq 'length')
+      #
+      #       if [ "$UNHEALTHY" -gt 0 ]; then
+      #         FAIL_COUNT=$((FAIL_COUNT + 1))
+      #         echo "⚠️ Unhealthy detected ($FAIL_COUNT times)"
+      #       else
+      #         FAIL_COUNT=0
+      #       fi
+      #
+      #       if [ "$FAIL_COUNT" -ge 3 ]; then
+      #         echo "❌ 3 consecutive unhealthy checks. Failing deployment."
+      #         exit 1
+      #       fi
+      #
+      #       sleep 60
+      #     done
+      #
+      #     echo "✅ 10% traffic monitoring passed"
+      #
+      # - name: "Canary: Traffic Shift - 50% to Green"
+      #   id: canary-shift-50
+      #   run: |
+      #     CHAT_RULE_ARN="${{ steps.blue-check.outputs.chat_rule_arn }}"
+      #     CHAT_API_RULE_ARN="${{ steps.blue-check.outputs.chat_api_rule_arn }}"
+      #     BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
+      #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+      #
+      #     # /ws* 규칙 50% 전환
+      #     aws elbv2 modify-rule \
+      #       --rule-arn ${CHAT_RULE_ARN} \
+      #       --actions "[{
+      #         \"Type\": \"forward\",
+      #         \"ForwardConfig\": {
+      #           \"TargetGroups\": [
+      #             {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 50},
+      #             {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 50}
+      #           ]
+      #         }
+      #       }]"
+      #
+      #     # /api/v2/chat* 규칙 50% 전환
+      #     aws elbv2 modify-rule \
+      #       --rule-arn ${CHAT_API_RULE_ARN} \
+      #       --actions "[{
+      #         \"Type\": \"forward\",
+      #         \"ForwardConfig\": {
+      #           \"TargetGroups\": [
+      #             {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 50},
+      #             {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 50}
+      #           ]
+      #         }
+      #       }]"
+      #
+      #     echo "✅ Canary: 50% traffic on Green (both /ws* and /api/v2/chat*)"
+      #
+      # - name: "Canary: Monitor 50% traffic (15 min)"
+      #   run: |
+      #     echo "=== Monitoring Green with 50% traffic ==="
+      #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+      #     FAIL_COUNT=0
+      #
+      #     for i in {1..15}; do
+      #       echo "Monitoring... $i/15 minutes"
+      #
+      #       UNHEALTHY=$(aws elbv2 describe-target-health \
+      #         --target-group-arn ${GREEN_TG_ARN} \
+      #         --query 'TargetHealthDescriptions[?TargetHealth.State==`unhealthy`]' \
+      #         --output json | jq 'length')
+      #
+      #       if [ "$UNHEALTHY" -gt 0 ]; then
+      #         FAIL_COUNT=$((FAIL_COUNT + 1))
+      #         echo "⚠️ Unhealthy detected ($FAIL_COUNT times)"
+      #       else
+      #         FAIL_COUNT=0
+      #       fi
+      #
+      #       if [ "$FAIL_COUNT" -ge 3 ]; then
+      #         echo "❌ 3 consecutive unhealthy checks. Failing deployment."
+      #         exit 1
+      #       fi
+      #
+      #       sleep 60
+      #     done
+      #
+      #     echo "✅ 50% traffic monitoring passed"
+      # === END CANARY DEPLOYMENT (Chat) ===
+
       - name: Switch traffic Blue → Green
         id: traffic-switch
         run: |
           CHAT_RULE_ARN="${{ steps.blue-check.outputs.chat_rule_arn }}"
+          CHAT_API_RULE_ARN="${{ steps.blue-check.outputs.chat_api_rule_arn }}"
           BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
           GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
 
+          # /ws* 규칙 전환
           aws elbv2 modify-rule \
             --rule-arn ${CHAT_RULE_ARN} \
             --actions "[{
@@ -1171,8 +1489,46 @@ jobs:
               }
             }]"
 
-          echo "✅ Traffic switched: Blue(0%) → Green(100%)"
+          # /api/v2/chat* 규칙 전환
+          aws elbv2 modify-rule \
+            --rule-arn ${CHAT_API_RULE_ARN} \
+            --actions "[{
+              \"Type\": \"forward\",
+              \"ForwardConfig\": {
+                \"TargetGroups\": [
+                  {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 0},
+                  {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 100}
+                ]
+              }
+            }]"
+
+          echo "✅ Traffic switched: Blue(0%) → Green(100%) for both /ws* and /api/v2/chat*"
           echo "traffic_switched=true" >> $GITHUB_OUTPUT
+
+      # === CANARY FINAL MONITORING (Chat) ===
+      # - name: "Canary: Final monitoring after 100% switch (10 min)"
+      #   run: |
+      #     echo "=== Final monitoring on Green (zero tolerance) ==="
+      #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+      #
+      #     for i in {1..10}; do
+      #       echo "Final check... $i/10 minutes"
+      #
+      #       UNHEALTHY=$(aws elbv2 describe-target-health \
+      #         --target-group-arn ${GREEN_TG_ARN} \
+      #         --query 'TargetHealthDescriptions[?TargetHealth.State==`unhealthy`]' \
+      #         --output json | jq 'length')
+      #
+      #       if [ "$UNHEALTHY" -gt 0 ]; then
+      #         echo "❌ Unhealthy target detected in final monitoring!"
+      #         exit 1
+      #       fi
+      #
+      #       sleep 60
+      #     done
+      #
+      #     echo "✅ Final monitoring passed"
+      # === END CANARY FINAL MONITORING (Chat) ===
 
       - name: Remove Blue Chat ASG
         if: success() && steps.blue-check.outputs.blue_asg != 'none'
@@ -1195,13 +1551,58 @@ jobs:
         if: failure()
         run: |
           CHAT_RULE_ARN="${{ steps.blue-check.outputs.chat_rule_arn }}"
+          CHAT_API_RULE_ARN="${{ steps.blue-check.outputs.chat_api_rule_arn }}"
           BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
           GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
 
-          # 트래픽이 이미 전환된 경우 원복
+          # === CANARY ROLLBACK (Chat) ===
+          # 카나리 단계에서 실패 시 Blue 100%로 원복 (두 규칙 모두)
+          # if [ "${{ steps.canary-shift-10.outputs.canary_shifted }}" = "true" ]; then
+          #   # /ws* 원복
+          #   aws elbv2 modify-rule \
+          #     --rule-arn ${CHAT_RULE_ARN} \
+          #     --actions "[{
+          #       \"Type\": \"forward\",
+          #       \"ForwardConfig\": {
+          #         \"TargetGroups\": [
+          #           {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100},
+          #           {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 0}
+          #         ]
+          #       }
+          #     }]" || true
+          #   # /api/v2/chat* 원복
+          #   aws elbv2 modify-rule \
+          #     --rule-arn ${CHAT_API_RULE_ARN} \
+          #     --actions "[{
+          #       \"Type\": \"forward\",
+          #       \"ForwardConfig\": {
+          #         \"TargetGroups\": [
+          #           {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100},
+          #           {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 0}
+          #         ]
+          #       }
+          #     }]" || true
+          #   echo "⚠️ Canary rollback: Traffic reverted to Blue 100%"
+          # fi
+          # === END CANARY ROLLBACK (Chat) ===
+
+          # 트래픽이 이미 전환된 경우 원복 (두 규칙 모두)
           if [ "${{ steps.traffic-switch.outputs.traffic_switched }}" = "true" ]; then
+            # /ws* 원복
             aws elbv2 modify-rule \
               --rule-arn ${CHAT_RULE_ARN} \
+              --actions "[{
+                \"Type\": \"forward\",
+                \"ForwardConfig\": {
+                  \"TargetGroups\": [
+                    {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100},
+                    {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 0}
+                  ]
+                }
+              }]" || true
+            # /api/v2/chat* 원복
+            aws elbv2 modify-rule \
+              --rule-arn ${CHAT_API_RULE_ARN} \
               --actions "[{
                 \"Type\": \"forward\",
                 \"ForwardConfig\": {
