@@ -1,5 +1,8 @@
 name: Backend CD V2
 
+# ============================================================
+# 트리거 설정: CI 워크플로우 완료 후 자동 실행
+# ============================================================
 on:
   workflow_run:
     workflows: ["Backend CI V2"]
@@ -14,6 +17,9 @@ permissions:
   actions: read
   id-token: write
 
+# ============================================================
+# 환경 변수 설정
+# ============================================================
 env:
   AWS_REGION: ap-northeast-2
 
@@ -43,9 +49,15 @@ jobs:
       actions: read
 
     steps:
+      # ------------------------------------------------------
+      # 1. Checkout (스크립트 사용을 위해)
+      # ------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ------------------------------------------------------
+      # 2. API Docker 메타데이터 다운로드
+      # ------------------------------------------------------
       - name: Download API Docker metadata
         uses: actions/download-artifact@v4
         with:
@@ -53,6 +65,9 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ github.event.workflow_run.id }}
 
+      # ------------------------------------------------------
+      # 3. 이미지 정보 추출
+      # ------------------------------------------------------
       - name: Extract image info
         id: image
         run: |
@@ -65,12 +80,19 @@ jobs:
             echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
             echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
+            echo "### API Docker Image Info" >> $GITHUB_STEP_SUMMARY
+            echo "- **API Image URI:** \`${IMAGE_URI}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **API Image Tag:** \`${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+
             cat docker-metadata-api.json | jq '.'
           else
             echo "::error::API Docker metadata not found!"
             exit 1
           fi
 
+      # ------------------------------------------------------
+      # 4. AWS OIDC 인증
+      # ------------------------------------------------------
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -78,6 +100,9 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: GitHubActions-StagingAPI-${{ github.run_id }}
 
+      # ------------------------------------------------------
+      # 5. 현재 환경 확인
+      # ------------------------------------------------------
       - name: Check current API environment
         id: current-check
         run: |
@@ -130,12 +155,19 @@ jobs:
             echo "desired=${DESIRED}" >> $GITHUB_OUTPUT
             echo "min=${MIN}" >> $GITHUB_OUTPUT
             echo "max=${MAX}" >> $GITHUB_OUTPUT
+
+            echo "### 📊 Current Environment" >> $GITHUB_STEP_SUMMARY
+            echo "- **ASG:** \`${CURRENT_ASG}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Capacity:** ${DESIRED} (min: ${MIN}, max: ${MAX})" >> $GITHUB_STEP_SUMMARY
           else
             echo "desired=1" >> $GITHUB_OUTPUT
             echo "min=1" >> $GITHUB_OUTPUT
             echo "max=2" >> $GITHUB_OUTPUT
           fi
 
+      # ------------------------------------------------------
+      # 6. API User Data 생성
+      # ------------------------------------------------------
       - name: Generate API User Data script
         id: userdata
         run: |
@@ -145,6 +177,9 @@ jobs:
             "${{ steps.image.outputs.image_uri }}" \
             "${{ env.AWS_REGION }}"
 
+      # ------------------------------------------------------
+      # 7. Launch Template 버전 생성
+      # ------------------------------------------------------
       - name: Create new Launch Template version
         id: new-lt
         run: |
@@ -173,6 +208,9 @@ jobs:
           echo "new_lt_version=${NEW_LT_VERSION}" >> $GITHUB_OUTPUT
           echo "✅ API Launch Template version ${NEW_LT_VERSION} created"
 
+      # ------------------------------------------------------
+      # 8. ASG 생성
+      # ------------------------------------------------------
       - name: Create new API ASG
         id: new-asg
         run: |
@@ -193,15 +231,20 @@ jobs:
             --target-group-arns ${CURRENT_TG_ARN} \
             --vpc-zone-identifier "${{ secrets.DEV_SUBNET_IDS }}" \
             --health-check-type ELB \
-            --health-check-grace-period 180 \
+            --health-check-grace-period 300 \
             --tags "Key=Name,Value=klosetlab-staging-v2-app,PropagateAtLaunch=true" \
                    "Key=Environment,Value=staging,PropagateAtLaunch=true" \
                    "Key=Service,Value=api,PropagateAtLaunch=true" \
                    "Key=ImageTag,Value=${{ steps.image.outputs.image_tag }},PropagateAtLaunch=true"
 
           echo "new_asg_name=${NEW_ASG_NAME}" >> $GITHUB_OUTPUT
-          echo "### 🟢 New API ASG: ${NEW_ASG_NAME}" >> $GITHUB_STEP_SUMMARY
 
+          echo "### 🟢 New API ASG: ${NEW_ASG_NAME}" >> $GITHUB_STEP_SUMMARY
+          echo "- **ASG:** \`${NEW_ASG_NAME}\`" >> $GITHUB_STEP_SUMMARY
+
+      # ------------------------------------------------------
+      # 9. ASG 준비 대기
+      # ------------------------------------------------------
       - name: Wait for new API ASG to be ready
         timeout-minutes: 15
         run: |
@@ -253,6 +296,9 @@ jobs:
           echo "❌ New API ASG failed to become healthy"
           exit 1
 
+      # ------------------------------------------------------
+      # 10. ASG 정리
+      # ------------------------------------------------------
       - name: Remove old API ASG
         if: success() && steps.current-check.outputs.current_asg != 'none'
         run: |
@@ -269,31 +315,70 @@ jobs:
             --force-delete
 
           echo "✅ Old API ASG removed: ${OLD_ASG}"
+          echo "### 🗑️ Old ASG Removed" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deleted:** \`${OLD_ASG}\`" >> $GITHUB_STEP_SUMMARY
 
+      # ------------------------------------------------------
+      # 11. 배포 정보 기록
+      # ------------------------------------------------------
+      - name: Record deployment info
+        if: success()
+        run: |
+          cat > deployment-info.json <<EOF
+          {
+            "environment": "staging",
+            "service": "api",
+            "deployed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "image_uri": "${{ steps.image.outputs.image_uri }}",
+            "image_tag": "${{ steps.image.outputs.image_tag }}",
+            "new_asg": "${{ steps.new-asg.outputs.new_asg_name }}",
+            "old_asg": "${{ steps.current-check.outputs.current_asg }}",
+            "commit_sha": "${{ github.event.workflow_run.head_sha }}"
+          }
+          EOF
+          cat deployment-info.json
+
+      # ------------------------------------------------------
+      # 12. 롤백 (실패 시)
+      # ------------------------------------------------------
       - name: Rollback on failure
         if: failure() && steps.new-asg.outputs.new_asg_name != ''
         run: |
           NEW_ASG="${{ steps.new-asg.outputs.new_asg_name }}"
+
+          echo "=== Rolling back ==="
+
           aws autoscaling update-auto-scaling-group \
             --auto-scaling-group-name ${NEW_ASG} \
             --min-size 0 --max-size 0 --desired-capacity 0 || true
+
           sleep 10
+
           aws autoscaling delete-auto-scaling-group \
             --auto-scaling-group-name ${NEW_ASG} \
             --force-delete || true
+
           echo "⚠️ API Rollback completed"
 
+      # ------------------------------------------------------
+      # 13. Discord 알림 
+      # ------------------------------------------------------
       - name: Send Discord notification on success
         if: success()
         uses: tsickert/discord-webhook@v5.3.0
         with:
           webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
           username: "Backend CD Bot"
+          avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
           embed-title: "✅ [API] Staging 배포 성공"
           embed-description: |
             **이미지:** `${{ steps.image.outputs.image_tag }}`
             **New ASG:** `${{ steps.new-asg.outputs.new_asg_name }}`
             **Old ASG:** `${{ steps.current-check.outputs.current_asg }}`
+            [📋 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            ✅ 새 ASG 생성 → 기존 ASG 교체 완료!
+
             [📋 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           embed-color: 3066993
 
@@ -303,9 +388,14 @@ jobs:
         with:
           webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
           username: "Backend CD Bot"
+          avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
           embed-title: "❌ [API] Staging 배포 실패"
           embed-description: |
+            **환경:** Staging 🟢
             **이미지:** `${{ steps.image.outputs.image_tag }}`
+
+            ❌ 배포 실패 - 롤백됨
+
             [📋 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           embed-color: 15158332
 
@@ -331,9 +421,15 @@ jobs:
       actions: read
 
     steps:
+      # ------------------------------------------------------
+      # 1. Checkout (스크립트 사용을 위해)
+      # ------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ------------------------------------------------------
+      # 2. Chat Docker 메타데이터 다운로드
+      # ------------------------------------------------------
       - name: Download Chat Docker metadata
         uses: actions/download-artifact@v4
         with:
@@ -341,6 +437,9 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ github.event.workflow_run.id }}
 
+      # ------------------------------------------------------
+      # 3. 이미지 정보 추출
+      # ------------------------------------------------------
       - name: Extract image info
         id: image
         run: |
@@ -353,12 +452,19 @@ jobs:
             echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
             echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
+            echo "### Chat Docker Image Info" >> $GITHUB_STEP_SUMMARY
+            echo "- **Chat Image URI:** \`${IMAGE_URI}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Chat Image Tag:** \`${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+
             cat docker-metadata-chat.json | jq '.'
           else
             echo "::error::Chat Docker metadata not found!"
             exit 1
           fi
 
+      # ------------------------------------------------------
+      # 4. AWS OIDC 인증
+      # ------------------------------------------------------
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -366,6 +472,9 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: GitHubActions-StagingChat-${{ github.run_id }}
 
+      # ------------------------------------------------------
+      # 5. 현재 환경 확인
+      # ------------------------------------------------------
       - name: Check current Chat environment
         id: current-check
         run: |
@@ -376,15 +485,8 @@ jobs:
             --query 'AutoScalingGroups[?starts_with(AutoScalingGroupName, `klosetlab-staging-v2-chat-asg-`)].AutoScalingGroupName' \
             --output json)
 
-          # 기존에 timestamp 없는 ASG도 포함
-          STATIC_ASG=$(aws autoscaling describe-auto-scaling-groups \
-            --auto-scaling-group-names "klosetlab-staging-v2-chat-asg" \
-            --query 'AutoScalingGroups[0].AutoScalingGroupName' \
-            --output text 2>/dev/null || echo "None")
-
           CURRENT_ASG="none"
 
-          # timestamp 붙은 ASG 중 chat-tg에 연결된 것 찾기
           for asg in $(echo "$ALL_ASGS" | jq -r '.[]'); do
             TG_ARNS=$(aws autoscaling describe-auto-scaling-groups \
               --auto-scaling-group-names "$asg" \
@@ -395,17 +497,6 @@ jobs:
               break
             fi
           done
-
-          # timestamp 없는 정적 ASG 확인
-          if [ "$CURRENT_ASG" = "none" ] && [ "$STATIC_ASG" != "None" ]; then
-            TG_ARNS=$(aws autoscaling describe-auto-scaling-groups \
-              --auto-scaling-group-names "$STATIC_ASG" \
-              --query 'AutoScalingGroups[0].TargetGroupARNs' \
-              --output json)
-            if echo "$TG_ARNS" | jq -e --arg tg "$CHAT_TG_ARN" 'index($tg)' > /dev/null; then
-              CURRENT_ASG="$STATIC_ASG"
-            fi
-          fi
 
           echo "current_asg=${CURRENT_ASG}" >> $GITHUB_OUTPUT
 
@@ -419,15 +510,24 @@ jobs:
             MAX=$(aws autoscaling describe-auto-scaling-groups \
               --auto-scaling-group-names ${CURRENT_ASG} \
               --query 'AutoScalingGroups[0].MaxSize' --output text)
+
             echo "desired=${DESIRED}" >> $GITHUB_OUTPUT
             echo "min=${MIN}" >> $GITHUB_OUTPUT
             echo "max=${MAX}" >> $GITHUB_OUTPUT
+
+            echo "### 📊 Current Environment" >> $GITHUB_STEP_SUMMARY
+            echo "- **ASG:** \`${CURRENT_ASG}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Capacity:** ${DESIRED} (min: ${MIN}, max: ${MAX})" >> $GITHUB_STEP_SUMMARY
+
           else
             echo "desired=1" >> $GITHUB_OUTPUT
             echo "min=1" >> $GITHUB_OUTPUT
             echo "max=2" >> $GITHUB_OUTPUT
           fi
 
+      # ------------------------------------------------------
+      # 6. Chat User Data 생성
+      # ------------------------------------------------------
       - name: Generate Chat User Data script
         id: userdata
         run: |
@@ -437,6 +537,9 @@ jobs:
             "${{ steps.image.outputs.image_uri }}" \
             "${{ env.AWS_REGION }}"
 
+      # ------------------------------------------------------
+      # 7. Launch Template 버전 생성
+      # ------------------------------------------------------
       - name: Create new Chat Launch Template version
         id: new-lt
         run: |
@@ -465,6 +568,9 @@ jobs:
           echo "new_lt_version=${NEW_LT_VERSION}" >> $GITHUB_OUTPUT
           echo "✅ Chat Launch Template version ${NEW_LT_VERSION} created"
 
+      # ------------------------------------------------------
+      # 8. ASG 생성
+      # ------------------------------------------------------
       - name: Create new Chat ASG
         id: new-asg
         run: |
@@ -481,15 +587,20 @@ jobs:
             --target-group-arns ${CHAT_TG_ARN} \
             --vpc-zone-identifier "${{ secrets.DEV_SUBNET_IDS }}" \
             --health-check-type ELB \
-            --health-check-grace-period 180 \
+            --health-check-grace-period 300 \
             --tags "Key=Name,Value=klosetlab-staging-v2-chat,PropagateAtLaunch=true" \
                    "Key=Environment,Value=staging,PropagateAtLaunch=true" \
                    "Key=Service,Value=chat,PropagateAtLaunch=true" \
                    "Key=ImageTag,Value=${{ steps.image.outputs.image_tag }},PropagateAtLaunch=true"
 
           echo "new_asg_name=${NEW_ASG_NAME}" >> $GITHUB_OUTPUT
-          echo "### 🟢 New Chat ASG: ${NEW_ASG_NAME}" >> $GITHUB_STEP_SUMMARY
 
+          echo "### 🟢 New Chat ASG: ${NEW_ASG_NAME}" >> $GITHUB_STEP_SUMMARY
+          echo "- **ASG:** \`${NEW_ASG_NAME}\`" >> $GITHUB_STEP_SUMMARY
+
+      # ------------------------------------------------------
+      # 9. ASG 준비 대기
+      # ------------------------------------------------------
       - name: Wait for new Chat ASG to be ready
         timeout-minutes: 15
         run: |
@@ -537,6 +648,9 @@ jobs:
           echo "❌ New Chat ASG failed to become healthy"
           exit 1
 
+      # ------------------------------------------------------
+      # 10. ASG 정리
+      # ------------------------------------------------------
       - name: Remove old Chat ASG
         if: success() && steps.current-check.outputs.current_asg != 'none'
         run: |
@@ -553,33 +667,73 @@ jobs:
             --force-delete
 
           echo "✅ Old Chat ASG removed: ${OLD_ASG}"
+          echo "### 🗑️ Old ASG Removed" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deleted:** \`${OLD_ASG}\`" >> $GITHUB_STEP_SUMMARY
 
+      # ------------------------------------------------------
+      # 11. 배포 정보 기록
+      # ------------------------------------------------------
+      - name: Record deployment info
+        if: success()
+        run: |
+          cat > deployment-info.json <<EOF
+          {
+            "environment": "staging",
+            "service", "chat",
+            "deployed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "image_uri": "${{ steps.image.outputs.image_uri }}",
+            "image_tag": "${{ steps.image.outputs.image_tag }}",
+            "new_asg": "${{ steps.new-asg.outputs.new_asg_name }}",
+            "old_asg": "${{ steps.current-check.outputs.current_asg }}",
+            "commit_sha": "${{ github.event.workflow_run.head_sha }}"
+          }
+          EOF
+          cat deployment-info.json
+
+      # ------------------------------------------------------
+      # 12. 롤백 (실패 시)
+      # ------------------------------------------------------
       - name: Rollback on failure
         if: failure() && steps.new-asg.outputs.new_asg_name != ''
         run: |
           NEW_ASG="${{ steps.new-asg.outputs.new_asg_name }}"
+
+          echo "=== Rolling back ==="
+
           aws autoscaling update-auto-scaling-group \
             --auto-scaling-group-name ${NEW_ASG} \
             --min-size 0 --max-size 0 --desired-capacity 0 || true
+
           sleep 10
+
           aws autoscaling delete-auto-scaling-group \
             --auto-scaling-group-name ${NEW_ASG} \
             --force-delete || true
+
           echo "⚠️ Chat Rollback completed"
 
+      # ------------------------------------------------------
+      # 13. Discord 알림
+      # ------------------------------------------------------
       - name: Send Discord notification on success
         if: success()
         uses: tsickert/discord-webhook@v5.3.0
         with:
           webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
           username: "Backend CD Bot"
+          avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
           embed-title: "✅ [Chat] Staging 배포 성공"
           embed-description: |
+            **환경:** Staging 🟢
             **이미지:** `${{ steps.image.outputs.image_tag }}`
             **New ASG:** `${{ steps.new-asg.outputs.new_asg_name }}`
             **Old ASG:** `${{ steps.current-check.outputs.current_asg }}`
+
+            ✅ 새 ASG 생성 → 기존 ASG 교체 완료!
+
             [📋 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           embed-color: 3066993
+
 
       - name: Send Discord notification on failure
         if: failure()
@@ -587,9 +741,14 @@ jobs:
         with:
           webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
           username: "Backend CD Bot"
+          avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
           embed-title: "❌ [Chat] Staging 배포 실패"
           embed-description: |
+            **환경:** Staging 🟢
             **이미지:** `${{ steps.image.outputs.image_tag }}`
+
+            ❌ 배포 실패 - 롤백됨
+
             [📋 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           embed-color: 15158332
 
@@ -615,9 +774,15 @@ jobs:
       actions: read
 
     steps:
+      # ------------------------------------------------------
+      # 1. Checkout (스크립트 사용을 위해)
+      # ------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ------------------------------------------------------
+      # 2. API Docker 메타데이터 다운로드
+      # ------------------------------------------------------
       - name: Download API Docker metadata
         uses: actions/download-artifact@v4
         with:
@@ -625,6 +790,9 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ github.event.workflow_run.id }}
 
+      # ------------------------------------------------------
+      # 3. 이미지 정보 추출
+      # ------------------------------------------------------
       - name: Extract image info
         id: image
         run: |
@@ -637,12 +805,19 @@ jobs:
             echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
             echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
+            echo "### API Docker Image Info" >> $GITHUB_STEP_SUMMARY
+            echo "- **API Image URI:** \`${IMAGE_URI}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **API Image Tag:** \`${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+
             cat docker-metadata-api.json | jq '.'
           else
             echo "::error::API Docker metadata not found!"
             exit 1
           fi
 
+      # ------------------------------------------------------
+      # 4. AWS OIDC 인증
+      # ------------------------------------------------------
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -650,6 +825,9 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: GitHubActions-ProdAPI-${{ github.run_id }}
 
+      # ------------------------------------------------------
+      # 5. 현재 Blue 환경 확인
+      # ------------------------------------------------------
       - name: Check Blue environment
         id: blue-check
         run: |
@@ -673,6 +851,9 @@ jobs:
 
           if [ "$CURRENT_TG_ARN" != "$BLUE_TG_ARN" ]; then
             echo "❌ Listener is not pointing to Blue TG!"
+            echo "Expected: ${BLUE_TG_ARN}"
+            echo "Current:  ${CURRENT_TG}"
+            echo "이전 배포가 정상 완료되지 않은 상태입니다. 확인 후 재시도하세요."
             exit 1
           fi
           echo "✅ Listener → Blue TG confirmed"
@@ -705,15 +886,23 @@ jobs:
             MAX=$(aws autoscaling describe-auto-scaling-groups \
               --auto-scaling-group-names ${BLUE_ASG} \
               --query 'AutoScalingGroups[0].MaxSize' --output text)
+
             echo "desired=${DESIRED}" >> $GITHUB_OUTPUT
             echo "min=${MIN}" >> $GITHUB_OUTPUT
             echo "max=${MAX}" >> $GITHUB_OUTPUT
+
+            echo "### 🔵 Blue Environment" >> $GITHUB_STEP_SUMMARY
+            echo "- **ASG:** \`${BLUE_ASG}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Capacity:** ${DESIRED} (min: ${MIN}, max: ${MAX})" >> $GITHUB_STEP_SUMMARY
           else
             echo "desired=1" >> $GITHUB_OUTPUT
             echo "min=1" >> $GITHUB_OUTPUT
             echo "max=2" >> $GITHUB_OUTPUT
           fi
 
+      # ------------------------------------------------------
+      # 6. API User Data 생성
+      # ------------------------------------------------------
       - name: Generate API User Data script
         id: userdata
         run: |
@@ -723,6 +912,9 @@ jobs:
             "${{ steps.image.outputs.image_uri }}" \
             "${{ env.AWS_REGION }}"
 
+      # ------------------------------------------------------
+      # 7. Green Launch Template 버전 생성
+      # ------------------------------------------------------
       - name: Create new Green Launch Template version
         id: new-lt
         run: |
@@ -750,6 +942,9 @@ jobs:
 
           echo "new_lt_version=${NEW_LT_VERSION}" >> $GITHUB_OUTPUT
 
+      # ------------------------------------------------------
+      # 8. Green ASG 생성
+      # ------------------------------------------------------
       - name: Create Green ASG
         id: green-asg
         run: |
@@ -766,7 +961,7 @@ jobs:
             --target-group-arns ${GREEN_TG_ARN} \
             --vpc-zone-identifier "${{ secrets.PROD_SUBNET_IDS }}" \
             --health-check-type ELB \
-            --health-check-grace-period 180 \
+            --health-check-grace-period 300 \
             --tags "Key=Name,Value=klosetlab-app-green,PropagateAtLaunch=true" \
                    "Key=Environment,Value=production,PropagateAtLaunch=true" \
                    "Key=Service,Value=api,PropagateAtLaunch=true" \
@@ -774,6 +969,12 @@ jobs:
 
           echo "green_asg_name=${GREEN_ASG_NAME}" >> $GITHUB_OUTPUT
 
+          echo "### 🟢 Green ASG" >> $GITHUB_STEP_SUMMARY
+          echo "- **ASG:** \`${GREEN_ASG_NAME}\`" >> $GITHUB_STEP_SUMMARY
+
+      # ------------------------------------------------------
+      # 9. Green 환경 준비 대기
+      # ------------------------------------------------------
       - name: Wait for Green ASG to be ready
         timeout-minutes: 20
         run: |
@@ -827,6 +1028,10 @@ jobs:
       # 2. Rollback 스텝의 "CANARY ROLLBACK" 섹션도 함께 주석 해제
       # 3. 기존 "Switch traffic Blue → Green" 스텝은 그대로 유지 (100% 전환은 카나리 통과 후 실행)
       #
+
+      # # ------------------------------------------------------
+      # # 10. 단계적 트래픽 전환 시작
+      # # ------------------------------------------------------
       # - name: "Canary: Traffic Shift - 10% to Green"
       #   id: canary-shift-10
       #   run: |
@@ -847,7 +1052,7 @@ jobs:
       #       }]"
       #
       #     echo "✅ Canary: 10% traffic on Green"
-      #     echo "canary_shifted=true" >> $GITHUB_OUTPUT
+      #     echo "### 🔄 Traffic: Blue 90% / Green 10%" >> $GITHUB_STEP_SUMMARY
       #
       # - name: "Canary: Monitor 10% traffic (10 min)"
       #   run: |
@@ -858,6 +1063,7 @@ jobs:
       #     for i in {1..10}; do
       #       echo "Monitoring... $i/10 minutes"
       #
+      #       # Green TG health 체크
       #       UNHEALTHY=$(aws elbv2 describe-target-health \
       #         --target-group-arn ${GREEN_TG_ARN} \
       #         --query 'TargetHealthDescriptions[?TargetHealth.State==`unhealthy`]' \
@@ -900,6 +1106,7 @@ jobs:
       #       }]"
       #
       #     echo "✅ Canary: 50% traffic on Green"
+      #     echo "### 🔄 Traffic: Blue 50% / Green 50%" >> $GITHUB_STEP_SUMMARY
       #
       # - name: "Canary: Monitor 50% traffic (15 min)"
       #   run: |
@@ -931,7 +1138,6 @@ jobs:
       #     done
       #
       #     echo "✅ 50% traffic monitoring passed"
-      # === END CANARY DEPLOYMENT (API) ===
 
       - name: Switch traffic Blue → Green
         id: traffic-switch
@@ -953,12 +1159,11 @@ jobs:
             }]"
 
           echo "✅ Traffic switched: Blue(0%) → Green(100%)"
-          echo "traffic_switched=true" >> $GITHUB_OUTPUT
+          echo "### ✅ Traffic: Green 100%" >> $GITHUB_STEP_SUMMARY
 
-      # === CANARY FINAL MONITORING (API) ===
       # - name: "Canary: Final monitoring after 100% switch (10 min)"
       #   run: |
-      #     echo "=== Final monitoring on Green (zero tolerance) ==="
+      #     echo "=== Final monitoring on Green ==="
       #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
       #
       #     for i in {1..10}; do
@@ -978,8 +1183,74 @@ jobs:
       #     done
       #
       #     echo "✅ Final monitoring passed"
-      # === END CANARY FINAL MONITORING (API) ===
 
+      # -------------------------------------------------------
+      # 11. Promote Green → Blue
+      # -------------------------------------------------------
+      - name: Promote Green to Blue
+        id: promote
+        run: |
+          GREEN_ASG="${{ steps.green-asg.outputs.green_asg_name }}"
+          BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
+          GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+          API_RULE_ARN="${{ steps.blue-check.outputs.api_rule_arn }}"
+          EXPECTED=${{ steps.blue-check.outputs.blue_desired }}
+
+          echo "=== Promoting Green to Blue ==="
+
+          # 1. Green ASG를 Blue TG에 연결
+          aws autoscaling attach-load-balancer-target-groups \
+            --auto-scaling-group-name ${GREEN_ASG} \
+            --target-group-arns ${BLUE_TG_ARN}
+
+          echo "Waiting for Green instances to register in Blue TG..."
+          sleep 30
+
+          # 2. Blue TG에서 healthy 확인
+          for i in {1..20}; do
+            HEALTHY_IN_BLUE=$(aws elbv2 describe-target-health \
+              --target-group-arn ${BLUE_TG_ARN} \
+              --query 'TargetHealthDescriptions[?TargetHealth.State==`healthy`]' \
+              --output json | jq 'length')
+
+            echo "[$i/20] Healthy in Blue TG: ${HEALTHY_IN_BLUE}/${EXPECTED}"
+
+            if [ "$HEALTHY_IN_BLUE" -ge "$EXPECTED" ]; then
+              echo "✅ Green instances healthy in Blue TG"
+              break
+            fi
+
+            if [ "$i" -eq 20 ]; then
+              echo "❌ Green instances not healthy in Blue TG"
+              exit 1
+            fi
+
+            sleep 10
+          done
+
+          # 3. Listener를 Blue TG로 복구
+          aws elbv2 modify-rule \
+            --rule-arn "$API_RULE_ARN" \
+            --actions "[
+              {
+                \"Type\": \"forward\",
+                \"ForwardConfig\": {
+                  \"TargetGroups\": [
+                    {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100},
+                    {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 0}
+                  ]
+                }
+              }
+            ]"
+
+          echo "✅ Promote complete"
+          echo "### 🔵 Green → Blue 승격 완료" >> $GITHUB_STEP_SUMMARY
+          echo "- **New Blue ASG:** \`${GREEN_ASG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Listener:** → Blue TG" >> $GITHUB_STEP_SUMMARY
+
+      # -------------------------------------------------------
+      # 12. Blue ASG 삭제
+      # -------------------------------------------------------
       - name: Remove Blue ASG
         if: success() && steps.blue-check.outputs.blue_asg != 'none'
         run: |
@@ -997,6 +1268,31 @@ jobs:
 
           echo "✅ Blue ASG removed: ${BLUE_ASG}"
 
+      # ------------------------------------------------------
+      # 13. 배포 정보 기록
+      # ------------------------------------------------------
+      - name: Record deployment info
+        if: success()
+        run: |
+          cat > deployment-info.json <<EOF
+          {
+            "environment": "production",
+            "service", "api",
+            "deployment_strategy": "weighted-blue-green",
+            "deployed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "image_uri": "${{ steps.image.outputs.image_uri }}",
+            "image_tag": "${{ steps.image.outputs.image_tag }}",
+            "new_asg": "${{ steps.green-asg.outputs.green_asg_name }}",
+            "old_blue_asg": "${{ steps.blue-check.outputs.blue_asg }}",
+            "traffic_shift": "10% → 50% → 100%",
+            "listener_state": "Blue TG (promoted from Green)"
+          }
+          EOF
+          cat deployment-info.json
+
+      # ------------------------------------------------------
+      # 14. 롤백 (실패 시 즉시 Blue로)
+      # ------------------------------------------------------
       - name: Rollback on failure
         if: failure()
         run: |
@@ -1044,7 +1340,9 @@ jobs:
             aws autoscaling update-auto-scaling-group \
               --auto-scaling-group-name ${GREEN_ASG} \
               --min-size 0 --max-size 0 --desired-capacity 0 || true
+
             sleep 10
+
             aws autoscaling delete-auto-scaling-group \
               --auto-scaling-group-name ${GREEN_ASG} \
               --force-delete || true
@@ -1052,17 +1350,26 @@ jobs:
 
           echo "⚠️ API Prod Rollback completed"
 
+      # ------------------------------------------------------
+      # 15. Discord 알림
+      # ------------------------------------------------------
       - name: Send Discord notification on success
         if: success()
         uses: tsickert/discord-webhook@v5.3.0
         with:
           webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
           username: "Backend CD Bot"
+          avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
           embed-title: "✅ [API] Production 배포 성공 (Blue → Green)"
           embed-description: |
+            **환경:** Production 🔴
+            **전략:** Weighted Blue-Green
             **이미지:** `${{ steps.image.outputs.image_tag }}`
-            **Green ASG:** `${{ steps.green-asg.outputs.green_asg_name }}`
-            **Blue ASG (삭제됨):** `${{ steps.blue-check.outputs.blue_asg }}`
+            **New ASG:** `${{ steps.green-asg.outputs.green_asg_name }}`
+            **Old Blue ASG:** `${{ steps.blue-check.outputs.blue_asg }}`
+
+            ✅ 트래픽 전환 → Blue 승격 → Old Blue 삭제 완료!
+
             [📋 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           embed-color: 3066993
 
@@ -1072,9 +1379,14 @@ jobs:
         with:
           webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
           username: "Backend CD Bot"
+          avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
           embed-title: "❌ [API] Production 배포 실패 - 롤백됨"
           embed-description: |
+            **환경:** Production 🔴
+            **전략:** Weighted Blue-Green
             **이미지:** `${{ steps.image.outputs.image_tag }}`
+            ❌ 배포 실패 - Blue로 즉시 롤백됨
+
             [📋 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           embed-color: 15158332
 
@@ -1100,9 +1412,15 @@ jobs:
       actions: read
 
     steps:
+      # ------------------------------------------------------
+      # 1. Checkout (스크립트 사용을 위해)
+      # ------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ------------------------------------------------------
+      # 2. Chat Docker 메타데이터 다운로드
+      # ------------------------------------------------------
       - name: Download Chat Docker metadata
         uses: actions/download-artifact@v4
         with:
@@ -1110,6 +1428,9 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ github.event.workflow_run.id }}
 
+      # ------------------------------------------------------
+      # 3. 이미지 정보 추출
+      # ------------------------------------------------------
       - name: Extract image info
         id: image
         run: |
@@ -1122,12 +1443,19 @@ jobs:
             echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
             echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
+            echo "### Chat Docker Image Info" >> $GITHUB_STEP_SUMMARY
+            echo "- **Chat Image URI:** \`${IMAGE_URI}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Chat Image Tag:** \`${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+
             cat docker-metadata-chat.json | jq '.'
           else
             echo "::error::Chat Docker metadata not found!"
             exit 1
           fi
 
+      # ------------------------------------------------------
+      # 4. AWS OIDC 인증
+      # ------------------------------------------------------
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -1135,6 +1463,9 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: GitHubActions-ProdChat-${{ github.run_id }}
 
+      # ------------------------------------------------------
+      # 5. 현재 Blue 환경 확인
+      # ------------------------------------------------------
       - name: Check Blue environment
         id: blue-check
         run: |
@@ -1173,10 +1504,16 @@ jobs:
 
           if [ "$CURRENT_TG_ARN" != "$BLUE_TG_ARN" ]; then
             echo "❌ /ws* rule is not pointing to Blue TG!"
+            echo "Expected: ${BLUE_TG_ARN}"
+            echo "Current:  ${CURRENT_TG_ARN}"
+            echo "이전 배포가 정상 완료되지 않은 상태입니다. 확인 후 재시도하세요."
             exit 1
           fi
           if [ "$API_CURRENT_TG_ARN" != "$BLUE_TG_ARN" ]; then
             echo "❌ /api/v2/chat* rule is not pointing to Blue TG!"
+            echo "Expected: ${BLUE_TG_ARN}"
+            echo "Current:  ${API_CURRENT_TG_ARN}"
+            echo "이전 배포가 정상 완료되지 않은 상태입니다. 확인 후 재시도하세요."
             exit 1
           fi
           echo "✅ Both Chat rules → Blue TG confirmed"
@@ -1191,6 +1528,7 @@ jobs:
               --auto-scaling-group-names "$asg" \
               --query 'AutoScalingGroups[0].TargetGroupARNs' \
               --output json)
+
             if echo "$TG_ARNS" | jq -e --arg tg "$BLUE_TG_ARN" 'index($tg)' > /dev/null; then
               BLUE_ASG="$asg"
               break
@@ -1209,15 +1547,23 @@ jobs:
             MAX=$(aws autoscaling describe-auto-scaling-groups \
               --auto-scaling-group-names ${BLUE_ASG} \
               --query 'AutoScalingGroups[0].MaxSize' --output text)
+
             echo "desired=${DESIRED}" >> $GITHUB_OUTPUT
             echo "min=${MIN}" >> $GITHUB_OUTPUT
             echo "max=${MAX}" >> $GITHUB_OUTPUT
+
+            echo "### 🔵 Blue Environment" >> $GITHUB_STEP_SUMMARY
+            echo "- **ASG:** \`${BLUE_ASG}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Capacity:** ${DESIRED} (min: ${MIN}, max: ${MAX})" >> $GITHUB_STEP_SUMMARY
           else
             echo "desired=1" >> $GITHUB_OUTPUT
             echo "min=1" >> $GITHUB_OUTPUT
             echo "max=2" >> $GITHUB_OUTPUT
           fi
 
+      # ------------------------------------------------------
+      # 6. Chat User Data 생성
+      # ------------------------------------------------------
       - name: Generate Chat User Data script
         id: userdata
         run: |
@@ -1227,6 +1573,9 @@ jobs:
             "${{ steps.image.outputs.image_uri }}" \
             "${{ env.AWS_REGION }}"
 
+      # ------------------------------------------------------
+      # 7. Green Launch Template 버전 생성
+      # ------------------------------------------------------
       - name: Create new Green Chat Launch Template version
         id: new-lt
         run: |
@@ -1254,6 +1603,9 @@ jobs:
 
           echo "new_lt_version=${NEW_LT_VERSION}" >> $GITHUB_OUTPUT
 
+      # ------------------------------------------------------
+      # 8. Green ASG 생성
+      # ------------------------------------------------------
       - name: Create Green Chat ASG
         id: green-asg
         run: |
@@ -1270,7 +1622,7 @@ jobs:
             --target-group-arns ${GREEN_TG_ARN} \
             --vpc-zone-identifier "${{ secrets.PROD_SUBNET_IDS }}" \
             --health-check-type ELB \
-            --health-check-grace-period 180 \
+            --health-check-grace-period 300 \
             --tags "Key=Name,Value=klosetlab-chat-green,PropagateAtLaunch=true" \
                    "Key=Environment,Value=production,PropagateAtLaunch=true" \
                    "Key=Service,Value=chat,PropagateAtLaunch=true" \
@@ -1278,6 +1630,12 @@ jobs:
 
           echo "green_asg_name=${GREEN_ASG_NAME}" >> $GITHUB_OUTPUT
 
+          echo "### 🟢 Green ASG" >> $GITHUB_STEP_SUMMARY
+          echo "- **ASG:** \`${GREEN_ASG_NAME}\`" >> $GITHUB_STEP_SUMMARY
+
+      # ------------------------------------------------------
+      # 9. Green 환경 준비 대기 (EC2 및 Target Group 헬스체크)
+      # ------------------------------------------------------
       - name: Wait for Green Chat ASG to be ready
         timeout-minutes: 20
         run: |
@@ -1332,6 +1690,10 @@ jobs:
       # 3. 기존 "Switch traffic Blue → Green" 스텝은 그대로 유지 (100% 전환은 카나리 통과 후 실행)
       # 4. Chat은 /ws* 와 /api/v2/chat* 두 규칙을 모두 전환해야 함
       #
+
+      # # ------------------------------------------------------
+      # # 10. 단계적 트래픽 전환 시작
+      # # ------------------------------------------------------
       # - name: "Canary: Traffic Shift - 10% to Green"
       #   id: canary-shift-10
       #   run: |
@@ -1367,7 +1729,7 @@ jobs:
       #       }]"
       #
       #     echo "✅ Canary: 10% traffic on Green (both /ws* and /api/v2/chat*)"
-      #     echo "canary_shifted=true" >> $GITHUB_OUTPUT
+      #     echo "### 🔄 Traffic: Blue 90% / Green 10%" >> $GITHUB_STEP_SUMMARY
       #
       # - name: "Canary: Monitor 10% traffic (10 min)"
       #   run: |
@@ -1378,6 +1740,7 @@ jobs:
       #     for i in {1..10}; do
       #       echo "Monitoring... $i/10 minutes"
       #
+      #       # Green TG health 체크
       #       UNHEALTHY=$(aws elbv2 describe-target-health \
       #         --target-group-arn ${GREEN_TG_ARN} \
       #         --query 'TargetHealthDescriptions[?TargetHealth.State==`unhealthy`]' \
@@ -1435,6 +1798,7 @@ jobs:
       #       }]"
       #
       #     echo "✅ Canary: 50% traffic on Green (both /ws* and /api/v2/chat*)"
+      #     echo "### 🔄 Traffic: Blue 50% / Green 50%" >> $GITHUB_STEP_SUMMARY
       #
       # - name: "Canary: Monitor 50% traffic (15 min)"
       #   run: |
@@ -1466,7 +1830,6 @@ jobs:
       #     done
       #
       #     echo "✅ 50% traffic monitoring passed"
-      # === END CANARY DEPLOYMENT (Chat) ===
 
       - name: Switch traffic Blue → Green
         id: traffic-switch
@@ -1503,7 +1866,7 @@ jobs:
             }]"
 
           echo "✅ Traffic switched: Blue(0%) → Green(100%) for both /ws* and /api/v2/chat*"
-          echo "traffic_switched=true" >> $GITHUB_OUTPUT
+          echo "### ✅ Traffic: Green 100%" >> $GITHUB_STEP_SUMMARY
 
       # === CANARY FINAL MONITORING (Chat) ===
       # - name: "Canary: Final monitoring after 100% switch (10 min)"
@@ -1528,8 +1891,89 @@ jobs:
       #     done
       #
       #     echo "✅ Final monitoring passed"
-      # === END CANARY FINAL MONITORING (Chat) ===
 
+      # -------------------------------------------------------
+      # 11. Promote Green → Blue
+      # -------------------------------------------------------
+      - name: Promote Green to Blue
+        id: promote
+        run: |
+          GREEN_ASG="${{ steps.green-asg.outputs.green_asg_name }}"
+          BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
+          GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+          CHAT_RULE_ARN="${{ steps.blue-check.outputs.chat_rule_arn }}"
+          CHAT_API_RULE_ARN="${{ steps.blue-check.outputs.chat_api_rule_arn }}"
+          EXPECTED=${{ steps.blue-check.outputs.blue_desired }}
+
+          echo "=== Promoting Green to Blue ==="
+
+          # 1. Green ASG를 Blue TG에 연결
+          aws autoscaling attach-load-balancer-target-groups \
+            --auto-scaling-group-name ${GREEN_ASG} \
+            --target-group-arns ${BLUE_TG_ARN}
+
+          echo "Waiting for Green instances to register in Blue TG..."
+          sleep 30
+
+          # 2. Blue TG에서 healthy 확인
+          for i in {1..20}; do
+            HEALTHY_IN_BLUE=$(aws elbv2 describe-target-health \
+              --target-group-arn ${BLUE_TG_ARN} \
+              --query 'TargetHealthDescriptions[?TargetHealth.State==`healthy`]' \
+              --output json | jq 'length')
+
+            echo "[$i/20] Healthy in Blue TG: ${HEALTHY_IN_BLUE}/${EXPECTED}"
+
+            if [ "$HEALTHY_IN_BLUE" -ge "$EXPECTED" ]; then
+              echo "✅ Green instances healthy in Blue TG"
+              break
+            fi
+
+            if [ "$i" -eq 20 ]; then
+              echo "❌ Green instances not healthy in Blue TG"
+              exit 1
+            fi
+
+            sleep 10
+          done
+
+          # 3. Listener를 Blue TG로 복구
+          aws elbv2 modify-rule \
+            --rule-arn "$CHAT_RULE_ARN" \
+            --actions "[
+              {
+                \"Type\": \"forward\",
+                \"ForwardConfig\": {
+                  \"TargetGroups\": [
+                    {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100},
+                    {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 0}
+                  ]
+                }
+              }
+            ]"
+
+            aws elbv2 modify-rule \
+            --rule-arn "$CHAT_API_RULE_ARN" \
+            --actions "[
+              {
+                \"Type\": \"forward\",
+                \"ForwardConfig\": {
+                  \"TargetGroups\": [
+                    {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100},
+                    {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 0}
+                  ]
+                }
+              }
+            ]"
+
+          echo "✅ Promote complete"
+          echo "### 🔵 Green → Blue 승격 완료" >> $GITHUB_STEP_SUMMARY
+          echo "- **New Blue ASG:** \`${GREEN_ASG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Listener:** → Blue TG" >> $GITHUB_STEP_SUMMARY
+
+      # -------------------------------------------------------
+      # 12. Old Blue ASG 삭제
+      # -------------------------------------------------------
       - name: Remove Blue Chat ASG
         if: success() && steps.blue-check.outputs.blue_asg != 'none'
         run: |
@@ -1547,6 +1991,31 @@ jobs:
 
           echo "✅ Blue Chat ASG removed: ${BLUE_ASG}"
 
+      # ------------------------------------------------------
+      # 13. 배포 정보 기록
+      # ------------------------------------------------------
+      - name: Record deployment info
+        if: success()
+        run: |
+          cat > deployment-info.json <<EOF
+          {
+            "environment": "production",
+            "service", "chat",
+            "deployment_strategy": "weighted-blue-green",
+            "deployed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "image_uri": "${{ steps.image.outputs.image_uri }}",
+            "image_tag": "${{ steps.image.outputs.image_tag }}",
+            "new_asg": "${{ steps.green-asg.outputs.green_asg_name }}",
+            "old_blue_asg": "${{ steps.blue-check.outputs.blue_asg }}",
+            "traffic_shift": "10% → 50% → 100%",
+            "listener_state": "Blue TG (promoted from Green)"
+          }
+          EOF
+          cat deployment-info.json
+
+      # ------------------------------------------------------
+      # 14. 롤백 (실패 시 즉시 Blue로)
+      # ------------------------------------------------------
       - name: Rollback on failure
         if: failure()
         run: |
@@ -1621,7 +2090,9 @@ jobs:
             aws autoscaling update-auto-scaling-group \
               --auto-scaling-group-name ${GREEN_ASG} \
               --min-size 0 --max-size 0 --desired-capacity 0 || true
+
             sleep 10
+
             aws autoscaling delete-auto-scaling-group \
               --auto-scaling-group-name ${GREEN_ASG} \
               --force-delete || true
@@ -1629,17 +2100,26 @@ jobs:
 
           echo "⚠️ Chat Prod Rollback completed"
 
+      # ------------------------------------------------------
+      # 15. Discord 알림
+      # ------------------------------------------------------
       - name: Send Discord notification on success
         if: success()
         uses: tsickert/discord-webhook@v5.3.0
         with:
           webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
           username: "Backend CD Bot"
+          avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
           embed-title: "✅ [Chat] Production 배포 성공 (Blue → Green)"
           embed-description: |
+            **환경:** Production 🔴
+            **전략:** Weighted Blue-Green
             **이미지:** `${{ steps.image.outputs.image_tag }}`
-            **Green ASG:** `${{ steps.green-asg.outputs.green_asg_name }}`
-            **Blue ASG (삭제됨):** `${{ steps.blue-check.outputs.blue_asg }}`
+            **New ASG:** `${{ steps.green-asg.outputs.green_asg_name }}`
+            **Old Blue ASG:** `${{ steps.blue-check.outputs.blue_asg }}`
+
+            ✅ 트래픽 전환 → Blue 승격 → Old Blue 삭제 완료!
+
             [📋 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           embed-color: 3066993
 
@@ -1649,8 +2129,13 @@ jobs:
         with:
           webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
           username: "Backend CD Bot"
+          avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
           embed-title: "❌ [Chat] Production 배포 실패 - 롤백됨"
           embed-description: |
+            **환경:** Production 🔴
+            **전략:** Weighted Blue-Green
             **이미지:** `${{ steps.image.outputs.image_tag }}`
+            ❌ 배포 실패 - Blue로 즉시 롤백됨
+
             [📋 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           embed-color: 15158332
