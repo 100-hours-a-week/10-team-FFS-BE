@@ -852,7 +852,7 @@ jobs:
           if [ "$CURRENT_TG_ARN" != "$BLUE_TG_ARN" ]; then
             echo "❌ Listener is not pointing to Blue TG!"
             echo "Expected: ${BLUE_TG_ARN}"
-            echo "Current:  ${CURRENT_TG}"
+            echo "Current:  ${API_CURRENT_TG_ARN}"
             echo "이전 배포가 정상 완료되지 않은 상태입니다. 확인 후 재시도하세요."
             exit 1
           fi
@@ -1194,7 +1194,7 @@ jobs:
           BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
           GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
           API_RULE_ARN="${{ steps.blue-check.outputs.api_rule_arn }}"
-          EXPECTED=${{ steps.blue-check.outputs.blue_desired }}
+          EXPECTED=${{ steps.blue-check.outputs.desired }}
 
           echo "=== Promoting Green to Blue ==="
 
@@ -1243,6 +1243,11 @@ jobs:
               }
             ]"
 
+          # 4. Green TG에서 연결 해제
+          aws autoscaling detach-load-balancer-target-groups \
+            --auto-scaling-group-name ${GREEN_ASG} \
+            --target-group-arns ${GREEN_TG_ARN} || true
+
           echo "✅ Promote complete"
           echo "### 🔵 Green → Blue 승격 완료" >> $GITHUB_STEP_SUMMARY
           echo "- **New Blue ASG:** \`${GREEN_ASG}\`" >> $GITHUB_STEP_SUMMARY
@@ -1277,7 +1282,7 @@ jobs:
           cat > deployment-info.json <<EOF
           {
             "environment": "production",
-            "service", "api",
+            "service": "api",
             "deployment_strategy": "weighted-blue-green",
             "deployed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "image_uri": "${{ steps.image.outputs.image_uri }}",
@@ -1903,7 +1908,7 @@ jobs:
           GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
           CHAT_RULE_ARN="${{ steps.blue-check.outputs.chat_rule_arn }}"
           CHAT_API_RULE_ARN="${{ steps.blue-check.outputs.chat_api_rule_arn }}"
-          EXPECTED=${{ steps.blue-check.outputs.blue_desired }}
+          EXPECTED=${{ steps.blue-check.outputs.desired }}
 
           echo "=== Promoting Green to Blue ==="
 
@@ -1966,6 +1971,11 @@ jobs:
               }
             ]"
 
+          # 4. Green TG에서 연결 해제
+          aws autoscaling detach-load-balancer-target-groups \
+            --auto-scaling-group-name ${GREEN_ASG} \
+            --target-group-arns ${GREEN_TG_ARN} || true
+
           echo "✅ Promote complete"
           echo "### 🔵 Green → Blue 승격 완료" >> $GITHUB_STEP_SUMMARY
           echo "- **New Blue ASG:** \`${GREEN_ASG}\`" >> $GITHUB_STEP_SUMMARY
@@ -2000,7 +2010,7 @@ jobs:
           cat > deployment-info.json <<EOF
           {
             "environment": "production",
-            "service", "chat",
+            "service": "chat",
             "deployment_strategy": "weighted-blue-green",
             "deployed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "image_uri": "${{ steps.image.outputs.image_uri }}",
