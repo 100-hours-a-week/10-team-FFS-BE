@@ -1,12 +1,17 @@
 name: Backend CI V2
 
+# ============================================================
+# 트리거 설정: PR이 생성/업데이트될 때 + 브랜치 푸시 시 자동 실행
+# ============================================================
 on:
+  # PR 이벤트 (코드 검증용)
   pull_request:
     types: [opened, synchronize, reopened]
     branches:
       - dev
       - main
-
+  
+  # Push 이벤트 (Docker 빌드 및 ECR 푸시)
   push:
     branches:
       - dev
@@ -16,8 +21,11 @@ permissions:
   contents: read
   checks: write
   pull-requests: write
-  id-token: write
+  id-token: write  # OIDC를 위한 권한 추가
 
+# ============================================================
+# 동시성 제어: 같은 PR 또는 브랜치에서 새 실행 시 이전 실행 취소
+# ============================================================
 concurrency:
   group: ci-v2-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -33,7 +41,8 @@ jobs:
     name: Test and Build
     runs-on: ubuntu-latest
     timeout-minutes: 15
-
+    
+    # 서비스 컨테이너 (테스트용 데이터베이스)
     services:
       mysql:
         image: mysql:8.0
@@ -65,7 +74,8 @@ jobs:
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
-
+    
+    # 환경 변수 설정
     env:
       SPRING_PROFILES_ACTIVE: ci
       DB_HOST: localhost
@@ -87,26 +97,38 @@ jobs:
       commit_sha: ${{ steps.version.outputs.commit_sha }}
 
     steps:
+      # ------------------------------------------------------
+      # 1. 소스 코드 체크아웃
+      # ------------------------------------------------------
       - name: Checkout source code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # 전체 히스토리 (버전 태그 확인용)
 
+      # ------------------------------------------------------
+      # 2. 버전 정보 추출
+      # ------------------------------------------------------
       - name: Extract version info
         id: version
         run: |
+          # Git 태그에서 최신 시맨틱 버전 가져오기
           LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-          VERSION=${LATEST_TAG#v}
+          VERSION=${LATEST_TAG#v}  # v 제거
 
+          # 커밋 SHA (short)
           COMMIT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
 
+          # 브랜치명
           if [ "${{ github.event_name }}" == "pull_request" ]; then
             BRANCH="${{ github.head_ref }}"
           else
             BRANCH="${{ github.ref_name }}"
           fi
 
+          # 슬래시를 하이픈으로 치환
           SAFE_BRANCH=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/-\+/-/g')
+
+          # 이미지 태그 생성: {branch}-{version}-{sha}
           IMAGE_TAG="${SAFE_BRANCH}-${VERSION}-${COMMIT_SHA}"
 
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
@@ -120,6 +142,9 @@ jobs:
           echo "- **Branch:** ${BRANCH}" >> $GITHUB_STEP_SUMMARY
           echo "- **Image Tag:** ${IMAGE_TAG}" >> $GITHUB_STEP_SUMMARY
 
+      # ------------------------------------------------------
+      # 3. JDK 설정 및 Gradle 캐싱
+      # ------------------------------------------------------
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
@@ -127,24 +152,39 @@ jobs:
           java-version: '21'
           cache: 'gradle'
 
+      # ------------------------------------------------------
+      # 4. Gradle 실행 권한 부여
+      # ------------------------------------------------------
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      # ------------------------------------------------------
+      # 5. 정적 분석 - Checkstyle (PR만)
+      # ------------------------------------------------------
       - name: Run Checkstyle
         if: github.event_name == 'pull_request'
         id: checkstyle
         run: ./gradlew checkstyleMain checkstyleTest
         continue-on-error: false
 
+      # ------------------------------------------------------
+      # 6. 빌드 (테스트 제외, 항상 실행)
+      # ------------------------------------------------------
       - name: Build with Gradle (api + chat)
         id: build
         run: ./gradlew :module-api:bootJar :module-chat:bootJar -x test
 
+      # ------------------------------------------------------
+      # 7. 테스트 실행 및 커버리지 측정 (PR만)
+      # ------------------------------------------------------
       - name: Run tests with coverage
         if: github.event_name == 'pull_request'
         id: test
         run: ./gradlew test jacocoTestReport --parallel
 
+      # ------------------------------------------------------
+      # 8. 테스트 커버리지 검증 (PR만)
+      # ------------------------------------------------------
       - name: Verify test coverage
         if: github.event_name == 'pull_request'
         id: coverage
@@ -162,11 +202,15 @@ jobs:
           echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
           echo "### Test Coverage: ${COVERAGE}%" >> $GITHUB_STEP_SUMMARY
 
+          # 커버리지가 너무 낮으면 경고
           if [ "$COVERAGE" -lt 70 ]; then
             echo "::warning::Test coverage is below 70% (${COVERAGE}%)"
           fi
         continue-on-error: true
 
+      # ------------------------------------------------------
+      # 9. 테스트 결과 발행 (PR만)
+      # ------------------------------------------------------
       - name: Publish test results
         if: github.event_name == 'pull_request' && always()
         uses: EnricoMi/publish-unit-test-result-action@v2
@@ -175,6 +219,9 @@ jobs:
             **/build/test-results/**/*.xml
           check_name: Test Results
 
+      # ------------------------------------------------------
+      # 10. 테스트 리포트 업로드 (PR 실패 시)
+      # ------------------------------------------------------
       - name: Upload test reports
         if: github.event_name == 'pull_request' && failure()
         uses: actions/upload-artifact@v4
@@ -185,6 +232,9 @@ jobs:
             **/build/reports/jacoco/test/html/
           retention-days: 7
 
+      # ------------------------------------------------------
+      # 11. JAR 파일 저장 (항상)
+      # ------------------------------------------------------
       # API JAR 저장
       - name: Upload API JAR artifact
         if: success()
@@ -203,6 +253,9 @@ jobs:
           path: module-chat/build/libs/chat.jar
           retention-days: 7
 
+      # ------------------------------------------------------
+      # 12. PR에 결과 코멘트 작성 (PR만)
+      # ------------------------------------------------------
       - name: Comment PR with results
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
@@ -237,8 +290,21 @@ jobs:
             - **Image Tag:** \`${imageTag}\`
             - **Branch:** \`${{ github.head_ref }}\` → \`${{ github.base_ref }}\`
             - **Commit:** \`${context.payload.pull_request.head.sha.substring(0, 7)}\`
+            - **Author:** @${{ github.event.pull_request.user.login }}
+            
+            <details>
+            <summary>📋 상세 정보</summary>
+            
+            ### 📊 테스트 커버리지 기준
+            - 🟢 80% 이상: 우수
+            - 🟡 70-79%: 양호
+            - 🔴 70% 미만: 개선 필요
 
             [📊 전체 리포트 보기](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            </details>
+
+            ${coverage < 70 ? '\n⚠️ **주의:** 테스트 커버리지가 기준(70%)에 미달합니다.' : ''}
+            ${test === 'failure' ? '\n❌ **테스트 실패:** 실패한 테스트를 확인해주세요.' : ''}
             `;
 
             const comments = await github.rest.issues.listComments({
@@ -279,24 +345,39 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      # ------------------------------------------------------
+      # 1. 소스 코드 체크아웃
+      # ------------------------------------------------------
       - name: Checkout source code
         uses: actions/checkout@v4
 
+      # ------------------------------------------------------
+      # 2. 빌드한 JAR 다운로드
+      # ------------------------------------------------------
       - name: Download API JAR artifact
         uses: actions/download-artifact@v4
         with:
           name: api-jar-${{ needs.test-and-build.outputs.commit_sha }}
           path: module-api/build/libs/
 
+      # ------------------------------------------------------
+      # 3. Dockerfile 문법 검사
+      # ------------------------------------------------------
       - name: Lint Dockerfile.api
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: Dockerfile.api
           failure-threshold: warning
 
+      # ------------------------------------------------------
+      # 4. Docker Buildx 설정
+      # ------------------------------------------------------
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # ------------------------------------------------------
+      # 5. Docker 빌드 테스트
+      # ------------------------------------------------------
       - name: Build API Docker image (validation only)
         uses: docker/build-push-action@v5
         with:
@@ -306,6 +387,40 @@ jobs:
           tags: test-api:${{ needs.test-and-build.outputs.image_tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ needs.test-and-build.outputs.version }}
+
+      # ------------------------------------------------------
+      # 6. 검증 결과 요약
+      # ------------------------------------------------------
+      - name: API Docker validation success
+        run: |
+          echo "### ✅ API Docker Build Validation Passed" >> $GITHUB_STEP_SUMMARY
+          echo "API Dockerfile이 정상적으로 빌드됩니다." >> $GITHUB_STEP_SUMMARY
+          echo "- **API Image Tag:** \`test:${{ needs.test-and-build.outputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
+
+      # ------------------------------------------------------
+      # 7. PR 코멘트
+      # ------------------------------------------------------
+      - name: Comment API Docker validation result
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = `### 🐳 API Docker Build Validation
+            
+            ✅ API Dockerfile 빌드 검증 완료
+            - **API Image Tag:** \`test:${{ needs.test-and-build.outputs.image_tag }}\`
+            - Hadolint 검사 통과
+            - Docker 이미지 빌드 성공
+            
+            머지 후 ECR에 푸시됩니다.`;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
 
   # ========================================================
   # Job 3: Docker 빌드 검증 - Chat (PR만)
@@ -318,24 +433,39 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      # ------------------------------------------------------
+      # 1. 소스 코드 체크아웃
+      # ------------------------------------------------------
       - name: Checkout source code
         uses: actions/checkout@v4
 
+      # ------------------------------------------------------
+      # 2. 빌드한 JAR 다운로드
+      # ------------------------------------------------------
       - name: Download Chat JAR artifact
         uses: actions/download-artifact@v4
         with:
           name: chat-jar-${{ needs.test-and-build.outputs.commit_sha }}
           path: module-chat/build/libs/
 
+      # ------------------------------------------------------
+      # 3. Dockerfile 문법 검사
+      # ------------------------------------------------------
       - name: Lint Dockerfile.chat
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: Dockerfile.chat
           failure-threshold: warning
 
+      # ------------------------------------------------------
+      # 4. Docker Buildx 설정
+      # ------------------------------------------------------
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # ------------------------------------------------------
+      # 5. Docker 빌드 테스트
+      # ------------------------------------------------------
       - name: Build Chat Docker image (validation only)
         uses: docker/build-push-action@v5
         with:
@@ -345,6 +475,40 @@ jobs:
           tags: test-chat:${{ needs.test-and-build.outputs.image_tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ needs.test-and-build.outputs.version }}
+
+      # ------------------------------------------------------
+      # 6. 검증 결과 요약
+      # ------------------------------------------------------
+      - name: Chat Docker validation success
+        run: |
+          echo "### ✅ Chat Docker Build Validation Passed" >> $GITHUB_STEP_SUMMARY
+          echo "Chat Dockerfile이 정상적으로 빌드됩니다." >> $GITHUB_STEP_SUMMARY
+          echo "- **Chat Image Tag:** \`test:${{ needs.test-and-build.outputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
+
+      # ------------------------------------------------------
+      # 7. PR 코멘트
+      # ------------------------------------------------------
+      - name: Comment Chat Docker validation result
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = `### 🐳 Chat Docker Build Validation
+            
+            ✅ Chat Dockerfile 빌드 검증 완료
+            - **Chat Image Tag:** \`test:${{ needs.test-and-build.outputs.image_tag }}\`
+            - Hadolint 검사 통과
+            - Docker 이미지 빌드 성공
+            
+            머지 후 ECR에 푸시됩니다.`;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
 
   # ========================================================
   # Job 4: API Docker 빌드 및 ECR 푸시 (Push 이벤트만)
@@ -356,20 +520,30 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
+    # OIDC를 위한 permissions 설정
     permissions:
       id-token: write
       contents: read
 
     steps:
+      # ------------------------------------------------------
+      # 1. 소스 코드 체크아웃
+      # ------------------------------------------------------
       - name: Checkout source code
         uses: actions/checkout@v4
 
+      # ------------------------------------------------------
+      # 2. JAR 파일 다운로드
+      # ------------------------------------------------------
       - name: Download API JAR artifact
         uses: actions/download-artifact@v4
         with:
           name: api-jar-${{ needs.test-and-build.outputs.commit_sha }}
           path: module-api/build/libs/
 
+      # ------------------------------------------------------
+      # 3. AWS OIDC 인증
+      # ------------------------------------------------------
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -377,10 +551,16 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
           role-session-name: GitHubActions-API-${{ github.run_id }}
 
+      # ------------------------------------------------------
+      # 4. ECR 로그인
+      # ------------------------------------------------------
       - name: Login to Amazon ECR
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
 
+      # ------------------------------------------------------
+      # 5. ECR 세팅
+      # ------------------------------------------------------
       - name: Set ECR repository
         id: ecr-repo
         run: |
@@ -390,6 +570,9 @@ jobs:
             echo "repository=${{ secrets.DEV_ECR_APP_REPOSITORY }}" >> $GITHUB_OUTPUT
           fi
 
+      # ------------------------------------------------------
+      # 6. Docker 메타데이터 추출
+      # ------------------------------------------------------
       - name: Extract Docker metadata
         id: meta
         run: |
@@ -398,7 +581,8 @@ jobs:
           IMAGE_TAG=${{ needs.test-and-build.outputs.image_tag }}
           BRANCH=${{ github.ref_name }}
           SAFE_BRANCH=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/-\+/-/g')
-
+          
+          # 전체 이미지 URI
           IMAGE_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
           LATEST_TAG="${ECR_REGISTRY}/${ECR_REPOSITORY}:${SAFE_BRANCH}-latest"
 
@@ -407,9 +591,19 @@ jobs:
           echo "ecr_registry=${ECR_REGISTRY}" >> $GITHUB_OUTPUT
           echo "ecr_repository=${ECR_REPOSITORY}" >> $GITHUB_OUTPUT
 
+          echo "### 🐳 API Docker Image Info" >> $GITHUB_STEP_SUMMARY
+          echo "- **API Image URI:** \`${IMAGE_URI}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Latest Tag:** \`${LATEST_TAG}\`" >> $GITHUB_STEP_SUMMARY
+
+      # ------------------------------------------------------
+      # 7. Docker Buildx 설정
+      # ------------------------------------------------------
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # ------------------------------------------------------
+      # 8. Docker 이미지 빌드 및 푸시
+      # ------------------------------------------------------
       - name: Build and push API Docker image
         uses: docker/build-push-action@v5
         with:
@@ -427,6 +621,9 @@ jobs:
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
             VCS_REF=${{ github.sha }}
 
+      # ------------------------------------------------------
+      # 9. 이미지 취약점 스캔 (Trivy)
+      # ------------------------------------------------------
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
@@ -436,6 +633,9 @@ jobs:
           severity: 'CRITICAL,HIGH'
         continue-on-error: true
 
+      # ------------------------------------------------------
+      # 10. 빌드 메타데이터 저장
+      # ------------------------------------------------------
       - name: Save API build metadata
         run: |
           mkdir -p build-info
@@ -450,11 +650,16 @@ jobs:
             "version": "${{ needs.test-and-build.outputs.version }}",
             "branch": "${{ github.ref_name }}",
             "commitSha": "${{ github.sha }}",
-            "buildTime": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            "buildTime": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
+            "author": "${{ github.actor }}",
+            "coverage": "${{ needs.test-and-build.outputs.coverage }}"
           }
           EOF
           cat build-info/docker-metadata-api.json
 
+      # ------------------------------------------------------
+      # 11. 빌드 메타데이터 업로드
+      # ------------------------------------------------------
       - name: Upload API build metadata
         uses: actions/upload-artifact@v4
         with:
@@ -462,31 +667,53 @@ jobs:
           path: build-info/docker-metadata-api.json
           retention-days: 90
 
+      # ------------------------------------------------------
+      # 12. Discord 알림 - 성공
+      # ------------------------------------------------------
       - name: Send Discord notification on success
         if: success()
         uses: tsickert/discord-webhook@v5.3.0
         with:
           webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
           username: "Backend CI/CD Bot"
+          avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
           embed-title: "✅ [API] Docker 이미지 ECR 푸시 성공"
           embed-description: |
             **브랜치:** `${{ github.ref_name }}`
+            **버전:** `${{ needs.test-and-build.outputs.version }}`
             **이미지 태그:** `${{ needs.test-and-build.outputs.image_tag }}`
-            **ECR URI:** `${{ steps.meta.outputs.image_uri }}`
+
+            **ECR URI:**
+            ```
+            ${{ steps.meta.outputs.image_uri }}
+            ```
+            
+            CD 파이프라인에서 위 이미지를 사용하여 배포할 수 있습니다. 🚀
+            
             [🔗 Actions 보기](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           embed-color: 3066993
+          embed-footer-text: ${{ github.repository }}
 
+      # ------------------------------------------------------
+      # 12. Discord 알림 - 실패
+      # ------------------------------------------------------
       - name: Send Discord notification on failure
         if: failure()
         uses: tsickert/discord-webhook@v5.3.0
         with:
           webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
           username: "Backend CI/CD Bot"
+          avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
           embed-title: "❌ [API] Docker 이미지 ECR 푸시 실패"
           embed-description: |
             **브랜치:** `${{ github.ref_name }}`
+            **커밋:** `${{ github.sha }}`
+            
+            Docker 빌드 또는 ECR 푸시 중 오류가 발생했습니다.
+            
             [🔗 Actions 로그 보기](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           embed-color: 15158332
+          embed-footer-text: ${{ github.repository }}
 
   # ========================================================
   # Job 5: Chat Docker 빌드 및 ECR 푸시 (Push 이벤트만)
@@ -498,20 +725,30 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
+    # OIDC를 위한 permissions 설정
     permissions:
       id-token: write
       contents: read
 
     steps:
+      # ------------------------------------------------------
+      # 1. 소스 코드 체크아웃
+      # ------------------------------------------------------
       - name: Checkout source code
         uses: actions/checkout@v4
 
+      # ------------------------------------------------------
+      # 2. JAR 파일 다운로드
+      # ------------------------------------------------------
       - name: Download Chat JAR artifact
         uses: actions/download-artifact@v4
         with:
           name: chat-jar-${{ needs.test-and-build.outputs.commit_sha }}
           path: module-chat/build/libs/
 
+      # ------------------------------------------------------
+      # 3. AWS OIDC 인증
+      # ------------------------------------------------------
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -519,10 +756,16 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
           role-session-name: GitHubActions-Chat-${{ github.run_id }}
 
+      # ------------------------------------------------------
+      # 4. ECR 로그인
+      # ------------------------------------------------------
       - name: Login to Amazon ECR
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
 
+      # ------------------------------------------------------
+      # 5. ECR 세팅
+      # ------------------------------------------------------
       - name: Set ECR repository
         id: ecr-repo
         run: |
@@ -532,6 +775,9 @@ jobs:
             echo "repository=${{ secrets.DEV_ECR_CHAT_REPOSITORY }}" >> $GITHUB_OUTPUT
           fi
 
+      # ------------------------------------------------------
+      # 6. Docker 메타데이터 추출
+      # ------------------------------------------------------
       - name: Extract Docker metadata
         id: meta
         run: |
@@ -541,6 +787,7 @@ jobs:
           BRANCH=${{ github.ref_name }}
           SAFE_BRANCH=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/-\+/-/g')
 
+          # 전체 이미지 URI
           IMAGE_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
           LATEST_TAG="${ECR_REGISTRY}/${ECR_REPOSITORY}:${SAFE_BRANCH}-latest"
 
@@ -549,9 +796,19 @@ jobs:
           echo "ecr_registry=${ECR_REGISTRY}" >> $GITHUB_OUTPUT
           echo "ecr_repository=${ECR_REPOSITORY}" >> $GITHUB_OUTPUT
 
+          echo "### 🐳 Chat Docker Image Info" >> $GITHUB_STEP_SUMMARY
+          echo "- **Chat Image URI:** \`${IMAGE_URI}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Latest Tag:** \`${LATEST_TAG}\`" >> $GITHUB_STEP_SUMMARY
+
+      # ------------------------------------------------------
+      # 7. Docker Buildx 설정
+      # ------------------------------------------------------
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # ------------------------------------------------------
+      # 8. Docker 이미지 빌드 및 푸시
+      # ------------------------------------------------------
       - name: Build and push Chat Docker image
         uses: docker/build-push-action@v5
         with:
@@ -569,6 +826,9 @@ jobs:
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
             VCS_REF=${{ github.sha }}
 
+      # ------------------------------------------------------
+      # 9. 이미지 취약점 스캔 (Trivy)
+      # ------------------------------------------------------
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
@@ -578,6 +838,9 @@ jobs:
           severity: 'CRITICAL,HIGH'
         continue-on-error: true
 
+      # ------------------------------------------------------
+      # 10. 빌드 메타데이터 저장
+      # ------------------------------------------------------
       - name: Save Chat build metadata
         run: |
           mkdir -p build-info
@@ -592,11 +855,15 @@ jobs:
             "version": "${{ needs.test-and-build.outputs.version }}",
             "branch": "${{ github.ref_name }}",
             "commitSha": "${{ github.sha }}",
-            "buildTime": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            "buildTime": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
+            "author": "${{ github.actor }}"
           }
           EOF
           cat build-info/docker-metadata-chat.json
 
+      # ------------------------------------------------------
+      # 11. 빌드 메타데이터 업로드
+      # ------------------------------------------------------
       - name: Upload Chat build metadata
         uses: actions/upload-artifact@v4
         with:
@@ -604,28 +871,50 @@ jobs:
           path: build-info/docker-metadata-chat.json
           retention-days: 90
 
+      # ------------------------------------------------------
+      # 12. Discord 알림 - 성공
+      # ------------------------------------------------------
       - name: Send Discord notification on success
         if: success()
         uses: tsickert/discord-webhook@v5.3.0
         with:
           webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
           username: "Backend CI/CD Bot"
+          avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
           embed-title: "✅ [Chat] Docker 이미지 ECR 푸시 성공"
           embed-description: |
             **브랜치:** `${{ github.ref_name }}`
+            **버전:** `${{ needs.test-and-build.outputs.version }}`
             **이미지 태그:** `${{ needs.test-and-build.outputs.image_tag }}`
-            **ECR URI:** `${{ steps.meta.outputs.image_uri }}`
+            
+            **ECR URI:**
+            ```
+            ${{ steps.meta.outputs.image_uri }}
+            ```
+            
+            CD 파이프라인에서 위 이미지를 사용하여 배포할 수 있습니다. 🚀
+            
             [🔗 Actions 보기](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           embed-color: 3066993
+          embed-footer-text: ${{ github.repository }}
 
+      # ------------------------------------------------------
+      # 12. Discord 알림 - 실패
+      # ------------------------------------------------------
       - name: Send Discord notification on failure
         if: failure()
         uses: tsickert/discord-webhook@v5.3.0
         with:
           webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
           username: "Backend CI/CD Bot"
+          avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
           embed-title: "❌ [Chat] Docker 이미지 ECR 푸시 실패"
           embed-description: |
             **브랜치:** `${{ github.ref_name }}`
+            **커밋:** `${{ github.sha }}`
+            
+            Docker 빌드 또는 ECR 푸시 중 오류가 발생했습니다.
+            
             [🔗 Actions 로그 보기](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           embed-color: 15158332
+          embed-footer-text: ${{ github.repository }}
