@@ -930,7 +930,7 @@ jobs:
               \"TagSpecifications\": [{
                 \"ResourceType\": \"instance\",
                 \"Tags\": [
-                  {\"Key\": \"Name\", \"Value\": \"klosetlab-app-green-${TIMESTAMP}\"},
+                  {\"Key\": \"Name\", \"Value\": \"klosetlab-app-${TIMESTAMP}\"},
                   {\"Key\": \"Environment\", \"Value\": \"production\"},
                   {\"Key\": \"Service\", \"Value\": \"api\"},
                   {\"Key\": \"ImageTag\", \"Value\": \"${{ steps.image.outputs.image_tag }}\"}
@@ -949,7 +949,7 @@ jobs:
         id: green-asg
         run: |
           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-          GREEN_ASG_NAME="klosetlab-app-green-${TIMESTAMP}"
+          GREEN_ASG_NAME="klosetlab-app-asg-${TIMESTAMP}"
           GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
 
           aws autoscaling create-auto-scaling-group \
@@ -962,7 +962,7 @@ jobs:
             --vpc-zone-identifier "${{ secrets.PROD_SUBNET_IDS }}" \
             --health-check-type ELB \
             --health-check-grace-period 300 \
-            --tags "Key=Name,Value=klosetlab-app-green,PropagateAtLaunch=true" \
+            --tags "Key=Name,Value=klosetlab-app,PropagateAtLaunch=true" \
                    "Key=Environment,Value=production,PropagateAtLaunch=true" \
                    "Key=Service,Value=api,PropagateAtLaunch=true" \
                    "Key=ImageTag,Value=${{ steps.image.outputs.image_tag }},PropagateAtLaunch=true"
@@ -1484,10 +1484,10 @@ jobs:
             --query "Rules[?Conditions[?Field=='path-pattern' && contains(Values, '/ws*')]].RuleArn" \
             --output text)
 
-          # Chat API 규칙 (/api/v2/chat*)
+          # Chat API 규칙 (/api/v2/chat/*)
           CHAT_API_RULE_ARN=$(aws elbv2 describe-rules \
             --listener-arn ${LISTENER_ARN} \
-            --query "Rules[?Conditions[?Field=='path-pattern' && contains(Values, '/api/v2/chat*')]].RuleArn" \
+            --query "Rules[?Conditions[?Field=='path-pattern' && contains(Values, '/api/v2/chat/*')]].RuleArn" \
             --output text)
 
           # WebSocket 규칙이 Blue TG를 가리키는지 확인
@@ -1515,7 +1515,7 @@ jobs:
             exit 1
           fi
           if [ "$API_CURRENT_TG_ARN" != "$BLUE_TG_ARN" ]; then
-            echo "❌ /api/v2/chat* rule is not pointing to Blue TG!"
+            echo "❌ /api/v2/chat/* rule is not pointing to Blue TG!"
             echo "Expected: ${BLUE_TG_ARN}"
             echo "Current:  ${API_CURRENT_TG_ARN}"
             echo "이전 배포가 정상 완료되지 않은 상태입니다. 확인 후 재시도하세요."
@@ -1596,7 +1596,7 @@ jobs:
               \"TagSpecifications\": [{
                 \"ResourceType\": \"instance\",
                 \"Tags\": [
-                  {\"Key\": \"Name\", \"Value\": \"klosetlab-chat-green-${TIMESTAMP}\"},
+                  {\"Key\": \"Name\", \"Value\": \"klosetlab-chat-${TIMESTAMP}\"},
                   {\"Key\": \"Environment\", \"Value\": \"production\"},
                   {\"Key\": \"Service\", \"Value\": \"chat\"},
                   {\"Key\": \"ImageTag\", \"Value\": \"${{ steps.image.outputs.image_tag }}\"}
@@ -1615,7 +1615,7 @@ jobs:
         id: green-asg
         run: |
           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-          GREEN_ASG_NAME="klosetlab-chat-green-${TIMESTAMP}"
+          GREEN_ASG_NAME="klosetlab-chat-asg-${TIMESTAMP}"
           GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
 
           aws autoscaling create-auto-scaling-group \
@@ -1628,7 +1628,7 @@ jobs:
             --vpc-zone-identifier "${{ secrets.PROD_SUBNET_IDS }}" \
             --health-check-type ELB \
             --health-check-grace-period 300 \
-            --tags "Key=Name,Value=klosetlab-chat-green,PropagateAtLaunch=true" \
+            --tags "Key=Name,Value=klosetlab-chat,PropagateAtLaunch=true" \
                    "Key=Environment,Value=production,PropagateAtLaunch=true" \
                    "Key=Service,Value=chat,PropagateAtLaunch=true" \
                    "Key=ImageTag,Value=${{ steps.image.outputs.image_tag }},PropagateAtLaunch=true"
@@ -1693,7 +1693,7 @@ jobs:
       # 1. 이 섹션의 주석(#)을 해제
       # 2. Rollback 스텝의 "CANARY ROLLBACK" 섹션도 함께 주석 해제
       # 3. 기존 "Switch traffic Blue → Green" 스텝은 그대로 유지 (100% 전환은 카나리 통과 후 실행)
-      # 4. Chat은 /ws* 와 /api/v2/chat* 두 규칙을 모두 전환해야 함
+      # 4. Chat은 /ws* 와 /api/v2/chat/* 두 규칙을 모두 전환해야 함
       #
 
       # # ------------------------------------------------------
@@ -1720,7 +1720,7 @@ jobs:
       #         }
       #       }]"
       #
-      #     # /api/v2/chat* 규칙 10% 전환
+      #     # /api/v2/chat/* 규칙 10% 전환
       #     aws elbv2 modify-rule \
       #       --rule-arn ${CHAT_API_RULE_ARN} \
       #       --actions "[{
@@ -1733,7 +1733,7 @@ jobs:
       #         }
       #       }]"
       #
-      #     echo "✅ Canary: 10% traffic on Green (both /ws* and /api/v2/chat*)"
+      #     echo "✅ Canary: 10% traffic on Green (both /ws* and /api/v2/chat/*)"
       #     echo "### 🔄 Traffic: Blue 90% / Green 10%" >> $GITHUB_STEP_SUMMARY
       #
       # - name: "Canary: Monitor 10% traffic (10 min)"
@@ -1789,7 +1789,7 @@ jobs:
       #         }
       #       }]"
       #
-      #     # /api/v2/chat* 규칙 50% 전환
+      #     # /api/v2/chat/* 규칙 50% 전환
       #     aws elbv2 modify-rule \
       #       --rule-arn ${CHAT_API_RULE_ARN} \
       #       --actions "[{
@@ -1802,7 +1802,7 @@ jobs:
       #         }
       #       }]"
       #
-      #     echo "✅ Canary: 50% traffic on Green (both /ws* and /api/v2/chat*)"
+      #     echo "✅ Canary: 50% traffic on Green (both /ws* and /api/v2/chat/*)"
       #     echo "### 🔄 Traffic: Blue 50% / Green 50%" >> $GITHUB_STEP_SUMMARY
       #
       # - name: "Canary: Monitor 50% traffic (15 min)"
@@ -1857,7 +1857,7 @@ jobs:
               }
             }]"
 
-          # /api/v2/chat* 규칙 전환
+          # /api/v2/chat/* 규칙 전환
           aws elbv2 modify-rule \
             --rule-arn ${CHAT_API_RULE_ARN} \
             --actions "[{
@@ -1870,7 +1870,7 @@ jobs:
               }
             }]"
 
-          echo "✅ Traffic switched: Blue(0%) → Green(100%) for both /ws* and /api/v2/chat*"
+          echo "✅ Traffic switched: Blue(0%) → Green(100%) for both /ws* and /api/v2/chat/*"
           echo "### ✅ Traffic: Green 100%" >> $GITHUB_STEP_SUMMARY
 
       # === CANARY FINAL MONITORING (Chat) ===
@@ -2049,7 +2049,7 @@ jobs:
           #         ]
           #       }
           #     }]" || true
-          #   # /api/v2/chat* 원복
+          #   # /api/v2/chat/* 원복
           #   aws elbv2 modify-rule \
           #     --rule-arn ${CHAT_API_RULE_ARN} \
           #     --actions "[{
@@ -2079,7 +2079,7 @@ jobs:
                   ]
                 }
               }]" || true
-            # /api/v2/chat* 원복
+            # /api/v2/chat/* 원복
             aws elbv2 modify-rule \
               --rule-arn ${CHAT_API_RULE_ARN} \
               --actions "[{
