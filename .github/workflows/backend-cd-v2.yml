@@ -110,7 +110,7 @@ jobs:
 
           API_RULE_ARN=$(aws elbv2 describe-rules \
             --listener-arn ${LISTENER_ARN} \
-            --query "Rules[?Conditions[?Field=='path-pattern' && contains(Values, '/api/*')]].RuleArn" \
+            --query "Rules[?contains(Conditions[].Values[], '/api/*')].RuleArn" \
             --output text)
 
           CURRENT_TG_ARN=$(aws elbv2 describe-rules \
@@ -837,7 +837,7 @@ jobs:
 
           API_RULE_ARN=$(aws elbv2 describe-rules \
             --listener-arn ${LISTENER_ARN} \
-            --query "Rules[?Conditions[?Field=='path-pattern' && contains(Values, '/api/*')]].RuleArn" \
+            --query "Rules[?contains(Conditions[].Values[], '/api/*')].RuleArn" \
             --output text)
 
           CURRENT_TG_ARN=$(aws elbv2 describe-rules \
@@ -1481,13 +1481,13 @@ jobs:
           # WebSocket 규칙 (/ws*)
           CHAT_RULE_ARN=$(aws elbv2 describe-rules \
             --listener-arn ${LISTENER_ARN} \
-            --query "Rules[?Conditions[?Field=='path-pattern' && contains(Values, '/ws*')]].RuleArn" \
+            --query "Rules[?contains(Conditions[].Values[], '/ws*')].RuleArn" \
             --output text)
 
           # Chat API 규칙 (/api/v2/chat/*)
           CHAT_API_RULE_ARN=$(aws elbv2 describe-rules \
             --listener-arn ${LISTENER_ARN} \
-            --query "Rules[?Conditions[?Field=='path-pattern' && contains(Values, '/api/v2/chat/*')]].RuleArn" \
+            --query "Rules[?contains(Conditions[].Values[], '/api/v2/chat/*')].RuleArn" \
             --output text)
 
           # WebSocket 규칙이 Blue TG를 가리키는지 확인
