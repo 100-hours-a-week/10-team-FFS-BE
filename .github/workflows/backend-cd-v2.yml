@@ -679,7 +679,7 @@ jobs:
           cat > deployment-info.json <<EOF
           {
             "environment": "staging",
-            "service", "chat",
+            "service": "chat",
             "deployed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "image_uri": "${{ steps.image.outputs.image_uri }}",
             "image_tag": "${{ steps.image.outputs.image_tag }}",
@@ -1490,22 +1490,28 @@ jobs:
             --query "Rules[?contains(Conditions[].Values[], '/api/v2/chat/*')].RuleArn" \
             --output text)
 
+          echo "chat_rule_arn=${CHAT_RULE_ARN}" >> $GITHUB_OUTPUT
+          echo "chat_api_rule_arn=${CHAT_API_RULE_ARN}" >> $GITHUB_OUTPUT
+          echo "blue_tg_arn=${BLUE_TG_ARN}" >> $GITHUB_OUTPUT
+          echo "green_tg_arn=${GREEN_TG_ARN}" >> $GITHUB_OUTPUT
+
           # WebSocket 규칙이 Blue TG를 가리키는지 확인
           CURRENT_TG_ARN=$(aws elbv2 describe-rules \
             --rule-arns ${CHAT_RULE_ARN} \
-            --query 'Rules[0].Actions[0].ForwardConfig.TargetGroups[0].TargetGroupArn' \
+            --query 'Rules[0].Actions[0].ForwardConfig.TargetGroups | sort_by(@, &Weight) | [-1].TargetGroupArn' \
             --output text)
 
           # Chat API 규칙이 Blue TG를 가리키는지 확인
           API_CURRENT_TG_ARN=$(aws elbv2 describe-rules \
             --rule-arns ${CHAT_API_RULE_ARN} \
-            --query 'Rules[0].Actions[0].ForwardConfig.TargetGroups[0].TargetGroupArn' \
+            --query 'Rules[0].Actions[0].ForwardConfig.TargetGroups | sort_by(@, &Weight) | [-1].TargetGroupArn' \
             --output text)
 
-          echo "chat_rule_arn=${CHAT_RULE_ARN}" >> $GITHUB_OUTPUT
-          echo "chat_api_rule_arn=${CHAT_API_RULE_ARN}" >> $GITHUB_OUTPUT
-          echo "blue_tg_arn=${BLUE_TG_ARN}" >> $GITHUB_OUTPUT
-          echo "green_tg_arn=${GREEN_TG_ARN}" >> $GITHUB_OUTPUT
+          echo "=== Debug Info ==="
+          echo "CHAT_RULE_ARN: ${CHAT_RULE_ARN}"
+          echo "BLUE_TG_ARN:   ${BLUE_TG_ARN}"
+          echo "CURRENT_TG (ws):        ${CURRENT_TG_ARN}"
+          echo "CURRENT_TG (chat api):  ${API_CURRENT_TG_ARN}"
 
           if [ "$CURRENT_TG_ARN" != "$BLUE_TG_ARN" ]; then
             echo "❌ /ws* rule is not pointing to Blue TG!"
