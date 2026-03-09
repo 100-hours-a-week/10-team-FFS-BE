@@ -45,7 +45,9 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         String method = request.getMethod();
 
         if ("POST".equalsIgnoreCase(method)) {
-            if (uri.endsWith("/clothes/analyses") || uri.equals("/api/v1/outfits")) {
+            if (uri.endsWith("/clothes/analyses")
+                    || uri.equals("/api/v1/outfits")
+                    || uri.equals("/api/v2/product-recommendations")) {
                 return RateLimitType.AI_API;
             }
         }
