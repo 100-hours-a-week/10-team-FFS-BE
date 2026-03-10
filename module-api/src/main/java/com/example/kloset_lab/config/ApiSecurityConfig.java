@@ -69,6 +69,8 @@ public class ApiSecurityConfig {
                                 "/api/v1/feeds/{feedId}/likes",
                                 "/api/v1/feeds/{feedId}/comments",
                                 "/api/v1/feeds/{feedId}/comments/{commentId}/replies",
+                                "/api/v1/users/{userId}",
+                                "/api/v1/users/{userId}/**",
                                 "/api/v2/users/{userId}/following",
                                 "/api/v2/users/{userId}/followers")
                         .permitAll()
