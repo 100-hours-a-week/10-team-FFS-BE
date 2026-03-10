@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -51,8 +52,6 @@ public class ApiSecurityConfig {
                         .permitAll()
                         .requestMatchers("/api/v1/presigned-url")
                         .permitAll()
-                        .requestMatchers("/ws/**")
-                        .permitAll()
                         .requestMatchers("/api/internal/presigned-url")
                         .permitAll()
                         .requestMatchers(
@@ -62,6 +61,16 @@ public class ApiSecurityConfig {
                                 "/api-docs",
                                 "/api-docs/**",
                                 "/v3/api-docs/**")
+                        .permitAll()
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/v1/feeds",
+                                "/api/v1/feeds/{feedId}",
+                                "/api/v1/feeds/{feedId}/likes",
+                                "/api/v1/feeds/{feedId}/comments",
+                                "/api/v1/feeds/{feedId}/comments/{commentId}/replies",
+                                "/api/v2/users/{userId}/following",
+                                "/api/v2/users/{userId}/followers")
                         .permitAll()
                         .anyRequest()
                         .authenticated())
