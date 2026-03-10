@@ -40,6 +40,7 @@ public class AnalyzeSource extends BaseTimeEntity {
         this.sourceId = UlidCreator.getMonotonicUlid().toString();
         this.batch = batch;
         this.status = SourceStatus.ACCEPTED;
+        this.completedCount = 0;
     }
 
     public void completeAbuseCheck(boolean passed) {
@@ -47,16 +48,13 @@ public class AnalyzeSource extends BaseTimeEntity {
         this.passed = passed;
         if (!passed) {
             this.completedCount++;
-            if (this.detectedCount.equals(this.completedCount)) {
-                this.batch.incrementCompleted();
-            }
+            this.batch.incrementCompleted();
         }
     }
 
     public void completePreprocessing(int detectedCount) {
         this.status = SourceStatus.PREPROCESSING_COMPLETED;
         this.detectedCount = detectedCount;
-        this.completedCount = 0;
     }
 
     public void incrementTaskCompleted() {
