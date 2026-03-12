@@ -72,6 +72,7 @@ public class Message {
     public static final String TPO_OUTFITS_RETRIEVED = "tpo_outfits_retrieved";
     public static final String REACTION_RECORDED = "reaction_recorded";
     public static final String PRODUCTS_RETRIEVED = "products_retrieved";
+    public static final String OUTFIT_REQUEST_ACCEPTED = "outfit_request_accepted";
 
     // Shopping
     public static final String PRODUCTS_FETCHED = "products_fetched";
