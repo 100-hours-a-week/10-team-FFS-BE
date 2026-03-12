@@ -16,10 +16,8 @@ public record SessionHistoryResponse(String sessionId, int uptoTurnNo, List<Turn
 
     @Builder
     public record TurnHistory(
-            int turnNo,
-            String requestText,
-            String querySummary,
-            List<Long> outfitIds,
-            String reaction,
-            LocalDateTime createdAt) {}
+            int turnNo, String requestText, String querySummary, List<OutfitDetail> outfits, LocalDateTime createdAt) {}
+
+    @Builder
+    public record OutfitDetail(Long resultId, List<Long> clothesIds, String reaction) {}
 }
