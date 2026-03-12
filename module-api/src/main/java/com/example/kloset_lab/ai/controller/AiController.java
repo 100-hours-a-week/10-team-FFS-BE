@@ -1,5 +1,6 @@
 package com.example.kloset_lab.ai.controller;
 
+import com.example.kloset_lab.ai.dto.OutfitAcceptedResponse;
 import com.example.kloset_lab.ai.dto.ShopRecommendationRequest;
 import com.example.kloset_lab.ai.dto.ShopRecommendationResponse;
 import com.example.kloset_lab.ai.dto.TpoFeedbackRequest;
@@ -7,6 +8,7 @@ import com.example.kloset_lab.ai.dto.TpoOutfitsRequest;
 import com.example.kloset_lab.ai.dto.TpoOutfitsResponse;
 import com.example.kloset_lab.ai.dto.TpoRequestHistoryResponse;
 import com.example.kloset_lab.ai.service.AiService;
+import com.example.kloset_lab.ai.service.OutfitService;
 import com.example.kloset_lab.global.response.ApiResponse;
 import com.example.kloset_lab.global.response.ApiResponses;
 import com.example.kloset_lab.global.response.Message;
@@ -22,9 +24,27 @@ import org.springframework.web.bind.annotation.*;
 public class AiController {
 
     private final AiService aiService;
+    private final OutfitService outfitService;
 
     /**
-     * TPO 코디 생성 요청 API
+     * 비동기 코디 추천 요청 API (Kafka 기반, 202 Accepted)
+     *
+     * @param userId 현재 로그인한 사용자 ID
+     * @param request 코디 추천 요청 DTO
+     * @param sessionId 세션 ID (null이면 새 세션 생성)
+     * @return 수락 응답 (requestId, sessionId, turnNo)
+     */
+    @PostMapping("/v2/outfits")
+    public ResponseEntity<ApiResponse<OutfitAcceptedResponse>> requestOutfit(
+            @AuthenticationPrincipal Long userId,
+            @Valid @RequestBody TpoOutfitsRequest request,
+            @RequestParam(required = false) String sessionId) {
+        OutfitAcceptedResponse response = outfitService.requestOutfit(userId, request, sessionId);
+        return ApiResponses.accepted(Message.OUTFIT_REQUEST_ACCEPTED, response);
+    }
+
+    /**
+     * TPO 코디 생성 요청 API (v1 동기 방식 — 레거시)
      *
      * @param userId 현재 로그인한 사용자 ID
      * @param request TPO 코디 생성 요청 내용 DTO
@@ -51,7 +71,24 @@ public class AiController {
     }
 
     /**
-     * TPO 결과 피드백 등록 API
+     * 코디 결과 피드백 등록 API (v2 세션 기반 — 서버 규칙 적용)
+     *
+     * @param userId 현재 로그인한 사용자 ID
+     * @param resultId TPO 결과 ID
+     * @param request 피드백 요청 DTO
+     * @return 성공 응답
+     */
+    @PatchMapping("/v2/outfits/feedbacks/{resultId}")
+    public ResponseEntity<ApiResponse<Void>> recordOutfitReaction(
+            @AuthenticationPrincipal Long userId,
+            @PathVariable Long resultId,
+            @Valid @RequestBody TpoFeedbackRequest request) {
+        outfitService.recordReaction(userId, resultId, request);
+        return ApiResponses.ok(Message.REACTION_RECORDED);
+    }
+
+    /**
+     * TPO 결과 피드백 등록 API (v1 레거시)
      *
      * @param userId 현재 로그인한 사용자 ID
      * @param resultId TPO 결과 ID

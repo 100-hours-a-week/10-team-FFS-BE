@@ -19,4 +19,17 @@ public interface TpoResultRepository extends JpaRepository<TpoResult, Long> {
             + "JOIN FETCH req.user "
             + "WHERE tr.id = :id")
     Optional<TpoResult> findByIdWithUser(@Param("id") Long id);
+
+    /**
+     * tpoResult + tpoRequest + user + tpoSession을 단일 쿼리로 조회 (TX2 피드백 검증용)
+     *
+     * @param id tpoResult PK
+     * @return TpoResult (user, tpoSession까지 페치)
+     */
+    @Query("SELECT tr FROM TpoResult tr "
+            + "JOIN FETCH tr.tpoRequest req "
+            + "JOIN FETCH req.user "
+            + "LEFT JOIN FETCH req.tpoSession "
+            + "WHERE tr.id = :id")
+    Optional<TpoResult> findByIdWithSession(@Param("id") Long id);
 }

@@ -1,12 +1,16 @@
 package com.example.kloset_lab.ai.service;
 
 import com.example.kloset_lab.ai.dto.OutfitAcceptedResponse;
+import com.example.kloset_lab.ai.dto.TpoFeedbackRequest;
 import com.example.kloset_lab.ai.dto.TpoOutfitsRequest;
+import com.example.kloset_lab.ai.entity.Reaction;
 import com.example.kloset_lab.ai.entity.TpoRequest;
+import com.example.kloset_lab.ai.entity.TpoResult;
 import com.example.kloset_lab.ai.entity.TpoSession;
 import com.example.kloset_lab.ai.infrastructure.kafka.dto.OutfitKafkaRequest;
 import com.example.kloset_lab.ai.infrastructure.kafka.producer.OutfitRequestProducer;
 import com.example.kloset_lab.ai.repository.TpoRequestRepository;
+import com.example.kloset_lab.ai.repository.TpoResultRepository;
 import com.example.kloset_lab.ai.repository.TpoSessionRepository;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
@@ -16,6 +20,7 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @Slf4j
@@ -26,6 +31,7 @@ public class OutfitService {
     private final UserRepository userRepository;
     private final TpoSessionRepository tpoSessionRepository;
     private final TpoRequestRepository tpoRequestRepository;
+    private final TpoResultRepository tpoResultRepository;
     private final OutfitRequestProducer outfitRequestProducer;
     private final TransactionTemplate transactionTemplate;
 
@@ -68,6 +74,55 @@ public class OutfitService {
                 OutfitKafkaRequest.of(response.requestId(), userId, request.content(), response.sessionId(), null));
 
         return response;
+    }
+
+    /**
+     * TX2: 코디 결과 피드백 등록 (세션 기반 서버 규칙 적용)
+     *
+     * <p>규칙 1: 리액션 재수정 금지 (NONE일 때만 업데이트)
+     * <p>규칙 2: 최신 턴 이외 리액션 금지
+     * <p>규칙 3: 세션 in-flight 중 리액션 금지
+     *
+     * @param userId 사용자 ID
+     * @param resultId 결과 ID
+     * @param request 피드백 요청 DTO
+     */
+    @Transactional
+    public void recordReaction(Long userId, Long resultId, TpoFeedbackRequest request) {
+        TpoResult tpoResult = tpoResultRepository
+                .findByIdWithSession(resultId)
+                .orElseThrow(() -> new CustomException(ErrorCode.TPO_RESULT_NOT_FOUND));
+
+        // 소유권 검증
+        Long ownerId = tpoResult.getTpoRequest().getUser().getId();
+        if (!ownerId.equals(userId)) {
+            throw new CustomException(ErrorCode.TPO_RESULT_ACCESS_DENIED);
+        }
+
+        // 규칙 1: 리액션 재수정 금지
+        if (tpoResult.getReaction() != Reaction.NONE) {
+            throw new CustomException(ErrorCode.REACTION_ALREADY_SET);
+        }
+
+        TpoSession session = tpoResult.getTpoRequest().getTpoSession();
+        if (session != null) {
+            // 세션 잠금
+            TpoSession lockedSession = tpoSessionRepository
+                    .findBySessionIdForUpdate(session.getSessionId())
+                    .orElseThrow(() -> new CustomException(ErrorCode.SESSION_NOT_FOUND));
+
+            // 규칙 2: 최신 턴 이외 리액션 금지
+            if (!tpoResult.getTpoRequest().getTurnNo().equals(lockedSession.getLastTurnNo())) {
+                throw new CustomException(ErrorCode.NOT_LATEST_TURN_RESULT);
+            }
+
+            // 규칙 3: 세션 in-flight 중 리액션 금지
+            if (lockedSession.isInflight()) {
+                throw new CustomException(ErrorCode.SESSION_INFLIGHT);
+            }
+        }
+
+        tpoResult.updateReaction(request.reaction());
     }
 
     /**
