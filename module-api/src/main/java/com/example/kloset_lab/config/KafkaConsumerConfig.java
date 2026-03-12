@@ -44,4 +44,18 @@ public class KafkaConsumerConfig {
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
         return factory;
     }
+
+    // 코디 추천 결과 컨슈머 (concurrency: 3)
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, String> outfitResultListenerFactory() {
+
+        Map<String, Object> props = baseConsumerProps("outfit_result_worker_group");
+
+        ConcurrentKafkaListenerContainerFactory<String, String> factory =
+                new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(new DefaultKafkaConsumerFactory<>(props));
+        factory.setConcurrency(3);
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
+        return factory;
+    }
 }

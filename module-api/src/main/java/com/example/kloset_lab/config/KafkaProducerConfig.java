@@ -52,4 +52,13 @@ public class KafkaProducerConfig {
         props.put(ProducerConfig.RETRIES_CONFIG, 3);
         return new KafkaTemplate<>(new DefaultKafkaProducerFactory<>(props, new StringSerializer(), baseSerializer()));
     }
+
+    // 코디 추천 요청용
+    @Bean
+    public KafkaTemplate<String, Object> outfitKafkaTemplate() {
+        Map<String, Object> props = baseProducerProps();
+        props.put(ProducerConfig.RETRIES_CONFIG, 3);
+        props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, 5000);
+        return new KafkaTemplate<>(new DefaultKafkaProducerFactory<>(props, new StringSerializer(), baseSerializer()));
+    }
 }
