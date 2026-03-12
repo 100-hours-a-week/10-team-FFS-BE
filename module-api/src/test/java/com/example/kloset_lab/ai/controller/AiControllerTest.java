@@ -15,6 +15,7 @@ import com.example.kloset_lab.ai.dto.ShopRecommendationRequest;
 import com.example.kloset_lab.ai.dto.TpoFeedbackRequest;
 import com.example.kloset_lab.ai.fixture.AiFixture;
 import com.example.kloset_lab.ai.service.AiService;
+import com.example.kloset_lab.ai.service.OutfitService;
 import com.example.kloset_lab.global.base.ControllerTest;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
@@ -32,6 +33,9 @@ class AiControllerTest extends ControllerTest {
 
     @MockitoBean
     private AiService aiService;
+
+    @MockitoBean
+    private OutfitService outfitService;
 
     // ──────────────────────────────────────────────────────────────────────────
     // POST /api/v2/product-recommendations — 쇼핑 코디 추천 요청
