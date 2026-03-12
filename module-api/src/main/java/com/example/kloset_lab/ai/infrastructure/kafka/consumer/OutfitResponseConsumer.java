@@ -1,7 +1,12 @@
 package com.example.kloset_lab.ai.infrastructure.kafka.consumer;
 
+import com.example.kloset_lab.ai.dto.OutfitResultContext;
+import com.example.kloset_lab.ai.entity.TpoRequest;
 import com.example.kloset_lab.ai.infrastructure.kafka.dto.OutfitKafkaResponse;
+import com.example.kloset_lab.ai.repository.TpoRequestRepository;
 import com.example.kloset_lab.ai.service.OutfitResultService;
+import com.example.kloset_lab.global.infrastructure.OutfitWebSocketMessage;
+import com.example.kloset_lab.global.infrastructure.RedisEventPublisher;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -21,7 +26,11 @@ import org.springframework.stereotype.Component;
 @Profile("!ci")
 public class OutfitResponseConsumer {
 
+    private static final String OUTFIT_CHANNEL = "outfit:event:%d";
+
     private final OutfitResultService outfitResultService;
+    private final TpoRequestRepository tpoRequestRepository;
+    private final RedisEventPublisher redisEventPublisher;
     private final ObjectMapper objectMapper;
 
     @KafkaListener(
@@ -37,9 +46,9 @@ public class OutfitResponseConsumer {
             if (response.isProcessing()) {
                 handleProgress(response);
             } else if (response.isSuccess()) {
-                outfitResultService.handleSuccess(response);
+                handleSuccess(response);
             } else if (response.isFailed()) {
-                outfitResultService.handleFailure(response);
+                handleFailure(response);
             } else {
                 log.warn("[OutfitConsumer] 알 수 없는 status: {} - requestId: {}", response.status(), response.requestId());
             }
@@ -61,15 +70,60 @@ public class OutfitResponseConsumer {
     }
 
     /**
-     * 진행 상태 메시지 처리 (WebSocket 푸시)
-     *
-     * <p>TODO: WebSocket 연동 후 SimpMessagingTemplate으로 클라이언트에 진행 상태 푸시
+     * 진행 상태 메시지 → requestId로 userId 조회 후 Redis 이벤트 발행
      */
     private void handleProgress(OutfitKafkaResponse response) {
-        log.info(
-                "[OutfitConsumer] 진행 상태 - requestId: {}, step: {}, label: {}",
-                response.requestId(),
-                response.step(),
-                response.stepLabel());
+        TpoRequest tpoRequest =
+                tpoRequestRepository.findByRequestId(response.requestId()).orElse(null);
+
+        if (tpoRequest == null) {
+            log.debug("[OutfitConsumer] progress: requestId 미존재, 무시 - {}", response.requestId());
+            return;
+        }
+
+        Long userId = tpoRequest.getUser().getId();
+        String sessionId =
+                tpoRequest.getTpoSession() != null ? tpoRequest.getTpoSession().getSessionId() : null;
+
+        OutfitWebSocketMessage message =
+                OutfitWebSocketMessage.progress(response.requestId(), sessionId, response.step(), response.stepLabel());
+
+        publishToUser(userId, message);
+    }
+
+    /**
+     * 성공 응답 → DB 저장 + inflight 해제 + Redis 이벤트 발행
+     */
+    private void handleSuccess(OutfitKafkaResponse response) {
+        OutfitResultContext context = outfitResultService.handleSuccess(response);
+        if (context == null) {
+            return;
+        }
+
+        OutfitWebSocketMessage message = OutfitWebSocketMessage.success(response.requestId(), context.sessionId());
+        publishToUser(context.userId(), message);
+    }
+
+    /**
+     * 실패 응답 → DB 상태 변경 + inflight 해제 + Redis 이벤트 발행
+     */
+    private void handleFailure(OutfitKafkaResponse response) {
+        OutfitResultContext context = outfitResultService.handleFailure(response);
+        if (context == null) {
+            return;
+        }
+
+        String errorCode = response.error() != null ? response.error().code() : "unknown";
+        String errorMessage = response.error() != null ? response.error().message() : "알 수 없는 오류";
+
+        OutfitWebSocketMessage message =
+                OutfitWebSocketMessage.failed(response.requestId(), context.sessionId(), errorCode, errorMessage);
+
+        publishToUser(context.userId(), message);
+    }
+
+    private void publishToUser(Long userId, OutfitWebSocketMessage message) {
+        String channel = String.format(OUTFIT_CHANNEL, userId);
+        redisEventPublisher.publish(channel, message);
     }
 }

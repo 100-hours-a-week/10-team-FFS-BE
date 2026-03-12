@@ -1,6 +1,7 @@
 package com.example.kloset_lab.ai.controller;
 
 import com.example.kloset_lab.ai.dto.OutfitAcceptedResponse;
+import com.example.kloset_lab.ai.dto.OutfitStatusResponse;
 import com.example.kloset_lab.ai.dto.ShopRecommendationRequest;
 import com.example.kloset_lab.ai.dto.ShopRecommendationResponse;
 import com.example.kloset_lab.ai.dto.TpoFeedbackRequest;
@@ -55,6 +56,20 @@ public class AiController {
             @AuthenticationPrincipal Long userId, @Valid @RequestBody TpoOutfitsRequest request) {
         TpoOutfitsResponse response = aiService.generateTpoOutfits(userId, request);
         return ApiResponses.ok(Message.TPO_OUTFITS_RETRIEVED, response);
+    }
+
+    /**
+     * 코디추천 요청 상태 조회 API (WebSocket 재연결 시 상태 복구용)
+     *
+     * @param userId 현재 로그인한 사용자 ID
+     * @param requestId 요청 추적 ID
+     * @return 요청 상태 (PENDING / COMPLETED / FAILED)
+     */
+    @GetMapping("/v2/outfits/requests/{requestId}")
+    public ResponseEntity<ApiResponse<OutfitStatusResponse>> getRequestStatus(
+            @AuthenticationPrincipal Long userId, @PathVariable String requestId) {
+        OutfitStatusResponse response = outfitService.getRequestStatus(userId, requestId);
+        return ApiResponses.ok(Message.CLOTHES_POLLING_RESULT_RETRIEVED, response);
     }
 
     /**

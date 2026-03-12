@@ -1,5 +1,6 @@
 package com.example.kloset_lab.ai.service;
 
+import com.example.kloset_lab.ai.dto.OutfitResultContext;
 import com.example.kloset_lab.ai.entity.TpoRequest;
 import com.example.kloset_lab.ai.entity.TpoResult;
 import com.example.kloset_lab.ai.entity.TpoResultClothes;
@@ -35,10 +36,10 @@ public class OutfitResultService {
      * 성공 응답 처리: 결과 저장 + inflight 해제
      *
      * @param response Kafka 성공 메시지
-     * @return 처리된 TpoRequest의 userId (WebSocket 푸시용)
+     * @return 처리 컨텍스트 (WebSocket 발행용), 무시된 경우 null
      */
     @Transactional
-    public Long handleSuccess(OutfitKafkaResponse response) {
+    public OutfitResultContext handleSuccess(OutfitKafkaResponse response) {
         TpoRequest tpoRequest =
                 tpoRequestRepository.findByRequestId(response.requestId()).orElse(null);
 
@@ -67,17 +68,17 @@ public class OutfitResultService {
                 response.requestId(),
                 response.outfits() != null ? response.outfits().size() : 0);
 
-        return tpoRequest.getUser().getId();
+        return buildContext(tpoRequest);
     }
 
     /**
      * 실패 응답 처리: 상태 FAILED 변경 + inflight 해제
      *
      * @param response Kafka 실패 메시지
-     * @return 처리된 TpoRequest의 userId (WebSocket 푸시용)
+     * @return 처리 컨텍스트 (WebSocket 발행용), 무시된 경우 null
      */
     @Transactional
-    public Long handleFailure(OutfitKafkaResponse response) {
+    public OutfitResultContext handleFailure(OutfitKafkaResponse response) {
         TpoRequest tpoRequest =
                 tpoRequestRepository.findByRequestId(response.requestId()).orElse(null);
 
@@ -100,7 +101,7 @@ public class OutfitResultService {
                 response.error() != null ? response.error().code() : "unknown",
                 response.error() != null ? response.error().message() : "unknown");
 
-        return tpoRequest.getUser().getId();
+        return buildContext(tpoRequest);
     }
 
     /**
@@ -130,6 +131,12 @@ public class OutfitResultService {
                         .toList());
             }
         }
+    }
+
+    private OutfitResultContext buildContext(TpoRequest tpoRequest) {
+        TpoSession session = tpoRequest.getTpoSession();
+        String sessionId = session != null ? session.getSessionId() : null;
+        return new OutfitResultContext(tpoRequest.getUser().getId(), sessionId);
     }
 
     /**

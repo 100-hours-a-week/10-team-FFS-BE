@@ -1,6 +1,7 @@
 package com.example.kloset_lab.ai.service;
 
 import com.example.kloset_lab.ai.dto.OutfitAcceptedResponse;
+import com.example.kloset_lab.ai.dto.OutfitStatusResponse;
 import com.example.kloset_lab.ai.dto.TpoFeedbackRequest;
 import com.example.kloset_lab.ai.dto.TpoOutfitsRequest;
 import com.example.kloset_lab.ai.entity.Reaction;
@@ -123,6 +124,32 @@ public class OutfitService {
         }
 
         tpoResult.updateReaction(request.reaction());
+    }
+
+    /**
+     * 요청 상태 조회 (상태 복구용 — WebSocket 재연결 시 클라이언트 호출)
+     *
+     * @param userId 사용자 ID
+     * @param requestId 요청 추적 ID
+     * @return 요청 상태 응답
+     */
+    @Transactional(readOnly = true)
+    public OutfitStatusResponse getRequestStatus(Long userId, String requestId) {
+        TpoRequest tpoRequest = tpoRequestRepository
+                .findByRequestId(requestId)
+                .orElseThrow(() -> new CustomException(ErrorCode.RESULT_NOT_FOUND));
+
+        if (!tpoRequest.getUser().getId().equals(userId)) {
+            throw new CustomException(ErrorCode.TPO_RESULT_ACCESS_DENIED);
+        }
+
+        TpoSession session = tpoRequest.getTpoSession();
+        return OutfitStatusResponse.builder()
+                .requestId(requestId)
+                .sessionId(session != null ? session.getSessionId() : null)
+                .turnNo(tpoRequest.getTurnNo())
+                .status(tpoRequest.getStatus() != null ? tpoRequest.getStatus().name() : null)
+                .build();
     }
 
     /**
