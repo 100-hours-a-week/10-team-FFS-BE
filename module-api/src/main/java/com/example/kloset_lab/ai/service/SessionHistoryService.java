@@ -39,10 +39,8 @@ public class SessionHistoryService {
         List<TpoRequest> requests =
                 tpoRequestRepository.findSessionHistory(sessionId, userId, uptoTurnNo, PageRequest.of(0, limit));
 
-        // 모든 요청의 결과를 한 번에 조회
-        List<TpoResult> allResults = requests.stream()
-                .flatMap(r -> tpoResultRepository.findByTpoRequest(r).stream())
-                .toList();
+        // 모든 요청의 결과를 한 번에 조회 (N+1 방지)
+        List<TpoResult> allResults = requests.isEmpty() ? List.of() : tpoResultRepository.findByTpoRequestIn(requests);
 
         // 결과별 옷 목록을 한 번에 조회 (N+1 방지)
         Map<Long, List<Long>> clothesMap = buildClothesMap(allResults);

@@ -48,8 +48,8 @@ public class OutfitResultService {
             return null;
         }
 
-        // 멱등성: 이미 처리된 요청은 건너뜀
-        if (tpoRequest.isCompleted()) {
+        // 멱등성: 이미 터미널 상태(COMPLETED/FAILED)인 요청은 건너뜀
+        if (tpoRequest.isTerminal()) {
             log.info("[OutfitResult] 이미 처리된 요청, 건너뜀 - requestId: {}", response.requestId());
             return null;
         }
@@ -87,7 +87,7 @@ public class OutfitResultService {
             return null;
         }
 
-        if (tpoRequest.isCompleted()) {
+        if (tpoRequest.isTerminal()) {
             log.info("[OutfitResult] 이미 처리된 요청, 건너뜀 - requestId: {}", response.requestId());
             return null;
         }
@@ -153,7 +153,7 @@ public class OutfitResultService {
                 .orElse(null);
 
         if (lockedSession != null) {
-            lockedSession.clearInflight();
+            lockedSession.clearInflight(tpoRequest.getRequestId());
         }
     }
 }

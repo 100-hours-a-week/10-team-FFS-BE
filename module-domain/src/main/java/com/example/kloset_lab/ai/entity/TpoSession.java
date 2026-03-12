@@ -69,12 +69,18 @@ public class TpoSession extends BaseTimeEntity {
     }
 
     /**
-     * 인플라이트 상태를 해제한다.
+     * 인플라이트 상태를 해제한다. (requestId 일치 시에만)
+     *
+     * <p>지연/중복 응답이 현재 진행 중인 다른 요청의 inflight를 잘못 해제하는 것을 방지한다.
+     *
+     * @param requestId 해제 대상 요청 ID
      */
-    public void clearInflight() {
-        this.inflightRequestId = null;
-        this.inflightStartedAt = null;
-        this.lastActivityAt = LocalDateTime.now();
+    public void clearInflight(String requestId) {
+        if (this.inflightRequestId != null && this.inflightRequestId.equals(requestId)) {
+            this.inflightRequestId = null;
+            this.inflightStartedAt = null;
+            this.lastActivityAt = LocalDateTime.now();
+        }
     }
 
     /**
