@@ -96,6 +96,7 @@ cors:
     - https://klosetlab.site
     - https://www.klosetlab.site
     - https://d11enmpr5837xn.cloudfront.net
+    - https://v3.klosetlab.site
   allowed-methods:
     - GET
     - POST
