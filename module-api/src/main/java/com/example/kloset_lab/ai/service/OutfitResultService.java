@@ -105,6 +105,37 @@ public class OutfitResultService {
     }
 
     /**
+     * 재질문 응답 처리: 상태 CLARIFICATION_NEEDED 변경 + inflight 해제
+     *
+     * <p>결과 저장 없이 inflight만 해제하여 사용자가 후속 요청을 보낼 수 있도록 한다.
+     *
+     * @param response Kafka clarification_needed 메시지
+     * @return 처리 컨텍스트 (WebSocket 발행용), 무시된 경우 null
+     */
+    @Transactional
+    public OutfitResultContext handleClarificationNeeded(OutfitKafkaResponse response) {
+        TpoRequest tpoRequest =
+                tpoRequestRepository.findByRequestId(response.requestId()).orElse(null);
+
+        if (tpoRequest == null) {
+            log.warn("[OutfitResult] requestId 미존재, 무시 - requestId: {}", response.requestId());
+            return null;
+        }
+
+        if (tpoRequest.isTerminal()) {
+            log.info("[OutfitResult] 이미 처리된 요청, 건너뜀 - requestId: {}", response.requestId());
+            return null;
+        }
+
+        tpoRequest.clarificationNeeded();
+        clearInflight(tpoRequest);
+
+        log.info("[OutfitResult] 재질문 처리 완료 - requestId: {}, message: {}", response.requestId(), response.message());
+
+        return buildContext(tpoRequest);
+    }
+
+    /**
      * 코디 결과(TpoResult + TpoResultClothes)를 저장한다.
      */
     private void saveOutfitResults(TpoRequest tpoRequest, OutfitKafkaResponse response) {
@@ -118,6 +149,7 @@ public class OutfitResultService {
                     .cordiExplainText("")
                     .outfitId(String.valueOf(tpoRequest.getId()) + "_"
                             + response.outfits().indexOf(outfit))
+                    .vtonImageUrl(outfit.vtonImageUrl())
                     .build());
 
             if (outfit.items() != null) {

@@ -84,16 +84,20 @@ public class TpoRequest extends BaseTimeEntity {
         this.status = TpoRequestStatus.FAILED;
     }
 
+    public void clarificationNeeded() {
+        this.status = TpoRequestStatus.CLARIFICATION_NEEDED;
+    }
+
     public boolean isCompleted() {
         return this.status == TpoRequestStatus.COMPLETED;
     }
 
     /**
-     * 터미널 상태(COMPLETED 또는 FAILED)인지 확인한다.
+     * 터미널 상태(COMPLETED / FAILED / CLARIFICATION_NEEDED)인지 확인한다.
      *
      * @return 터미널 상태 여부
      */
     public boolean isTerminal() {
-        return this.status == TpoRequestStatus.COMPLETED || this.status == TpoRequestStatus.FAILED;
+        return this.status != TpoRequestStatus.PENDING;
     }
 }

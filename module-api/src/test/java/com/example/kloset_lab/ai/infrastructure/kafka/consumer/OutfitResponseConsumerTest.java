@@ -134,6 +134,31 @@ class OutfitResponseConsumerTest {
     }
 
     @Nested
+    @DisplayName("clarification_needed 메시지")
+    class ClarificationNeededMessage {
+
+        @Test
+        @DisplayName("재질문 메시지 수신 시 서비스 호출 + Redis 이벤트 발행 + acknowledge")
+        void clarification_정상_처리() throws Exception {
+            OutfitResultContext context = new OutfitResultContext(OutfitFixture.USER_ID, OutfitFixture.SESSION_ID);
+            given(outfitResultService.handleClarificationNeeded(any())).willReturn(context);
+
+            ConsumerRecord<String, String> record = new ConsumerRecord<>(
+                    "outfit-response",
+                    0,
+                    0,
+                    null,
+                    objectMapper.writeValueAsString(OutfitFixture.clarificationNeededResponse()));
+
+            consumer.consume(record, acknowledgment);
+
+            then(outfitResultService).should().handleClarificationNeeded(any());
+            then(redisEventPublisher).should().publish(eq("outfit:event:1"), any());
+            then(acknowledgment).should().acknowledge();
+        }
+    }
+
+    @Nested
     @DisplayName("예외 처리")
     class ExceptionHandling {
 

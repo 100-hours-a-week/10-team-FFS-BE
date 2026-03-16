@@ -49,6 +49,8 @@ public class OutfitResponseConsumer {
                 handleSuccess(response);
             } else if (response.isFailed()) {
                 handleFailure(response);
+            } else if (response.isClarificationNeeded()) {
+                handleClarificationNeeded(response);
             } else {
                 log.warn("[OutfitConsumer] 알 수 없는 status: {} - requestId: {}", response.status(), response.requestId());
             }
@@ -118,6 +120,21 @@ public class OutfitResponseConsumer {
 
         OutfitWebSocketMessage message =
                 OutfitWebSocketMessage.failed(response.requestId(), context.sessionId(), errorCode, errorMessage);
+
+        publishToUser(context.userId(), message);
+    }
+
+    /**
+     * 재질문 응답 → 상태 변경 + inflight 해제 + Redis 이벤트 발행
+     */
+    private void handleClarificationNeeded(OutfitKafkaResponse response) {
+        OutfitResultContext context = outfitResultService.handleClarificationNeeded(response);
+        if (context == null) {
+            return;
+        }
+
+        OutfitWebSocketMessage message = OutfitWebSocketMessage.clarificationNeeded(
+                response.requestId(), context.sessionId(), response.message());
 
         publishToUser(context.userId(), message);
     }

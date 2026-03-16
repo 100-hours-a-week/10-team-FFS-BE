@@ -86,6 +86,7 @@ public class OutfitFixture {
                 List.of(new OutfitKafkaResponse.Outfit(List.of(1L, 2L), 0.85, null)),
                 new OutfitKafkaResponse.Metadata(0.78, false, false, 12400),
                 null,
+                null,
                 "2025-02-27T10:00:12Z");
     }
 
@@ -99,12 +100,35 @@ public class OutfitFixture {
                 null,
                 null,
                 new OutfitKafkaResponse.Error("INFRA_FAILURE", "서비스 일시 장애", 60),
+                null,
                 "2025-02-27T10:00:30Z");
     }
 
     /** Kafka progress 응답 메시지 */
     public static OutfitKafkaResponse progressResponse() {
         return new OutfitKafkaResponse(
-                REQUEST_ID, "processing", "query_parsing", "의도 분석 중...", null, null, null, "2025-02-27T10:00:02Z");
+                REQUEST_ID,
+                "processing",
+                "query_parsing",
+                "의도 분석 중...",
+                null,
+                null,
+                null,
+                null,
+                "2025-02-27T10:00:02Z");
+    }
+
+    /** Kafka clarification_needed 응답 메시지 */
+    public static OutfitKafkaResponse clarificationNeededResponse() {
+        return new OutfitKafkaResponse(
+                REQUEST_ID,
+                "clarification_needed",
+                null,
+                null,
+                null,
+                null,
+                null,
+                "죄송해요, 요청을 정확히 이해하지 못했어요. 어떤 코디를 어떻게 바꾸고 싶으신가요?",
+                "2025-02-27T10:00:01Z");
     }
 }

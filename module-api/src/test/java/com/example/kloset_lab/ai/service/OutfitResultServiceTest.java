@@ -160,4 +160,56 @@ class OutfitResultServiceTest {
             assertThat(context).isNull();
         }
     }
+
+    @Nested
+    @DisplayName("handleClarificationNeeded (재질문 응답 처리)")
+    class HandleClarificationNeeded {
+
+        @Test
+        @DisplayName("정상 처리: CLARIFICATION_NEEDED 상태 변경 + inflight 해제")
+        void 정상_재질문_처리() {
+            TpoRequest tpoRequest = OutfitFixture.testRequest(user, session);
+            session.startInflight(OutfitFixture.REQUEST_ID);
+
+            given(tpoRequestRepository.findByRequestId(OutfitFixture.REQUEST_ID))
+                    .willReturn(Optional.of(tpoRequest));
+            given(tpoSessionRepository.findBySessionIdForUpdate(OutfitFixture.SESSION_ID))
+                    .willReturn(Optional.of(session));
+
+            OutfitResultContext context =
+                    outfitResultService.handleClarificationNeeded(OutfitFixture.clarificationNeededResponse());
+
+            assertThat(context).isNotNull();
+            assertThat(context.userId()).isEqualTo(OutfitFixture.USER_ID);
+            assertThat(tpoRequest.getStatus().name()).isEqualTo("CLARIFICATION_NEEDED");
+            assertThat(session.isInflight()).isFalse();
+            then(tpoResultRepository).should(never()).save(any());
+        }
+
+        @Test
+        @DisplayName("requestId 미존재 시 null 반환")
+        void requestId_미존재() {
+            given(tpoRequestRepository.findByRequestId(OutfitFixture.REQUEST_ID))
+                    .willReturn(Optional.empty());
+
+            OutfitResultContext context =
+                    outfitResultService.handleClarificationNeeded(OutfitFixture.clarificationNeededResponse());
+
+            assertThat(context).isNull();
+        }
+
+        @Test
+        @DisplayName("이미 처리된 요청은 건너뜀 (멱등성)")
+        void 이미_완료된_요청() {
+            TpoRequest completed = OutfitFixture.completedRequest(user, session);
+
+            given(tpoRequestRepository.findByRequestId(OutfitFixture.REQUEST_ID))
+                    .willReturn(Optional.of(completed));
+
+            OutfitResultContext context =
+                    outfitResultService.handleClarificationNeeded(OutfitFixture.clarificationNeededResponse());
+
+            assertThat(context).isNull();
+        }
+    }
 }
