@@ -82,7 +82,7 @@ public class FollowService {
     public PagedResponse<FollowUserItem> getFollowings(
             Long targetUserId, Long currentUserId, Long after, int limit, String sort) {
         User targetUser = findUserOrThrow(targetUserId, ErrorCode.TARGET_USER_NOT_FOUND);
-        User currentUser = findUserOrThrow(currentUserId, ErrorCode.USER_NOT_FOUND);
+        //User currentUser = findUserOrThrow(currentUserId, ErrorCode.USER_NOT_FOUND);
 
         boolean isDesc = "timeDesc".equals(sort);
 
@@ -99,7 +99,7 @@ public class FollowService {
     public PagedResponse<FollowUserItem> getFollowers(
             Long targetUserId, Long currentUserId, Long after, int limit, String sort) {
         User targetUser = findUserOrThrow(targetUserId, ErrorCode.TARGET_USER_NOT_FOUND);
-        User currentUser = findUserOrThrow(currentUserId, ErrorCode.USER_NOT_FOUND);
+        // User currentUser = findUserOrThrow(currentUserId, ErrorCode.USER_NOT_FOUND);
 
         boolean isDesc = "timeDesc".equals(sort);
 
