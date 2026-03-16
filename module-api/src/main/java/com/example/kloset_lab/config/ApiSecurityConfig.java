@@ -74,6 +74,7 @@ public class ApiSecurityConfig {
                                 "/api/v1/users/{userId}/clothes",
                                 "/api/v1/clothes/{clothesId}",
                                 "/api/v2/clothes/{clothesId}/feeds",
+                                "/api/v1/users/{userId}/**",
                                 "/api/v2/users/{userId}/following",
                                 "/api/v2/users/{userId}/followers")
                         .permitAll()
