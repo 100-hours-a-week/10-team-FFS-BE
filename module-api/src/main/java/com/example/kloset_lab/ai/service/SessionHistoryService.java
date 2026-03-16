@@ -75,6 +75,7 @@ public class SessionHistoryService {
                         .resultId(r.getId())
                         .clothesIds(clothesMap.getOrDefault(r.getId(), List.of()))
                         .reaction(r.getReaction().name())
+                        .vtonImageUrl(r.getVtonImageUrl())
                         .build())
                 .toList();
 

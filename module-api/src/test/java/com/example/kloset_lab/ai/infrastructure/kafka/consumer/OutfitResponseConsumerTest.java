@@ -84,7 +84,10 @@ class OutfitResponseConsumerTest {
         @Test
         @DisplayName("성공 메시지 수신 시 서비스 호출 + Redis 이벤트 발행 + acknowledge")
         void success_정상_처리() throws Exception {
-            OutfitResultContext context = new OutfitResultContext(OutfitFixture.USER_ID, OutfitFixture.SESSION_ID);
+            OutfitResultContext context = OutfitResultContext.builder()
+                    .userId(OutfitFixture.USER_ID)
+                    .sessionId(OutfitFixture.SESSION_ID)
+                    .build();
             given(outfitResultService.handleSuccess(any())).willReturn(context);
 
             ConsumerRecord<String, String> record = new ConsumerRecord<>(
@@ -119,7 +122,10 @@ class OutfitResponseConsumerTest {
         @Test
         @DisplayName("실패 메시지 수신 시 서비스 호출 + Redis 이벤트 발행")
         void failed_정상_처리() throws Exception {
-            OutfitResultContext context = new OutfitResultContext(OutfitFixture.USER_ID, OutfitFixture.SESSION_ID);
+            OutfitResultContext context = OutfitResultContext.builder()
+                    .userId(OutfitFixture.USER_ID)
+                    .sessionId(OutfitFixture.SESSION_ID)
+                    .build();
             given(outfitResultService.handleFailure(any())).willReturn(context);
 
             ConsumerRecord<String, String> record = new ConsumerRecord<>(
@@ -140,7 +146,10 @@ class OutfitResponseConsumerTest {
         @Test
         @DisplayName("재질문 메시지 수신 시 서비스 호출 + Redis 이벤트 발행 + acknowledge")
         void clarification_정상_처리() throws Exception {
-            OutfitResultContext context = new OutfitResultContext(OutfitFixture.USER_ID, OutfitFixture.SESSION_ID);
+            OutfitResultContext context = OutfitResultContext.builder()
+                    .userId(OutfitFixture.USER_ID)
+                    .sessionId(OutfitFixture.SESSION_ID)
+                    .build();
             given(outfitResultService.handleClarificationNeeded(any())).willReturn(context);
 
             ConsumerRecord<String, String> record = new ConsumerRecord<>(

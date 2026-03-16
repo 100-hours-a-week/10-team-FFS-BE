@@ -1,6 +1,7 @@
 package com.example.kloset_lab.ai.service;
 
 import com.example.kloset_lab.ai.dto.OutfitResultContext;
+import com.example.kloset_lab.ai.dto.OutfitResultContext.OutfitSummary;
 import com.example.kloset_lab.ai.entity.TpoRequest;
 import com.example.kloset_lab.ai.entity.TpoResult;
 import com.example.kloset_lab.ai.entity.TpoResultClothes;
@@ -12,6 +13,7 @@ import com.example.kloset_lab.ai.repository.TpoResultRepository;
 import com.example.kloset_lab.ai.repository.TpoSessionRepository;
 import com.example.kloset_lab.clothes.entity.Clothes;
 import com.example.kloset_lab.clothes.repository.ClothesRepository;
+import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -54,8 +56,8 @@ public class OutfitResultService {
             return null;
         }
 
-        // 결과 저장
-        saveOutfitResults(tpoRequest, response);
+        // 결과 저장 + 요약 수집
+        List<OutfitSummary> outfitSummaries = saveOutfitResults(tpoRequest, response);
 
         // 상태 변경
         tpoRequest.complete();
@@ -63,12 +65,9 @@ public class OutfitResultService {
         // inflight 해제 (세션 잠금)
         clearInflight(tpoRequest);
 
-        log.info(
-                "[OutfitResult] 성공 처리 완료 - requestId: {}, outfits: {}",
-                response.requestId(),
-                response.outfits() != null ? response.outfits().size() : 0);
+        log.info("[OutfitResult] 성공 처리 완료 - requestId: {}, outfits: {}", response.requestId(), outfitSummaries.size());
 
-        return buildContext(tpoRequest);
+        return buildContext(tpoRequest, outfitSummaries);
     }
 
     /**
@@ -136,12 +135,14 @@ public class OutfitResultService {
     }
 
     /**
-     * 코디 결과(TpoResult + TpoResultClothes)를 저장한다.
+     * 코디 결과(TpoResult + TpoResultClothes)를 저장하고 요약 정보를 반환한다.
      */
-    private void saveOutfitResults(TpoRequest tpoRequest, OutfitKafkaResponse response) {
+    private List<OutfitSummary> saveOutfitResults(TpoRequest tpoRequest, OutfitKafkaResponse response) {
         if (response.outfits() == null || response.outfits().isEmpty()) {
-            return;
+            return List.of();
         }
+
+        List<OutfitSummary> summaries = new ArrayList<>();
 
         for (OutfitKafkaResponse.Outfit outfit : response.outfits()) {
             TpoResult tpoResult = tpoResultRepository.save(TpoResult.builder()
@@ -152,6 +153,7 @@ public class OutfitResultService {
                     .vtonImageUrl(outfit.vtonImageUrl())
                     .build());
 
+            List<Long> savedClothesIds = List.of();
             if (outfit.items() != null) {
                 List<Clothes> clothesList = clothesRepository.findAllById(outfit.items());
 
@@ -161,14 +163,38 @@ public class OutfitResultService {
                                 .clothes(clothes)
                                 .build())
                         .toList());
+
+                savedClothesIds = clothesList.stream().map(Clothes::getId).toList();
             }
+
+            summaries.add(OutfitSummary.builder()
+                    .resultId(tpoResult.getId())
+                    .clothesIds(savedClothesIds)
+                    .reaction(tpoResult.getReaction().name())
+                    .vtonImageUrl(tpoResult.getVtonImageUrl())
+                    .build());
         }
+
+        return summaries;
     }
 
     private OutfitResultContext buildContext(TpoRequest tpoRequest) {
         TpoSession session = tpoRequest.getTpoSession();
         String sessionId = session != null ? session.getSessionId() : null;
-        return new OutfitResultContext(tpoRequest.getUser().getId(), sessionId);
+        return OutfitResultContext.builder()
+                .userId(tpoRequest.getUser().getId())
+                .sessionId(sessionId)
+                .build();
+    }
+
+    private OutfitResultContext buildContext(TpoRequest tpoRequest, List<OutfitSummary> outfits) {
+        TpoSession session = tpoRequest.getTpoSession();
+        String sessionId = session != null ? session.getSessionId() : null;
+        return OutfitResultContext.builder()
+                .userId(tpoRequest.getUser().getId())
+                .sessionId(sessionId)
+                .outfits(outfits)
+                .build();
     }
 
     /**

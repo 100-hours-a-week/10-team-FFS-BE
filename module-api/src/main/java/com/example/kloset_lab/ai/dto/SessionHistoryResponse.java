@@ -19,5 +19,5 @@ public record SessionHistoryResponse(String sessionId, int uptoTurnNo, List<Turn
             int turnNo, String requestText, String querySummary, List<OutfitDetail> outfits, LocalDateTime createdAt) {}
 
     @Builder
-    public record OutfitDetail(Long resultId, List<Long> clothesIds, String reaction) {}
+    public record OutfitDetail(Long resultId, List<Long> clothesIds, String reaction, String vtonImageUrl) {}
 }

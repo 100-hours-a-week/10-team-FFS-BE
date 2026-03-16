@@ -1,14 +1,17 @@
 package com.example.kloset_lab.ai.infrastructure.kafka.consumer;
 
 import com.example.kloset_lab.ai.dto.OutfitResultContext;
+import com.example.kloset_lab.ai.dto.OutfitResultContext.OutfitSummary;
 import com.example.kloset_lab.ai.entity.TpoRequest;
 import com.example.kloset_lab.ai.infrastructure.kafka.dto.OutfitKafkaResponse;
 import com.example.kloset_lab.ai.repository.TpoRequestRepository;
 import com.example.kloset_lab.ai.service.OutfitResultService;
 import com.example.kloset_lab.global.infrastructure.OutfitWebSocketMessage;
+import com.example.kloset_lab.global.infrastructure.OutfitWebSocketMessage.OutfitData;
 import com.example.kloset_lab.global.infrastructure.RedisEventPublisher;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -94,7 +97,7 @@ public class OutfitResponseConsumer {
     }
 
     /**
-     * 성공 응답 → DB 저장 + inflight 해제 + Redis 이벤트 발행
+     * 성공 응답 → DB 저장 + inflight 해제 + Redis 이벤트 발행 (outfit 데이터 포함)
      */
     private void handleSuccess(OutfitKafkaResponse response) {
         OutfitResultContext context = outfitResultService.handleSuccess(response);
@@ -102,7 +105,9 @@ public class OutfitResponseConsumer {
             return;
         }
 
-        OutfitWebSocketMessage message = OutfitWebSocketMessage.success(response.requestId(), context.sessionId());
+        List<OutfitData> outfitData = toOutfitData(context.outfits());
+        OutfitWebSocketMessage message =
+                OutfitWebSocketMessage.success(response.requestId(), context.sessionId(), outfitData);
         publishToUser(context.userId(), message);
     }
 
@@ -137,6 +142,20 @@ public class OutfitResponseConsumer {
                 response.requestId(), context.sessionId(), response.message());
 
         publishToUser(context.userId(), message);
+    }
+
+    private List<OutfitData> toOutfitData(List<OutfitSummary> summaries) {
+        if (summaries == null || summaries.isEmpty()) {
+            return List.of();
+        }
+        return summaries.stream()
+                .map(s -> OutfitData.builder()
+                        .resultId(s.resultId())
+                        .clothesIds(s.clothesIds())
+                        .reaction(s.reaction())
+                        .vtonImageUrl(s.vtonImageUrl())
+                        .build())
+                .toList();
     }
 
     private void publishToUser(Long userId, OutfitWebSocketMessage message) {

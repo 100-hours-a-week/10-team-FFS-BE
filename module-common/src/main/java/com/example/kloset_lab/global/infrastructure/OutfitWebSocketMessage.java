@@ -1,6 +1,7 @@
 package com.example.kloset_lab.global.infrastructure;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import java.util.List;
 import lombok.Builder;
 
 /**
@@ -16,6 +17,7 @@ import lombok.Builder;
  * @param errorCode 에러 코드 (failed일 때)
  * @param errorMessage 에러 메시지 (failed일 때)
  * @param message 재질문 메시지 (clarification_needed일 때)
+ * @param outfits 코디 결과 목록 (success일 때)
  */
 @Builder
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -27,7 +29,14 @@ public record OutfitWebSocketMessage(
         String stepLabel,
         String errorCode,
         String errorMessage,
-        String message) {
+        String message,
+        List<OutfitData> outfits) {
+
+    /**
+     * 코디 결과 단건 (SessionHistoryResponse.OutfitDetail과 동일 구조)
+     */
+    @Builder
+    public record OutfitData(Long resultId, List<Long> clothesIds, String reaction, String vtonImageUrl) {}
 
     public static OutfitWebSocketMessage progress(String requestId, String sessionId, String step, String stepLabel) {
         return OutfitWebSocketMessage.builder()
@@ -39,11 +48,12 @@ public record OutfitWebSocketMessage(
                 .build();
     }
 
-    public static OutfitWebSocketMessage success(String requestId, String sessionId) {
+    public static OutfitWebSocketMessage success(String requestId, String sessionId, List<OutfitData> outfits) {
         return OutfitWebSocketMessage.builder()
                 .requestId(requestId)
                 .sessionId(sessionId)
                 .status("success")
+                .outfits(outfits)
                 .build();
     }
 
