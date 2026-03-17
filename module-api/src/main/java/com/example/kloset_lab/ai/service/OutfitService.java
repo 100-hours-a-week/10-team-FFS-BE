@@ -100,11 +100,6 @@ public class OutfitService {
             throw new CustomException(ErrorCode.TPO_RESULT_ACCESS_DENIED);
         }
 
-        // 규칙 1: 리액션 재수정 금지
-        if (tpoResult.getReaction() != Reaction.NONE) {
-            throw new CustomException(ErrorCode.REACTION_ALREADY_SET);
-        }
-
         TpoSession session = tpoResult.getTpoRequest().getTpoSession();
         if (session != null) {
             // 세션 잠금

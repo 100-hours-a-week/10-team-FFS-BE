@@ -70,7 +70,6 @@ public enum ErrorCode {
     UPLOADED_FILE_MISMATCH(HttpStatus.CONFLICT, "uploaded_file_mismatch"),
     ALREADY_FOLLOWING(HttpStatus.CONFLICT, "already_following"),
     SESSION_BUSY(HttpStatus.CONFLICT, "session_busy"),
-    REACTION_ALREADY_SET(HttpStatus.CONFLICT, "reaction_already_set"),
     NOT_LATEST_TURN_RESULT(HttpStatus.CONFLICT, "not_latest_turn_result"),
     SESSION_INFLIGHT(HttpStatus.CONFLICT, "session_inflight"),
 

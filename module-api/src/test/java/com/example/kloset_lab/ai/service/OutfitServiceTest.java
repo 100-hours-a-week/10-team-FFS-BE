@@ -199,21 +199,6 @@ class OutfitServiceTest {
 
             assertThat(tpoResult.getReaction()).isEqualTo(Reaction.GOOD);
         }
-
-        @Test
-        @DisplayName("이미 리액션이 설정되면 REACTION_ALREADY_SET")
-        void 리액션_재수정_금지() {
-            TpoRequest tpoRequest = OutfitFixture.testRequest(user, session);
-            TpoResult tpoResult = OutfitFixture.reactedResult(tpoRequest);
-
-            given(tpoResultRepository.findByIdWithSession(100L)).willReturn(Optional.of(tpoResult));
-
-            assertCustomException(
-                    () -> outfitService.recordReaction(
-                            OutfitFixture.USER_ID, 100L, new TpoFeedbackRequest(Reaction.BAD)),
-                    ErrorCode.REACTION_ALREADY_SET);
-        }
-
         @Test
         @DisplayName("최신 턴이 아니면 NOT_LATEST_TURN_RESULT")
         void 최신_턴_아닌_피드백() {
