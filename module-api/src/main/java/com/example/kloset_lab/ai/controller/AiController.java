@@ -2,6 +2,8 @@ package com.example.kloset_lab.ai.controller;
 
 import com.example.kloset_lab.ai.dto.OutfitAcceptedResponse;
 import com.example.kloset_lab.ai.dto.OutfitStatusResponse;
+import com.example.kloset_lab.ai.dto.SessionHistoryResponse;
+import com.example.kloset_lab.ai.dto.SessionListResponse;
 import com.example.kloset_lab.ai.dto.ShopRecommendationRequest;
 import com.example.kloset_lab.ai.dto.ShopRecommendationResponse;
 import com.example.kloset_lab.ai.dto.TpoFeedbackRequest;
@@ -10,6 +12,7 @@ import com.example.kloset_lab.ai.dto.TpoOutfitsResponse;
 import com.example.kloset_lab.ai.dto.TpoRequestHistoryResponse;
 import com.example.kloset_lab.ai.service.AiService;
 import com.example.kloset_lab.ai.service.OutfitService;
+import com.example.kloset_lab.ai.service.SessionHistoryService;
 import com.example.kloset_lab.global.response.ApiResponse;
 import com.example.kloset_lab.global.response.ApiResponses;
 import com.example.kloset_lab.global.response.Message;
@@ -26,6 +29,7 @@ public class AiController {
 
     private final AiService aiService;
     private final OutfitService outfitService;
+    private final SessionHistoryService sessionHistoryService;
 
     /**
      * 비동기 코디 추천 요청 API (Kafka 기반, 202 Accepted)
@@ -83,6 +87,44 @@ public class AiController {
             @AuthenticationPrincipal Long userId) {
         TpoRequestHistoryResponse response = aiService.getRecentTpoRequests(userId);
         return ApiResponses.ok(Message.RECENT_TPO_REQUESTS_RETRIEVED, response);
+    }
+
+    /**
+     * 세션 목록 조회 API (최근 활동순, 페이징)
+     *
+     * @param userId 현재 로그인한 사용자 ID
+     * @param page 페이지 번호 (0부터)
+     * @param size 페이지 크기 (기본 10)
+     * @return 세션 미리보기 목록
+     */
+    @GetMapping("/v2/outfits/sessions")
+    public ResponseEntity<ApiResponse<SessionListResponse>> getSessionList(
+            @AuthenticationPrincipal Long userId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        SessionListResponse response = sessionHistoryService.getSessionList(userId, page, size);
+        return ApiResponses.ok(Message.SESSION_LIST_RETRIEVED, response);
+    }
+
+    /**
+     * 세션 상세 조회 API (최신 턴 우선, 페이징)
+     *
+     * <p>PENDING 상태의 턴은 outfits가 빈 배열이며, status 필드로 로딩 상태를 구분한다.
+     *
+     * @param userId 현재 로그인한 사용자 ID
+     * @param sessionId 세션 ID
+     * @param page 페이지 번호 (0부터)
+     * @param size 페이지 크기 (기본 10)
+     * @return 세션 내 턴 히스토리
+     */
+    @GetMapping("/v2/outfits/sessions/{sessionId}")
+    public ResponseEntity<ApiResponse<SessionHistoryResponse>> getSessionDetail(
+            @AuthenticationPrincipal Long userId,
+            @PathVariable String sessionId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        SessionHistoryResponse response = sessionHistoryService.getSessionDetail(sessionId, userId, page, size);
+        return ApiResponses.ok(Message.SESSION_DETAIL_RETRIEVED, response);
     }
 
     /**

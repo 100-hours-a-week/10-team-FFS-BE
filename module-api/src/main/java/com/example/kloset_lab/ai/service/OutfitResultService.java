@@ -59,6 +59,11 @@ public class OutfitResultService {
         // 결과 저장 + 요약 수집
         List<OutfitSummary> outfitSummaries = saveOutfitResults(tpoRequest, response);
 
+        // 요청 요약문 저장
+        if (response.querySummary() != null) {
+            tpoRequest.addQuerySummary(response.querySummary());
+        }
+
         // 상태 변경
         tpoRequest.complete();
 
@@ -147,15 +152,18 @@ public class OutfitResultService {
         for (OutfitKafkaResponse.Outfit outfit : response.outfits()) {
             TpoResult tpoResult = tpoResultRepository.save(TpoResult.builder()
                     .tpoRequest(tpoRequest)
-                    .cordiExplainText("")
-                    .outfitId(String.valueOf(tpoRequest.getId()) + "_"
-                            + response.outfits().indexOf(outfit))
+                    .cordiExplainText(outfit.description() != null ? outfit.description() : "")
+                    .outfitId(
+                            outfit.outfitId() != null
+                                    ? outfit.outfitId()
+                                    : tpoRequest.getId() + "_"
+                                            + response.outfits().indexOf(outfit))
                     .vtonImageUrl(outfit.vtonImageUrl())
                     .build());
 
             List<Long> savedClothesIds = List.of();
-            if (outfit.items() != null) {
-                List<Clothes> clothesList = clothesRepository.findAllById(outfit.items());
+            if (outfit.clothesIds() != null) {
+                List<Clothes> clothesList = clothesRepository.findAllById(outfit.clothesIds());
 
                 tpoResultClothesRepository.saveAll(clothesList.stream()
                         .map(clothes -> TpoResultClothes.builder()

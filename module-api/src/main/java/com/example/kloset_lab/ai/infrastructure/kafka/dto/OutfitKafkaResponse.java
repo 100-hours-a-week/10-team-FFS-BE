@@ -8,6 +8,7 @@ import java.util.List;
  *
  * @param requestId 요청 추적 ID
  * @param status 상태 ("processing", "success", "failed", "clarification_needed")
+ * @param querySummary 요청 요약문 (success일 때)
  * @param step 진행 단계 (processing일 때)
  * @param stepLabel 진행 단계 라벨 (processing일 때)
  * @param outfits 코디 결과 목록 (success일 때)
@@ -20,6 +21,7 @@ import java.util.List;
 public record OutfitKafkaResponse(
         String requestId,
         String status,
+        String querySummary,
         String step,
         String stepLabel,
         List<Outfit> outfits,
@@ -29,10 +31,14 @@ public record OutfitKafkaResponse(
         String timestamp) {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Outfit(List<Long> items, double confidence, String vtonImageUrl) {}
+    public record Outfit(
+            String outfitId, String description, List<Long> clothesIds, List<Item> items, String vtonImageUrl) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Metadata(double confidence, boolean shopSupplemented, boolean fallbackUsed, long processingTimeMs) {}
+    public record Item(Long clothesId, String imageUrl, String category, String role) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Metadata(boolean shopSupplemented, boolean fallbackUsed, long processingTimeMs) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Error(String code, String message, Integer retryAfterSeconds) {}

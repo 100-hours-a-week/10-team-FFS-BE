@@ -41,14 +41,6 @@ public interface TpoResultRepository extends JpaRepository<TpoResult, Long> {
     Optional<TpoResult> findByIdWithSession(@Param("id") Long id);
 
     /**
-     * 특정 TpoRequest에 속한 결과 목록 조회
-     *
-     * @param tpoRequest TpoRequest
-     * @return TpoResult 목록
-     */
-    List<TpoResult> findByTpoRequest(TpoRequest tpoRequest);
-
-    /**
      * 여러 TpoRequest에 속한 결과를 일괄 조회 (N+1 방지)
      *
      * @param tpoRequests TpoRequest 목록

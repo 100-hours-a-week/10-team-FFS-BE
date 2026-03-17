@@ -106,8 +106,8 @@ public class OutfitResponseConsumer {
         }
 
         List<OutfitData> outfitData = toOutfitData(context.outfits());
-        OutfitWebSocketMessage message =
-                OutfitWebSocketMessage.success(response.requestId(), context.sessionId(), outfitData);
+        OutfitWebSocketMessage message = OutfitWebSocketMessage.success(
+                response.requestId(), context.sessionId(), response.querySummary(), outfitData);
         publishToUser(context.userId(), message);
     }
 

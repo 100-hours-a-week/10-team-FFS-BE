@@ -81,10 +81,12 @@ public class OutfitFixture {
         return new OutfitKafkaResponse(
                 REQUEST_ID,
                 "success",
+                "면접에 적합한 코디를 추천합니다",
                 null,
                 null,
-                List.of(new OutfitKafkaResponse.Outfit(List.of(1L, 2L), 0.85, null)),
-                new OutfitKafkaResponse.Metadata(0.78, false, false, 12400),
+                List.of(new OutfitKafkaResponse.Outfit(
+                        "outfit_uuid_1", "네이비 블레이저와 화이트 셔츠", List.of(1L, 2L), null, null)),
+                new OutfitKafkaResponse.Metadata(false, false, 12400),
                 null,
                 null,
                 "2025-02-27T10:00:12Z");
@@ -99,6 +101,7 @@ public class OutfitFixture {
                 null,
                 null,
                 null,
+                null,
                 new OutfitKafkaResponse.Error("INFRA_FAILURE", "서비스 일시 장애", 60),
                 null,
                 "2025-02-27T10:00:30Z");
@@ -109,6 +112,7 @@ public class OutfitFixture {
         return new OutfitKafkaResponse(
                 REQUEST_ID,
                 "processing",
+                null,
                 "query_parsing",
                 "의도 분석 중...",
                 null,
@@ -123,6 +127,7 @@ public class OutfitFixture {
         return new OutfitKafkaResponse(
                 REQUEST_ID,
                 "clarification_needed",
+                null,
                 null,
                 null,
                 null,

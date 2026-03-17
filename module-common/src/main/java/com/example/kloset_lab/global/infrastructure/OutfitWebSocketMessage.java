@@ -17,6 +17,7 @@ import lombok.Builder;
  * @param errorCode 에러 코드 (failed일 때)
  * @param errorMessage 에러 메시지 (failed일 때)
  * @param message 재질문 메시지 (clarification_needed일 때)
+ * @param querySummary 요청 요약문 (success일 때)
  * @param outfits 코디 결과 목록 (success일 때)
  */
 @Builder
@@ -30,6 +31,7 @@ public record OutfitWebSocketMessage(
         String errorCode,
         String errorMessage,
         String message,
+        String querySummary,
         List<OutfitData> outfits) {
 
     /**
@@ -48,11 +50,13 @@ public record OutfitWebSocketMessage(
                 .build();
     }
 
-    public static OutfitWebSocketMessage success(String requestId, String sessionId, List<OutfitData> outfits) {
+    public static OutfitWebSocketMessage success(
+            String requestId, String sessionId, String querySummary, List<OutfitData> outfits) {
         return OutfitWebSocketMessage.builder()
                 .requestId(requestId)
                 .sessionId(sessionId)
                 .status("success")
+                .querySummary(querySummary)
                 .outfits(outfits)
                 .build();
     }
