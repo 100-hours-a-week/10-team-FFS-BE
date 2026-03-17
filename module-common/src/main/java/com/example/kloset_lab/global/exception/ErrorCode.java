@@ -60,12 +60,18 @@ public enum ErrorCode {
     CHAT_ROOM_NOT_FOUND(HttpStatus.NOT_FOUND, "chat_room_not_found"),
     CHAT_PARTICIPANT_NOT_FOUND(HttpStatus.NOT_FOUND, "chat_participant_not_found"),
 
+    // 404 Not Found (세션)
+    SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "session_not_found"),
+
     // 409 Conflict
     EXISTING_NICKNAME(HttpStatus.CONFLICT, "existing_nickname"),
     ALREADY_EXIST_NICKNAME(HttpStatus.CONFLICT, "already_existing_nickname"),
     NOT_PENDING_STATE(HttpStatus.CONFLICT, "not_pending_state"),
     UPLOADED_FILE_MISMATCH(HttpStatus.CONFLICT, "uploaded_file_mismatch"),
     ALREADY_FOLLOWING(HttpStatus.CONFLICT, "already_following"),
+    SESSION_BUSY(HttpStatus.CONFLICT, "session_busy"),
+    NOT_LATEST_TURN_RESULT(HttpStatus.CONFLICT, "not_latest_turn_result"),
+    SESSION_INFLIGHT(HttpStatus.CONFLICT, "session_inflight"),
 
     // 413 Payload Too Large
     FILE_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "file_too_large"),

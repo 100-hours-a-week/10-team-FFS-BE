@@ -52,7 +52,7 @@ public class ApiSecurityConfig {
                         .permitAll()
                         .requestMatchers("/api/v1/presigned-url")
                         .permitAll()
-                        .requestMatchers("/api/internal/presigned-url")
+                        .requestMatchers("/api/internal/**")
                         .permitAll()
                         .requestMatchers(
                                 "/swagger",
