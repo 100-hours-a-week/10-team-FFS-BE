@@ -4,7 +4,6 @@ import com.example.kloset_lab.ai.dto.OutfitAcceptedResponse;
 import com.example.kloset_lab.ai.dto.OutfitStatusResponse;
 import com.example.kloset_lab.ai.dto.TpoFeedbackRequest;
 import com.example.kloset_lab.ai.dto.TpoOutfitsRequest;
-import com.example.kloset_lab.ai.entity.Reaction;
 import com.example.kloset_lab.ai.entity.TpoRequest;
 import com.example.kloset_lab.ai.entity.TpoResult;
 import com.example.kloset_lab.ai.entity.TpoSession;
@@ -80,9 +79,8 @@ public class OutfitService {
     /**
      * TX2: 코디 결과 피드백 등록 (세션 기반 서버 규칙 적용)
      *
-     * <p>규칙 1: 리액션 재수정 금지 (NONE일 때만 업데이트)
-     * <p>규칙 2: 최신 턴 이외 리액션 금지
-     * <p>규칙 3: 세션 in-flight 중 리액션 금지
+     * <p>규칙 1: 최신 턴 이외 리액션 금지
+     * <p>규칙 2: 세션 in-flight 중 리액션 금지
      *
      * @param userId 사용자 ID
      * @param resultId 결과 ID
@@ -107,12 +105,12 @@ public class OutfitService {
                     .findBySessionIdForUpdate(session.getSessionId())
                     .orElseThrow(() -> new CustomException(ErrorCode.SESSION_NOT_FOUND));
 
-            // 규칙 2: 최신 턴 이외 리액션 금지
+            // 규칙 1: 최신 턴 이외 리액션 금지
             if (!tpoResult.getTpoRequest().getTurnNo().equals(lockedSession.getLastTurnNo())) {
                 throw new CustomException(ErrorCode.NOT_LATEST_TURN_RESULT);
             }
 
-            // 규칙 3: 세션 in-flight 중 리액션 금지
+            // 규칙 2: 세션 in-flight 중 리액션 금지
             if (lockedSession.isInflight()) {
                 throw new CustomException(ErrorCode.SESSION_INFLIGHT);
             }

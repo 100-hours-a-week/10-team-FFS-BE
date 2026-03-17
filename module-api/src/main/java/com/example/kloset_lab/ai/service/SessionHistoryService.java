@@ -1,16 +1,22 @@
 package com.example.kloset_lab.ai.service;
 
+import com.example.kloset_lab.ai.dto.OutfitClothesResponse;
+import com.example.kloset_lab.ai.dto.OutfitClothesResponse.ClothesDetail;
+import com.example.kloset_lab.ai.dto.OutfitClothesResponse.OutfitClothesGroup;
 import com.example.kloset_lab.ai.dto.SessionHistoryResponse;
 import com.example.kloset_lab.ai.dto.SessionListResponse;
 import com.example.kloset_lab.ai.entity.TpoRequest;
 import com.example.kloset_lab.ai.entity.TpoResult;
+import com.example.kloset_lab.ai.entity.TpoResultClothes;
 import com.example.kloset_lab.ai.entity.TpoSession;
 import com.example.kloset_lab.ai.repository.TpoRequestRepository;
 import com.example.kloset_lab.ai.repository.TpoResultClothesRepository;
 import com.example.kloset_lab.ai.repository.TpoResultRepository;
 import com.example.kloset_lab.ai.repository.TpoSessionRepository;
+import com.example.kloset_lab.clothes.entity.Clothes;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
+import com.example.kloset_lab.media.service.MediaService;
 import com.example.kloset_lab.user.entity.User;
 import com.example.kloset_lab.user.repository.UserRepository;
 import java.util.List;
@@ -35,6 +41,7 @@ public class SessionHistoryService {
     private final TpoRequestRepository tpoRequestRepository;
     private final TpoResultRepository tpoResultRepository;
     private final TpoResultClothesRepository tpoResultClothesRepository;
+    private final MediaService mediaService;
 
     /**
      * 사용자의 세션 목록을 최근 활동순으로 조회한다. (페이징)
@@ -137,6 +144,60 @@ public class SessionHistoryService {
                 .uptoTurnNo(uptoTurnNo)
                 .turns(turns)
                 .hasNext(false)
+                .build();
+    }
+
+    /**
+     * 여러 코디 결과에 포함된 옷 상세 정보를 resultId별로 그룹핑하여 반환한다.
+     *
+     * @param userId 현재 사용자 ID (소유권 검증)
+     * @param resultIds 조회할 TpoResult ID 목록
+     * @return resultId별 옷 상세 정보 응답
+     */
+    public OutfitClothesResponse getOutfitClothes(Long userId, List<Long> resultIds) {
+        List<TpoResult> results = tpoResultRepository.findAllByIdWithUser(resultIds);
+
+        // 소유권 검증: 요청한 결과가 모두 현재 사용자의 것인지 확인
+        boolean allOwned = results.stream()
+                .allMatch(r -> r.getTpoRequest().getUser().getId().equals(userId));
+        if (!allOwned || results.size() != resultIds.size()) {
+            throw new CustomException(ErrorCode.TPO_RESULT_ACCESS_DENIED);
+        }
+
+        // 옷 + 파일 정보 fetch join 일괄 조회
+        List<TpoResultClothes> resultClothesList =
+                results.isEmpty() ? List.of() : tpoResultClothesRepository.findByTpoResultInWithClothes(results);
+
+        // 옷 이미지 URL 일괄 조회
+        List<Long> fileIds = resultClothesList.stream()
+                .map(rc -> rc.getClothes().getFile().getId())
+                .distinct()
+                .toList();
+        Map<Long, String> fileUrlMap = mediaService.getFileFullUrlsMap(fileIds);
+
+        // resultId별로 그룹핑
+        Map<Long, List<TpoResultClothes>> groupedByResult = resultClothesList.stream()
+                .collect(Collectors.groupingBy(rc -> rc.getTpoResult().getId()));
+
+        List<OutfitClothesGroup> groups = resultIds.stream()
+                .map(resultId -> OutfitClothesGroup.builder()
+                        .resultId(resultId)
+                        .clothes(groupedByResult.getOrDefault(resultId, List.of()).stream()
+                                .map(rc -> toClothesDetail(rc.getClothes(), fileUrlMap))
+                                .toList())
+                        .build())
+                .toList();
+
+        return OutfitClothesResponse.builder().results(groups).build();
+    }
+
+    private ClothesDetail toClothesDetail(Clothes clothes, Map<Long, String> fileUrlMap) {
+        return ClothesDetail.builder()
+                .id(clothes.getId())
+                .imageUrl(fileUrlMap.get(clothes.getFile().getId()))
+                .name(clothes.getClothesName())
+                .price(clothes.getPrice())
+                .category(clothes.getCategory().name())
                 .build();
     }
 

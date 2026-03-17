@@ -47,4 +47,16 @@ public interface TpoResultRepository extends JpaRepository<TpoResult, Long> {
      * @return TpoResult 목록
      */
     List<TpoResult> findByTpoRequestIn(List<TpoRequest> tpoRequests);
+
+    /**
+     * 여러 결과 ID로 일괄 조회 + 소유자 검증용 user 페치 (옷 상세 조회 API용)
+     *
+     * @param ids TpoResult PK 목록
+     * @return TpoResult 목록 (tpoRequest.user 페치 조인)
+     */
+    @Query("SELECT tr FROM TpoResult tr "
+            + "JOIN FETCH tr.tpoRequest req "
+            + "JOIN FETCH req.user "
+            + "WHERE tr.id IN :ids")
+    List<TpoResult> findAllByIdWithUser(@Param("ids") List<Long> ids);
 }

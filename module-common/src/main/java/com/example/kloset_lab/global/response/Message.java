@@ -75,6 +75,7 @@ public class Message {
     public static final String OUTFIT_REQUEST_ACCEPTED = "outfit_request_accepted";
     public static final String SESSION_LIST_RETRIEVED = "session_list_retrieved";
     public static final String SESSION_DETAIL_RETRIEVED = "session_detail_retrieved";
+    public static final String OUTFIT_CLOTHES_RETRIEVED = "outfit_clothes_retrieved";
 
     // Shopping
     public static final String PRODUCTS_FETCHED = "products_fetched";

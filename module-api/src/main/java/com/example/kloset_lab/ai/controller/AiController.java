@@ -1,6 +1,7 @@
 package com.example.kloset_lab.ai.controller;
 
 import com.example.kloset_lab.ai.dto.OutfitAcceptedResponse;
+import com.example.kloset_lab.ai.dto.OutfitClothesResponse;
 import com.example.kloset_lab.ai.dto.OutfitStatusResponse;
 import com.example.kloset_lab.ai.dto.SessionHistoryResponse;
 import com.example.kloset_lab.ai.dto.SessionListResponse;
@@ -17,6 +18,7 @@ import com.example.kloset_lab.global.response.ApiResponse;
 import com.example.kloset_lab.global.response.ApiResponses;
 import com.example.kloset_lab.global.response.Message;
 import jakarta.validation.Valid;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -125,6 +127,22 @@ public class AiController {
             @RequestParam(defaultValue = "10") int size) {
         SessionHistoryResponse response = sessionHistoryService.getSessionDetail(sessionId, userId, page, size);
         return ApiResponses.ok(Message.SESSION_DETAIL_RETRIEVED, response);
+    }
+
+    /**
+     * 코디 결과에 포함된 옷 상세 정보 일괄 조회 API
+     *
+     * <p>한 턴에서 나온 여러 코디 결과의 옷 정보를 1회 호출로 조회한다.
+     *
+     * @param userId 현재 로그인한 사용자 ID
+     * @param resultIds 코디 결과 ID 목록 (쉼표 구분)
+     * @return resultId별 옷 상세 정보
+     */
+    @GetMapping("/v2/outfits/results/clothes")
+    public ResponseEntity<ApiResponse<OutfitClothesResponse>> getOutfitClothes(
+            @AuthenticationPrincipal Long userId, @RequestParam List<Long> resultIds) {
+        OutfitClothesResponse response = sessionHistoryService.getOutfitClothes(userId, resultIds);
+        return ApiResponses.ok(Message.OUTFIT_CLOTHES_RETRIEVED, response);
     }
 
     /**

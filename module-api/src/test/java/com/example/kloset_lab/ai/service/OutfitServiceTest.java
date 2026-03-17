@@ -199,6 +199,7 @@ class OutfitServiceTest {
 
             assertThat(tpoResult.getReaction()).isEqualTo(Reaction.GOOD);
         }
+
         @Test
         @DisplayName("최신 턴이 아니면 NOT_LATEST_TURN_RESULT")
         void 최신_턴_아닌_피드백() {
