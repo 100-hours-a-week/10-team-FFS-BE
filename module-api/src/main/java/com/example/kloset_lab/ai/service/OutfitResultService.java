@@ -13,6 +13,8 @@ import com.example.kloset_lab.ai.repository.TpoResultRepository;
 import com.example.kloset_lab.ai.repository.TpoSessionRepository;
 import com.example.kloset_lab.clothes.entity.Clothes;
 import com.example.kloset_lab.clothes.repository.ClothesRepository;
+import com.example.kloset_lab.media.entity.MediaFile;
+import com.example.kloset_lab.media.repository.MediaFileRepository;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +35,7 @@ public class OutfitResultService {
     private final TpoResultRepository tpoResultRepository;
     private final TpoResultClothesRepository tpoResultClothesRepository;
     private final ClothesRepository clothesRepository;
+    private final MediaFileRepository mediaFileRepository;
 
     /**
      * 성공 응답 처리: 결과 저장 + inflight 해제
@@ -141,6 +144,7 @@ public class OutfitResultService {
 
     /**
      * 코디 결과(TpoResult + TpoResultClothes)를 저장하고 요약 정보를 반환한다.
+     * AI 서버가 사용한 VTON MediaFile을 UPLOADED로 전환한다.
      */
     private List<OutfitSummary> saveOutfitResults(TpoRequest tpoRequest, OutfitKafkaResponse response) {
         if (response.outfits() == null || response.outfits().isEmpty()) {
@@ -160,6 +164,9 @@ public class OutfitResultService {
                                             + response.outfits().indexOf(outfit))
                     .vtonImageUrl(outfit.vtonImageUrl())
                     .build());
+
+            // VTON MediaFile PENDING → UPLOADED 전환
+            confirmVtonUpload(outfit.fileId());
 
             List<Long> savedClothesIds = List.of();
             if (outfit.clothesIds() != null) {
@@ -184,6 +191,26 @@ public class OutfitResultService {
         }
 
         return summaries;
+    }
+
+    /**
+     * VTON MediaFile을 UPLOADED 상태로 전환한다.
+     *
+     * @param fileId AI 서버가 반환한 MediaFile ID (nullable)
+     */
+    private void confirmVtonUpload(Long fileId) {
+        if (fileId == null) {
+            return;
+        }
+
+        MediaFile mediaFile = mediaFileRepository.findById(fileId).orElse(null);
+        if (mediaFile == null) {
+            log.warn("[OutfitResult] VTON MediaFile 미존재, 건너뜀 - fileId: {}", fileId);
+            return;
+        }
+
+        mediaFile.updateFileStatus();
+        log.info("[OutfitResult] VTON MediaFile UPLOADED 전환 - fileId: {}", fileId);
     }
 
     private OutfitResultContext buildContext(TpoRequest tpoRequest) {
