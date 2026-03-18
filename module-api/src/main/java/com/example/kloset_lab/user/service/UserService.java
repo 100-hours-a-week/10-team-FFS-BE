@@ -159,7 +159,7 @@ public class UserService {
     }
 
     public UserProfiles searchUser(String nickname) {
-        List<UserProfile> userProfiles = userProfileRepository.findByNicknameContaining(nickname);
+        List<UserProfile> userProfiles = userProfileRepository.findByNicknameContainingAndUserNotDeleted(nickname);
 
         Map<Long, UserProfile> userProfileMap = userProfiles.stream()
                 .collect(Collectors.toMap(userProfile -> userProfile.getUser().getId(), Function.identity()));
