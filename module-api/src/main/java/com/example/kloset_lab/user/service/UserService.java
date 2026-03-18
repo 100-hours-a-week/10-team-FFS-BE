@@ -18,7 +18,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -131,7 +130,7 @@ public class UserService {
                 .findByUserId(userId)
                 .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
 
-        if(!userProfileValidationService.isNicknameAvailable(nickname)){
+        if (!userProfileValidationService.isNicknameAvailable(nickname)) {
             throw new CustomException(ErrorCode.ALREADY_EXIST_NICKNAME);
         }
 
@@ -145,7 +144,8 @@ public class UserService {
                 .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
 
         mediaService.confirmFileUpload(userId, Purpose.PROFILE, List.of(fileId));
-        MediaFile mediaFile = mediaFileRepository.findById(fileId).orElseThrow(()-> new CustomException(ErrorCode.FILE_NOT_FOUND));
+        MediaFile mediaFile =
+                mediaFileRepository.findById(fileId).orElseThrow(() -> new CustomException(ErrorCode.FILE_NOT_FOUND));
         userProfile.changeProfileImage(mediaFile);
     }
 
@@ -155,17 +155,14 @@ public class UserService {
                 .findByUserId(userId)
                 .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
 
-       userProfile.deleteProfileImage();
+        userProfile.deleteProfileImage();
     }
 
-    public UserProfiles searchUser(String nickname){
+    public UserProfiles searchUser(String nickname) {
         List<UserProfile> userProfiles = userProfileRepository.findByNicknameContaining(nickname);
 
         Map<Long, UserProfile> userProfileMap = userProfiles.stream()
-                .collect(Collectors.toMap(
-                        userProfile -> userProfile.getUser().getId(),
-                        Function.identity()
-                ));
+                .collect(Collectors.toMap(userProfile -> userProfile.getUser().getId(), Function.identity()));
 
         return UserProfiles.builder()
                 .userProfiles(userProfileMap.keySet().stream()

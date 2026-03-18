@@ -82,15 +82,15 @@ public class UserProfile extends BaseTimeEntity {
         }
     }
 
-    public void changeNickname(String nickname){
+    public void changeNickname(String nickname) {
         this.nickname = nickname;
     }
 
-    public void changeProfileImage(MediaFile mediaFile){
+    public void changeProfileImage(MediaFile mediaFile) {
         this.profileFile = mediaFile;
     }
 
-    public void deleteProfileImage(){
+    public void deleteProfileImage() {
         this.profileFile = null;
     }
 }

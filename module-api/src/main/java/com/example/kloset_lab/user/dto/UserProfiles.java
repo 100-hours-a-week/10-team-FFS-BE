@@ -1,10 +1,7 @@
 package com.example.kloset_lab.user.dto;
 
+import java.util.List;
 import lombok.Builder;
 
-import java.util.List;
-
 @Builder
-public record UserProfiles(List<UserProfileDto> userProfiles) {
-
-}
+public record UserProfiles(List<UserProfileDto> userProfiles) {}
