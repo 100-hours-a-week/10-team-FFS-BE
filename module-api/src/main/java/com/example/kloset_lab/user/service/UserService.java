@@ -16,6 +16,8 @@ import com.example.kloset_lab.user.repository.UserRepository;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -120,6 +122,53 @@ public class UserService {
         boolean isAvailable = userProfileValidationService.isNicknameAvailable(nickname);
         String message = isAvailable ? Message.NICKNAME_CHECKED_UNIQUE : Message.NICKNAME_CHECKED_DUPLICATE;
         return new NicknameValidationResult(isAvailable, message);
+    }
+
+    @Transactional
+    public void changeNickname(Long userId, String nickname) {
+        UserProfile userProfile = userProfileRepository
+                .findByUserId(userId)
+                .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
+
+        if (!userProfileValidationService.isNicknameAvailable(nickname)) {
+            throw new CustomException(ErrorCode.ALREADY_EXIST_NICKNAME);
+        }
+
+        userProfile.changeNickname(nickname);
+    }
+
+    @Transactional
+    public void changeProfileImage(Long userId, Long fileId) {
+        UserProfile userProfile = userProfileRepository
+                .findByUserId(userId)
+                .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
+
+        mediaService.confirmFileUpload(userId, Purpose.PROFILE, List.of(fileId));
+        MediaFile mediaFile =
+                mediaFileRepository.findById(fileId).orElseThrow(() -> new CustomException(ErrorCode.FILE_NOT_FOUND));
+        userProfile.changeProfileImage(mediaFile);
+    }
+
+    @Transactional
+    public void deleteProfileImage(Long userId) {
+        UserProfile userProfile = userProfileRepository
+                .findByUserId(userId)
+                .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
+
+        userProfile.deleteProfileImage();
+    }
+
+    public UserProfiles searchUser(String nickname) {
+        List<UserProfile> userProfiles = userProfileRepository.findByNicknameContaining(nickname);
+
+        Map<Long, UserProfile> userProfileMap = userProfiles.stream()
+                .collect(Collectors.toMap(userProfile -> userProfile.getUser().getId(), Function.identity()));
+
+        return UserProfiles.builder()
+                .userProfiles(userProfileMap.keySet().stream()
+                        .map(userId -> buildUserProfileDto(userId, userProfileMap))
+                        .toList())
+                .build();
     }
 
     /**
