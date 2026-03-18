@@ -81,4 +81,16 @@ public class UserProfile extends BaseTimeEntity {
             this.followingCount--;
         }
     }
+
+    public void changeNickname(String nickname){
+        this.nickname = nickname;
+    }
+
+    public void changeProfileImage(MediaFile mediaFile){
+        this.profileFile = mediaFile;
+    }
+
+    public void deleteProfileImage(){
+        this.profileFile = null;
+    }
 }
