@@ -29,7 +29,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 
 @ServiceTest
-@DisplayName("OutfitResultService 단위 테스트 (TX3 응답 처리)")
+@DisplayName("OutfitResultService 단위 테스트 (TX2 응답 처리)")
 class OutfitResultServiceTest {
 
     @Mock

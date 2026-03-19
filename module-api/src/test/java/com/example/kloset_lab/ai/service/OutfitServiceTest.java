@@ -23,7 +23,6 @@ import com.example.kloset_lab.ai.repository.TpoResultRepository;
 import com.example.kloset_lab.ai.repository.TpoSessionRepository;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
-import com.example.kloset_lab.media.service.MediaService;
 import com.example.kloset_lab.user.entity.User;
 import com.example.kloset_lab.user.repository.UserRepository;
 import java.util.Optional;
@@ -57,9 +56,6 @@ class OutfitServiceTest {
     private OutfitRequestProducer outfitRequestProducer;
 
     @Mock
-    private MediaService mediaService;
-
-    @Mock
     private TransactionTemplate transactionTemplate;
 
     private OutfitService outfitService;
@@ -75,7 +71,6 @@ class OutfitServiceTest {
                 tpoRequestRepository,
                 tpoResultRepository,
                 outfitRequestProducer,
-                mediaService,
                 transactionTemplate);
 
         user = OutfitFixture.testUser(OutfitFixture.USER_ID);
@@ -185,7 +180,7 @@ class OutfitServiceTest {
     }
 
     @Nested
-    @DisplayName("recordReaction (TX2 피드백 등록)")
+    @DisplayName("recordReaction (TX3 피드백 등록)")
     class RecordReaction {
 
         @Test

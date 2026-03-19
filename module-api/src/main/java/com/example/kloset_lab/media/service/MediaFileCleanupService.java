@@ -34,18 +34,14 @@ public class MediaFileCleanupService {
     @Transactional
     public void cleanupOrphanOutfitFiles() {
         LocalDateTime threshold = LocalDateTime.now().minusHours(ORPHAN_THRESHOLD_HOURS);
-
-        List<MediaFile> orphans =
-                new java.util.ArrayList<>(mediaFileRepository.findByPurposeAndStatusAndCreatedAtBefore(
-                        Purpose.OUTFIT, FileStatus.PENDING, threshold));
-        orphans.addAll(mediaFileRepository.findByPurposeAndStatusAndCreatedAtBefore(
-                Purpose.VTON, FileStatus.PENDING, threshold));
+        List<MediaFile> orphans = mediaFileRepository.findByPurposeAndStatusAndCreatedAtBefore(
+                Purpose.OUTFIT, FileStatus.PENDING, threshold);
 
         if (orphans.isEmpty()) {
             return;
         }
 
-        log.info("고아 OUTFIT/VTON MediaFile 정리: {}건", orphans.size());
+        log.info("고아 OUTFIT MediaFile 정리: {}건", orphans.size());
         mediaFileRepository.deleteAll(orphans);
     }
 }

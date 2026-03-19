@@ -14,7 +14,7 @@ import lombok.Builder;
 public record OutfitResultContext(Long userId, String sessionId, List<OutfitSummary> outfits) {
 
     /**
-     * 코디 결과 요약 (TX3에서 저장 후 Consumer로 전달)
+     * 코디 결과 요약 (TX2에서 저장 후 Consumer로 전달)
      */
     @Builder
     public record OutfitSummary(Long resultId, List<Long> clothesIds, String reaction, String vtonImageUrl) {}

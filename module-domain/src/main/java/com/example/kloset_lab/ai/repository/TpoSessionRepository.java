@@ -15,7 +15,7 @@ public interface TpoSessionRepository extends JpaRepository<TpoSession, Long> {
 
     /**
      * 비관적 락(FOR UPDATE)으로 세션을 조회한다.
-     * TX1(요청수락), TX2(피드백), TX3(응답처리)에서 동시성 제어에 사용.
+     * TX1(요청수락), TX2(응답처리), TX3(피드백)에서 동시성 제어에 사용.
      *
      * @param sessionId 세션 ID
      * @return TpoSession (locked)

@@ -85,7 +85,7 @@ public class OutfitFixture {
                 null,
                 null,
                 List.of(new OutfitKafkaResponse.Outfit(
-                        "outfit_uuid_1", "네이비 블레이저와 화이트 셔츠", List.of(1L, 2L), null, null, null)),
+                        "outfit_uuid_1", "네이비 블레이저와 화이트 셔츠", List.of(1L, 2L), null, null)),
                 new OutfitKafkaResponse.Metadata(false, false, 12400),
                 null,
                 null,
