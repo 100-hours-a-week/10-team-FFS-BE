@@ -13,6 +13,9 @@ import com.example.kloset_lab.ai.repository.TpoResultRepository;
 import com.example.kloset_lab.ai.repository.TpoSessionRepository;
 import com.example.kloset_lab.clothes.entity.Clothes;
 import com.example.kloset_lab.clothes.repository.ClothesRepository;
+import com.example.kloset_lab.media.entity.MediaFile;
+import com.example.kloset_lab.media.repository.MediaFileRepository;
+import com.example.kloset_lab.media.service.StorageService;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -21,7 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * TX3: 코디추천 AI 응답 처리 (결과 저장 + inflight 해제)
+ * TX2: 코디추천 AI 응답 처리 (결과 저장 + inflight 해제)
  */
 @Slf4j
 @Service
@@ -33,6 +36,8 @@ public class OutfitResultService {
     private final TpoResultRepository tpoResultRepository;
     private final TpoResultClothesRepository tpoResultClothesRepository;
     private final ClothesRepository clothesRepository;
+    private final MediaFileRepository mediaFileRepository;
+    private final StorageService storageService;
 
     /**
      * 성공 응답 처리: 결과 저장 + inflight 해제
@@ -141,6 +146,7 @@ public class OutfitResultService {
 
     /**
      * 코디 결과(TpoResult + TpoResultClothes)를 저장하고 요약 정보를 반환한다.
+     * AI 서버가 사용한 VTON MediaFile을 UPLOADED로 전환하고, fileId → fullUrl 변환한다.
      */
     private List<OutfitSummary> saveOutfitResults(TpoRequest tpoRequest, OutfitKafkaResponse response) {
         if (response.outfits() == null || response.outfits().isEmpty()) {
@@ -150,6 +156,9 @@ public class OutfitResultService {
         List<OutfitSummary> summaries = new ArrayList<>();
 
         for (OutfitKafkaResponse.Outfit outfit : response.outfits()) {
+            // fileId → MediaFile 조회 → UPLOADED 전환 + full URL 변환
+            String vtonImageUrl = resolveVtonImageUrl(outfit.fileId());
+
             TpoResult tpoResult = tpoResultRepository.save(TpoResult.builder()
                     .tpoRequest(tpoRequest)
                     .cordiExplainText(outfit.description() != null ? outfit.description() : "")
@@ -158,7 +167,7 @@ public class OutfitResultService {
                                     ? outfit.outfitId()
                                     : tpoRequest.getId() + "_"
                                             + response.outfits().indexOf(outfit))
-                    .vtonImageUrl(outfit.vtonImageUrl())
+                    .vtonImageUrl(vtonImageUrl)
                     .build());
 
             List<Long> savedClothesIds = List.of();
@@ -179,11 +188,34 @@ public class OutfitResultService {
                     .resultId(tpoResult.getId())
                     .clothesIds(savedClothesIds)
                     .reaction(tpoResult.getReaction().name())
-                    .vtonImageUrl(tpoResult.getVtonImageUrl())
+                    .vtonImageUrl(vtonImageUrl)
                     .build());
         }
 
         return summaries;
+    }
+
+    /**
+     * VTON fileId로 MediaFile을 조회하여 UPLOADED 전환 후 full URL을 반환한다.
+     *
+     * @param fileId AI 서버가 반환한 MediaFile ID (nullable)
+     * @return S3 full image URL, fileId가 없으면 null
+     */
+    private String resolveVtonImageUrl(Long fileId) {
+        if (fileId == null) {
+            return null;
+        }
+
+        MediaFile mediaFile = mediaFileRepository.findById(fileId).orElse(null);
+        if (mediaFile == null) {
+            log.warn("[OutfitResult] VTON MediaFile 미존재, 건너뜀 - fileId: {}", fileId);
+            return null;
+        }
+
+        mediaFile.updateFileStatus();
+        log.info("[OutfitResult] VTON MediaFile UPLOADED 전환 - fileId: {}", fileId);
+
+        return storageService.getFullImageUrl(mediaFile.getObjectKey());
     }
 
     private OutfitResultContext buildContext(TpoRequest tpoRequest) {

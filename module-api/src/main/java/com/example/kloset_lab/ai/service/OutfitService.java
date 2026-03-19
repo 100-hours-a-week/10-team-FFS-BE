@@ -8,15 +8,22 @@ import com.example.kloset_lab.ai.entity.TpoRequest;
 import com.example.kloset_lab.ai.entity.TpoResult;
 import com.example.kloset_lab.ai.entity.TpoSession;
 import com.example.kloset_lab.ai.infrastructure.kafka.dto.OutfitKafkaRequest;
+import com.example.kloset_lab.ai.infrastructure.kafka.dto.UploadSlot;
 import com.example.kloset_lab.ai.infrastructure.kafka.producer.OutfitRequestProducer;
 import com.example.kloset_lab.ai.repository.TpoRequestRepository;
 import com.example.kloset_lab.ai.repository.TpoResultRepository;
 import com.example.kloset_lab.ai.repository.TpoSessionRepository;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
+import com.example.kloset_lab.media.dto.FileUploadInfo;
+import com.example.kloset_lab.media.dto.FileUploadResponse;
+import com.example.kloset_lab.media.entity.Purpose;
+import com.example.kloset_lab.media.service.MediaService;
 import com.example.kloset_lab.user.entity.User;
 import com.example.kloset_lab.user.repository.UserRepository;
+import java.util.List;
 import java.util.UUID;
+import java.util.stream.IntStream;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -33,7 +40,10 @@ public class OutfitService {
     private final TpoRequestRepository tpoRequestRepository;
     private final TpoResultRepository tpoResultRepository;
     private final OutfitRequestProducer outfitRequestProducer;
+    private final MediaService mediaService;
     private final TransactionTemplate transactionTemplate;
+
+    private static final int VTON_UPLOAD_SLOT_COUNT = 3;
 
     /**
      * 코디 추천 요청 수락 (TX1 + Kafka 발행)
@@ -69,15 +79,18 @@ public class OutfitService {
             return OutfitAcceptedResponse.of(requestId, session.getSessionId(), turnNo);
         });
 
+        // VTON presigned URL 발급 (MediaFile PENDING 생성 포함)
+        List<UploadSlot> uploadSlots = generateVtonUploadSlots(userId);
+
         // TX 커밋 후 Kafka 발행
-        outfitRequestProducer.send(
-                OutfitKafkaRequest.of(response.requestId(), userId, request.content(), response.sessionId(), null));
+        outfitRequestProducer.send(OutfitKafkaRequest.of(
+                response.requestId(), userId, request.content(), response.sessionId(), uploadSlots));
 
         return response;
     }
 
     /**
-     * TX2: 코디 결과 피드백 등록 (세션 기반 서버 규칙 적용)
+     * TX3: 코디 결과 피드백 등록 (세션 기반 서버 규칙 적용)
      *
      * <p>규칙 1: 최신 턴 이외 리액션 금지
      * <p>규칙 2: 세션 in-flight 중 리액션 금지
@@ -166,5 +179,26 @@ public class OutfitService {
         }
 
         return session;
+    }
+
+    /**
+     * VTON 이미지 업로드용 presigned URL 슬롯을 생성한다.
+     *
+     * @param userId 사용자 ID
+     * @return UploadSlot 목록 (presignedUrl + fileId)
+     */
+    private List<UploadSlot> generateVtonUploadSlots(Long userId) {
+        List<FileUploadInfo> fileInfos = IntStream.range(0, VTON_UPLOAD_SLOT_COUNT)
+                .mapToObj(i -> FileUploadInfo.builder()
+                        .name("vton_" + i + ".png")
+                        .type("image/png")
+                        .build())
+                .toList();
+
+        List<FileUploadResponse> responses = mediaService.requestFileUpload(userId, Purpose.VTON, fileInfos);
+
+        return responses.stream()
+                .map(r -> new UploadSlot(r.presignedUrl(), r.fileId()))
+                .toList();
     }
 }

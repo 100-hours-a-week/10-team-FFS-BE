@@ -25,7 +25,7 @@ public interface TpoResultRepository extends JpaRepository<TpoResult, Long> {
     Optional<TpoResult> findByIdWithUser(@Param("id") Long id);
 
     /**
-     * tpoResult + tpoRequest + user + tpoSession을 단일 쿼리로 조회 (TX2 피드백 검증용)
+     * tpoResult + tpoRequest + user + tpoSession을 단일 쿼리로 조회 (TX3 피드백 검증용)
      *
      * <p>비관적 락(FOR UPDATE)으로 동시 리액션 등록 경쟁 조건을 방지한다.
      *
