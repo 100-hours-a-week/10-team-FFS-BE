@@ -31,8 +31,7 @@ public record OutfitKafkaResponse(
         String timestamp) {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Outfit(
-            String outfitId, String description, List<Long> clothesIds, List<Item> items, String vtonImageUrl) {}
+    public record Outfit(String outfitId, String description, List<Long> clothesIds, List<Item> items, Long fileId) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Item(Long clothesId, String imageUrl, String category, String role) {}
