@@ -50,8 +50,6 @@ public class ApiSecurityConfig {
                         .permitAll()
                         .requestMatchers("/api/v1/users", "/api/v1/users/validation")
                         .permitAll()
-                        .requestMatchers("/api/v1/presigned-url")
-                        .permitAll()
                         .requestMatchers("/api/internal/**")
                         .permitAll()
                         .requestMatchers(
