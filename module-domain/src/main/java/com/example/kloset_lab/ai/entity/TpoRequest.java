@@ -84,6 +84,10 @@ public class TpoRequest extends BaseTimeEntity {
         this.status = TpoRequestStatus.FAILED;
     }
 
+    public void cancel() {
+        this.status = TpoRequestStatus.CANCELLED;
+    }
+
     public void clarificationNeeded() {
         this.status = TpoRequestStatus.CLARIFICATION_NEEDED;
     }

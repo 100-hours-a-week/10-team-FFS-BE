@@ -72,6 +72,7 @@ public enum ErrorCode {
     SESSION_BUSY(HttpStatus.CONFLICT, "session_busy"),
     NOT_LATEST_TURN_RESULT(HttpStatus.CONFLICT, "not_latest_turn_result"),
     SESSION_INFLIGHT(HttpStatus.CONFLICT, "session_inflight"),
+    REQUEST_ALREADY_TERMINAL(HttpStatus.CONFLICT, "request_already_terminal"),
 
     // 413 Payload Too Large
     FILE_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "file_too_large"),

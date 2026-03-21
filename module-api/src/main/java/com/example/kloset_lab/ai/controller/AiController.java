@@ -20,6 +20,7 @@ import com.example.kloset_lab.global.response.Message;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.autoconfigure.pulsar.PulsarProperties;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -76,6 +77,23 @@ public class AiController {
             @AuthenticationPrincipal Long userId, @PathVariable String requestId) {
         OutfitStatusResponse response = outfitService.getRequestStatus(userId, requestId);
         return ApiResponses.ok(Message.CLOTHES_POLLING_RESULT_RETRIEVED, response);
+    }
+
+    /**
+     * 코디추천 요청 취소 API
+     *
+     * <p>FE 타임아웃 감지 시 호출. PENDING 요청을 CANCELLED로 전환하고 세션 잠금을 해제한다.
+     * 이미 완료/실패/취소된 요청에 대해 호출하면 409 반환.
+     *
+     * @param userId 현재 로그인한 사용자 ID
+     * @param requestId 취소할 요청 ID
+     * @return 성공 응답
+     */
+    @DeleteMapping("/v2/outfits/requests/{requestId}")
+    public ResponseEntity<ApiResponse<Void>> cancelOutfitRequest(
+            @AuthenticationPrincipal Long userId, @PathVariable String requestId) {
+        outfitService.cancelRequest(userId, requestId);
+        return ApiResponses.ok(Message.OUTFIT_REQUEST_CANCELLED);
     }
 
     /**

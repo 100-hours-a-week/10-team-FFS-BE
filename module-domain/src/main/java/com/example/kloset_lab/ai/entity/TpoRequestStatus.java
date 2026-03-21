@@ -4,5 +4,6 @@ public enum TpoRequestStatus {
     PENDING,
     COMPLETED,
     FAILED,
+    CANCELLED,
     CLARIFICATION_NEEDED
 }

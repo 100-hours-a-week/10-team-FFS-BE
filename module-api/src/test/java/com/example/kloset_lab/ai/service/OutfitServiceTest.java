@@ -23,6 +23,7 @@ import com.example.kloset_lab.ai.repository.TpoResultRepository;
 import com.example.kloset_lab.ai.repository.TpoSessionRepository;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
+import com.example.kloset_lab.global.infrastructure.RedisEventPublisher;
 import com.example.kloset_lab.user.entity.User;
 import com.example.kloset_lab.user.repository.UserRepository;
 import java.util.Optional;
@@ -56,6 +57,9 @@ class OutfitServiceTest {
     private OutfitRequestProducer outfitRequestProducer;
 
     @Mock
+    private RedisEventPublisher redisEventPublisher;
+
+    @Mock
     private TransactionTemplate transactionTemplate;
 
     private OutfitService outfitService;
@@ -71,6 +75,7 @@ class OutfitServiceTest {
                 tpoRequestRepository,
                 tpoResultRepository,
                 outfitRequestProducer,
+                redisEventPublisher,
                 transactionTemplate);
 
         user = OutfitFixture.testUser(OutfitFixture.USER_ID);

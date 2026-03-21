@@ -14,6 +14,8 @@ import com.example.kloset_lab.ai.repository.TpoResultRepository;
 import com.example.kloset_lab.ai.repository.TpoSessionRepository;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
+import com.example.kloset_lab.global.infrastructure.OutfitWebSocketMessage;
+import com.example.kloset_lab.global.infrastructure.RedisEventPublisher;
 import com.example.kloset_lab.user.entity.User;
 import com.example.kloset_lab.user.repository.UserRepository;
 import java.util.UUID;
@@ -28,11 +30,14 @@ import org.springframework.transaction.support.TransactionTemplate;
 @RequiredArgsConstructor
 public class OutfitService {
 
+    private static final String OUTFIT_CHANNEL = "outfit:event:%d";
+
     private final UserRepository userRepository;
     private final TpoSessionRepository tpoSessionRepository;
     private final TpoRequestRepository tpoRequestRepository;
     private final TpoResultRepository tpoResultRepository;
     private final OutfitRequestProducer outfitRequestProducer;
+    private final RedisEventPublisher redisEventPublisher;
     private final TransactionTemplate transactionTemplate;
 
     /**
@@ -117,6 +122,55 @@ public class OutfitService {
         }
 
         tpoResult.updateReaction(request.reaction());
+    }
+
+    /**
+     * 코디 추천 요청 취소 (TX + Redis 알림)
+     *
+     * <p>FE 타임아웃 감지 시 호출. PENDING 요청을 CANCELLED로 전환하고 inflight를 해제한다.
+     * Kafka에 발행된 outfit-request 메시지는 정리하지 않으며, AI가 나중에 응답하더라도
+     * isTerminal() 체크로 무해하게 스킵된다.
+     *
+     * @param userId 사용자 ID
+     * @param requestId 취소할 요청 ID
+     */
+    public void cancelRequest(Long userId, String requestId) {
+        String[] sessionIdHolder = new String[1];
+
+        transactionTemplate.execute(status -> {
+            TpoRequest tpoRequest = tpoRequestRepository
+                    .findByRequestId(requestId)
+                    .orElseThrow(() -> new CustomException(ErrorCode.RESULT_NOT_FOUND));
+
+            if (!tpoRequest.getUser().getId().equals(userId)) {
+                throw new CustomException(ErrorCode.TPO_RESULT_ACCESS_DENIED);
+            }
+
+            if (tpoRequest.isTerminal()) {
+                throw new CustomException(ErrorCode.REQUEST_ALREADY_TERMINAL);
+            }
+
+            tpoRequest.cancel();
+
+            TpoSession session = tpoRequest.getTpoSession();
+            if (session != null) {
+                TpoSession lockedSession = tpoSessionRepository
+                        .findBySessionIdForUpdate(session.getSessionId())
+                        .orElse(null);
+                if (lockedSession != null) {
+                    lockedSession.clearInflight(requestId);
+                }
+                sessionIdHolder[0] = session.getSessionId();
+            }
+
+            return null;
+        });
+
+        // TX 커밋 후 Redis 알림 발행
+        OutfitWebSocketMessage message = OutfitWebSocketMessage.cancelled(requestId, sessionIdHolder[0]);
+        redisEventPublisher.publish(String.format(OUTFIT_CHANNEL, userId), message);
+
+        log.info("[OutfitService] 요청 취소 완료 - requestId: {}, userId: {}", requestId, userId);
     }
 
     /**
