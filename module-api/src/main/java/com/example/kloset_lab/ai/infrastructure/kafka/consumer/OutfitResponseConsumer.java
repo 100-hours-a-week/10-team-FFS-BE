@@ -58,6 +58,11 @@ public class OutfitResponseConsumer {
                 log.warn("[OutfitConsumer] 알 수 없는 status: {} - requestId: {}", response.status(), response.requestId());
             }
 
+            // [CHAOS S9] TX2 커밋 후, acknowledge 직전 장애 주입 → Kafka 재전송 → isTerminal()=true → 스킵
+            if (System.getenv("CHAOS_FAIL_BEFORE_ACK") != null) {
+                throw new RuntimeException("[CHAOS] acknowledge 전 장애 주입 - offset: " + record.offset());
+            }
+
             acknowledgment.acknowledge();
             log.info("[OutfitConsumer] offset 커밋 완료 - partition: {}, offset: {}", record.partition(), record.offset());
 
@@ -159,6 +164,10 @@ public class OutfitResponseConsumer {
     }
 
     private void publishToUser(Long userId, OutfitWebSocketMessage message) {
+        // [CHAOS S13] TX2 커밋 후, Redis 발행 직전 장애 주입 → ack 미호출 → Kafka 재전송 → isTerminal()=true → Redis 재발행 없이 스킵 → WebSocket 알림 영구 유실
+        if (System.getenv("CHAOS_FAIL_BEFORE_REDIS") != null) {
+            throw new RuntimeException("[CHAOS] Redis 발행 전 장애 주입 - userId: " + userId);
+        }
         String channel = String.format(OUTFIT_CHANNEL, userId);
         redisEventPublisher.publish(channel, message);
     }

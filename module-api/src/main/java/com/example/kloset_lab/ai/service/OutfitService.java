@@ -74,6 +74,11 @@ public class OutfitService {
             return OutfitAcceptedResponse.of(requestId, session.getSessionId(), turnNo);
         });
 
+        // [CHAOS S1] TX1 커밋 후 Kafka 발행 전 장애 주입
+        if (System.getenv("CHAOS_FAIL_BEFORE_KAFKA") != null) {
+            throw new RuntimeException("[CHAOS] Kafka 발행 전 장애 주입 - requestId: " + response.requestId());
+        }
+
         // TX 커밋 후 Kafka 발행
         outfitRequestProducer.send(
                 OutfitKafkaRequest.of(response.requestId(), userId, request.content(), response.sessionId(), null));

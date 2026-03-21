@@ -59,6 +59,11 @@ public class OutfitResultService {
         // 결과 저장 + 요약 수집
         List<OutfitSummary> outfitSummaries = saveOutfitResults(tpoRequest, response);
 
+        // [CHAOS S8] TX2 커밋 전 (DB 저장 직후) 장애 주입 → @Transactional 롤백 + ack 미호출
+        if (System.getenv("CHAOS_FAIL_IN_TX2") != null) {
+            throw new RuntimeException("[CHAOS] TX2 커밋 전 장애 주입 - requestId: " + response.requestId());
+        }
+
         // 요청 요약문 저장
         if (response.querySummary() != null) {
             tpoRequest.addQuerySummary(response.querySummary());
