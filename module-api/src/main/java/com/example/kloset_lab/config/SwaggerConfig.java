@@ -10,7 +10,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 
 @Configuration
-@Profile({"dev", "local"})
+@Profile("!ci")
 public class SwaggerConfig {
     @Bean
     public OpenAPI openAPI() {

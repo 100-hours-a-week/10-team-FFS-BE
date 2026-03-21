@@ -159,4 +159,31 @@ public class UserController {
         PagedResponse<ClothesListItem> response = clothesService.getClothes(userId, category, after, limit);
         return ApiResponses.ok(Message.CLOTHES_LIST_RETRIEVED, response);
     }
+
+    @PatchMapping("/v3/users/me/nickname")
+    public ResponseEntity<ApiResponse<Void>> changeNickname(
+            @AuthenticationPrincipal Long userId, @Valid @RequestBody NicknameChangeRequest request) {
+        userService.changeNickname(userId, request.nickname());
+        return ApiResponses.ok(Message.NICKNAME_UPDATED);
+    }
+
+    @PatchMapping("/v3/users/me/profile-image")
+    public ResponseEntity<ApiResponse<Void>> changeProfileImage(
+            @AuthenticationPrincipal Long userId, @Valid @RequestBody ProfileImageChangeRequest request) {
+        userService.changeProfileImage(userId, request.profileImageFileId());
+        return ApiResponses.ok(Message.PROFILE_IMAGE_UPDATED);
+    }
+
+    @DeleteMapping("/v3/users/me/profile-image")
+    public ResponseEntity<ApiResponse<Void>> changeProfileImage(@AuthenticationPrincipal Long userId) {
+        userService.deleteProfileImage(userId);
+        return ApiResponses.ok(Message.PROFILE_IMAGE_DELETED);
+    }
+
+    @GetMapping("/v3/users")
+    public ResponseEntity<ApiResponse<UserProfiles>> changeProfileImage(
+            @AuthenticationPrincipal Long userId, @RequestParam String nickname) {
+
+        return ApiResponses.ok(Message.USERS_SEARCHED, userService.searchUser(nickname));
+    }
 }
