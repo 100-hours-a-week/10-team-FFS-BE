@@ -150,6 +150,27 @@ public class OutfitResultService {
     }
 
     /**
+     * 진행 상태 응답 처리: requestId로 userId/sessionId 조회 후 컨텍스트 반환
+     *
+     * <p>@Transactional 내에서 lazy 연관관계(user, tpoSession)를 안전하게 초기화한다.
+     *
+     * @param response Kafka 진행 메시지
+     * @return 처리 컨텍스트 (WebSocket 발행용), requestId 미존재 시 null
+     */
+    @Transactional(readOnly = true)
+    public OutfitResultContext handleProgress(OutfitKafkaResponse response) {
+        TpoRequest tpoRequest =
+                tpoRequestRepository.findByRequestId(response.requestId()).orElse(null);
+
+        if (tpoRequest == null) {
+            log.debug("[OutfitResult] progress: requestId 미존재, 무시 - {}", response.requestId());
+            return null;
+        }
+
+        return buildContext(tpoRequest);
+    }
+
+    /**
      * 코디 결과(TpoResult + TpoResultClothes)를 저장하고 요약 정보를 반환한다.
      * AI 서버가 사용한 VTON MediaFile을 UPLOADED로 전환하고, fileId → fullUrl 변환한다.
      */

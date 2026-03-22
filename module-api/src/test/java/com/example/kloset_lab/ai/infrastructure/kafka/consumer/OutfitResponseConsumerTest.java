@@ -8,17 +8,12 @@ import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
 
 import com.example.kloset_lab.ai.dto.OutfitResultContext;
-import com.example.kloset_lab.ai.entity.TpoRequest;
-import com.example.kloset_lab.ai.entity.TpoSession;
 import com.example.kloset_lab.ai.fixture.OutfitFixture;
 import com.example.kloset_lab.ai.infrastructure.kafka.dto.OutfitKafkaResponse;
-import com.example.kloset_lab.ai.repository.TpoRequestRepository;
 import com.example.kloset_lab.ai.service.OutfitResultService;
 import com.example.kloset_lab.global.annotation.ServiceTest;
 import com.example.kloset_lab.global.infrastructure.RedisEventPublisher;
-import com.example.kloset_lab.user.entity.User;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.Optional;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -35,9 +30,6 @@ class OutfitResponseConsumerTest {
     private OutfitResultService outfitResultService;
 
     @Mock
-    private TpoRequestRepository tpoRequestRepository;
-
-    @Mock
     private RedisEventPublisher redisEventPublisher;
 
     @Mock
@@ -48,8 +40,7 @@ class OutfitResponseConsumerTest {
 
     @BeforeEach
     void setUp() {
-        consumer = new OutfitResponseConsumer(
-                outfitResultService, tpoRequestRepository, redisEventPublisher, objectMapper);
+        consumer = new OutfitResponseConsumer(outfitResultService, redisEventPublisher, objectMapper);
     }
 
     @Nested
@@ -59,19 +50,20 @@ class OutfitResponseConsumerTest {
         @Test
         @DisplayName("progress 메시지 수신 시 Redis 이벤트 발행 + acknowledge")
         void progress_정상_처리() throws Exception {
-            User user = OutfitFixture.testUser(OutfitFixture.USER_ID);
-            TpoSession session = OutfitFixture.testSession(user);
-            TpoRequest tpoRequest = OutfitFixture.testRequest(user, session);
+            OutfitResultContext context = OutfitResultContext.builder()
+                    .userId(OutfitFixture.USER_ID)
+                    .sessionId(OutfitFixture.SESSION_ID)
+                    .build();
             OutfitKafkaResponse response = OutfitFixture.progressResponse();
 
-            given(tpoRequestRepository.findByRequestId(OutfitFixture.REQUEST_ID))
-                    .willReturn(Optional.of(tpoRequest));
+            given(outfitResultService.handleProgress(any())).willReturn(context);
 
             ConsumerRecord<String, String> record =
                     new ConsumerRecord<>("outfit-response", 0, 0, null, objectMapper.writeValueAsString(response));
 
             consumer.consume(record, acknowledgment);
 
+            then(outfitResultService).should().handleProgress(any());
             then(redisEventPublisher).should().publish(eq("outfit:event:1"), any());
             then(acknowledgment).should().acknowledge();
         }
