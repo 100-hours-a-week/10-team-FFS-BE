@@ -45,7 +45,7 @@ public class OutboxRelay {
             return;
         }
 
-        log.debug("[OutboxRelay] PENDING 레코드 {} 건 처리 시작", pending.size());
+        log.info("[OutboxRelay] PENDING 레코드 {} 건 처리 시작", pending.size());
 
         for (TpoOutbox outbox : pending) {
             try {
