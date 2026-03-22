@@ -2,9 +2,7 @@ package com.example.kloset_lab.ai.infrastructure.kafka.consumer;
 
 import com.example.kloset_lab.ai.dto.OutfitResultContext;
 import com.example.kloset_lab.ai.dto.OutfitResultContext.OutfitSummary;
-import com.example.kloset_lab.ai.entity.TpoRequest;
 import com.example.kloset_lab.ai.infrastructure.kafka.dto.OutfitKafkaResponse;
-import com.example.kloset_lab.ai.repository.TpoRequestRepository;
 import com.example.kloset_lab.ai.service.OutfitResultService;
 import com.example.kloset_lab.global.infrastructure.OutfitWebSocketMessage;
 import com.example.kloset_lab.global.infrastructure.OutfitWebSocketMessage.OutfitData;
@@ -32,7 +30,6 @@ public class OutfitResponseConsumer {
     private static final String OUTFIT_CHANNEL = "outfit:event:%d";
 
     private final OutfitResultService outfitResultService;
-    private final TpoRequestRepository tpoRequestRepository;
     private final RedisEventPublisher redisEventPublisher;
     private final ObjectMapper objectMapper;
 
@@ -80,25 +77,18 @@ public class OutfitResponseConsumer {
     }
 
     /**
-     * 진행 상태 메시지 → requestId로 userId 조회 후 Redis 이벤트 발행
+     * 진행 상태 메시지 → OutfitResultService 위임 (트랜잭션 내 lazy 연관관계 초기화)
      */
     private void handleProgress(OutfitKafkaResponse response) {
-        TpoRequest tpoRequest =
-                tpoRequestRepository.findByRequestId(response.requestId()).orElse(null);
-
-        if (tpoRequest == null) {
-            log.debug("[OutfitConsumer] progress: requestId 미존재, 무시 - {}", response.requestId());
+        OutfitResultContext context = outfitResultService.handleProgress(response);
+        if (context == null) {
             return;
         }
 
-        Long userId = tpoRequest.getUser().getId();
-        String sessionId =
-                tpoRequest.getTpoSession() != null ? tpoRequest.getTpoSession().getSessionId() : null;
+        OutfitWebSocketMessage message = OutfitWebSocketMessage.progress(
+                response.requestId(), context.sessionId(), response.step(), response.stepLabel());
 
-        OutfitWebSocketMessage message =
-                OutfitWebSocketMessage.progress(response.requestId(), sessionId, response.step(), response.stepLabel());
-
-        publishToUser(userId, message);
+        publishToUser(context.userId(), message);
     }
 
     /**
