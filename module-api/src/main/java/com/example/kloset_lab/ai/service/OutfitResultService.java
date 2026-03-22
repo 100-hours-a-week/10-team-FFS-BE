@@ -167,6 +167,11 @@ public class OutfitResultService {
             return null;
         }
 
+        if (tpoRequest.isTerminal()) {
+            log.debug("[OutfitResult] progress: 이미 처리된 요청, 무시 - requestId: {}", response.requestId());
+            return null;
+        }
+
         return buildContext(tpoRequest);
     }
 
