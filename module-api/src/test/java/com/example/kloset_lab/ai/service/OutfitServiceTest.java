@@ -59,6 +59,7 @@ class OutfitServiceTest {
 
     @Mock
     private RedisEventPublisher redisEventPublisher;
+
     private MediaService mediaService;
 
     @Mock

@@ -164,7 +164,8 @@ public class OutfitResponseConsumer {
     }
 
     private void publishToUser(Long userId, OutfitWebSocketMessage message) {
-        // [CHAOS S13] TX2 커밋 후, Redis 발행 직전 장애 주입 → ack 미호출 → Kafka 재전송 → isTerminal()=true → Redis 재발행 없이 스킵 → WebSocket 알림 영구 유실
+        // [CHAOS S13] TX2 커밋 후, Redis 발행 직전 장애 주입 → ack 미호출 → Kafka 재전송 → isTerminal()=true → Redis 재발행 없이 스킵 →
+        // WebSocket 알림 영구 유실
         if (System.getenv("CHAOS_FAIL_BEFORE_REDIS") != null) {
             throw new RuntimeException("[CHAOS] Redis 발행 전 장애 주입 - userId: " + userId);
         }
