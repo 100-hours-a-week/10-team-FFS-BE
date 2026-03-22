@@ -31,8 +31,7 @@ public class OutboxRelay {
     private static final String TOPIC = "outfit-request";
     private static final int KAFKA_SEND_TIMEOUT_SECONDS = 5;
 
-    @Qualifier("outfitKafkaTemplate")
-    private final KafkaTemplate<String, Object> kafkaTemplate;
+    @Qualifier("outfitKafkaTemplate") private final KafkaTemplate<String, Object> kafkaTemplate;
 
     private final TpoOutboxRepository tpoOutboxRepository;
     private final ObjectMapper objectMapper;
@@ -40,8 +39,7 @@ public class OutboxRelay {
     @Scheduled(fixedDelay = 5000)
     @Transactional
     public void relay() {
-        List<TpoOutbox> pending =
-                tpoOutboxRepository.findTop100ByStatusOrderByCreatedAtAsc(TpoOutboxStatus.PENDING);
+        List<TpoOutbox> pending = tpoOutboxRepository.findTop100ByStatusOrderByCreatedAtAsc(TpoOutboxStatus.PENDING);
 
         if (pending.isEmpty()) {
             return;
@@ -51,8 +49,7 @@ public class OutboxRelay {
 
         for (TpoOutbox outbox : pending) {
             try {
-                OutfitKafkaRequest request =
-                        objectMapper.readValue(outbox.getPayload(), OutfitKafkaRequest.class);
+                OutfitKafkaRequest request = objectMapper.readValue(outbox.getPayload(), OutfitKafkaRequest.class);
 
                 kafkaTemplate
                         .send(TOPIC, outbox.getPartitionKey(), request)
