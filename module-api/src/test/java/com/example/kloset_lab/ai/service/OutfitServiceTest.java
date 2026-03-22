@@ -12,12 +12,12 @@ import com.example.kloset_lab.ai.dto.OutfitStatusResponse;
 import com.example.kloset_lab.ai.dto.TpoFeedbackRequest;
 import com.example.kloset_lab.ai.dto.TpoOutfitsRequest;
 import com.example.kloset_lab.ai.entity.Reaction;
+import com.example.kloset_lab.ai.entity.TpoOutbox;
 import com.example.kloset_lab.ai.entity.TpoRequest;
 import com.example.kloset_lab.ai.entity.TpoResult;
 import com.example.kloset_lab.ai.entity.TpoSession;
 import com.example.kloset_lab.ai.fixture.OutfitFixture;
-import com.example.kloset_lab.ai.infrastructure.kafka.dto.OutfitKafkaRequest;
-import com.example.kloset_lab.ai.infrastructure.kafka.producer.OutfitRequestProducer;
+import com.example.kloset_lab.ai.repository.TpoOutboxRepository;
 import com.example.kloset_lab.ai.repository.TpoRequestRepository;
 import com.example.kloset_lab.ai.repository.TpoResultRepository;
 import com.example.kloset_lab.ai.repository.TpoSessionRepository;
@@ -28,6 +28,7 @@ import com.example.kloset_lab.media.dto.FileUploadResponse;
 import com.example.kloset_lab.media.service.MediaService;
 import com.example.kloset_lab.user.entity.User;
 import com.example.kloset_lab.user.repository.UserRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Optional;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
@@ -35,7 +36,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -57,7 +57,7 @@ class OutfitServiceTest {
     private TpoResultRepository tpoResultRepository;
 
     @Mock
-    private OutfitRequestProducer outfitRequestProducer;
+    private TpoOutboxRepository tpoOutboxRepository;
 
     @Mock
     private RedisEventPublisher redisEventPublisher;
@@ -67,6 +67,8 @@ class OutfitServiceTest {
 
     @Mock
     private TransactionTemplate transactionTemplate;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     private OutfitService outfitService;
 
@@ -80,9 +82,10 @@ class OutfitServiceTest {
                 tpoSessionRepository,
                 tpoRequestRepository,
                 tpoResultRepository,
-                outfitRequestProducer,
+                tpoOutboxRepository,
                 redisEventPublisher,
                 mediaService,
+                objectMapper,
                 transactionTemplate);
 
         user = OutfitFixture.testUser(OutfitFixture.USER_ID);
@@ -96,7 +99,7 @@ class OutfitServiceTest {
         private final TpoOutfitsRequest request = new TpoOutfitsRequest(OutfitFixture.CONTENT);
 
         @Test
-        @DisplayName("새 세션으로 정상 요청 시 202 Accepted 반환 및 Kafka 발행")
+        @DisplayName("새 세션으로 정상 요청 시 202 Accepted 반환 및 Outbox 저장")
         void 새_세션_정상_요청() {
             // TransactionTemplate.execute를 실제로 실행하도록 stub
             given(transactionTemplate.execute(any())).willAnswer(invocation -> {
@@ -106,6 +109,7 @@ class OutfitServiceTest {
             given(userRepository.findById(OutfitFixture.USER_ID)).willReturn(Optional.of(user));
             given(tpoSessionRepository.save(any(TpoSession.class))).willReturn(session);
             given(tpoRequestRepository.save(any(TpoRequest.class))).willAnswer(i -> i.getArgument(0));
+            given(tpoOutboxRepository.save(any(TpoOutbox.class))).willAnswer(i -> i.getArgument(0));
             given(mediaService.requestFileUpload(any(), any(), any()))
                     .willReturn(List.of(
                             new FileUploadResponse(1L, "key1", "https://presigned1"),
@@ -118,10 +122,8 @@ class OutfitServiceTest {
             assertThat(response.status()).isEqualTo("accepted");
             assertThat(response.turnNo()).isEqualTo(1);
 
-            // Kafka 발행 검증
-            ArgumentCaptor<OutfitKafkaRequest> captor = ArgumentCaptor.forClass(OutfitKafkaRequest.class);
-            then(outfitRequestProducer).should().send(captor.capture());
-            assertThat(captor.getValue().userId()).isEqualTo(OutfitFixture.USER_ID);
+            // Outbox 저장 검증 (Relay가 Kafka 발행 담당)
+            then(tpoOutboxRepository).should().save(any(TpoOutbox.class));
         }
 
         @Test
@@ -135,6 +137,7 @@ class OutfitServiceTest {
             given(tpoSessionRepository.findBySessionIdForUpdate(OutfitFixture.SESSION_ID))
                     .willReturn(Optional.of(session));
             given(tpoRequestRepository.save(any(TpoRequest.class))).willAnswer(i -> i.getArgument(0));
+            given(tpoOutboxRepository.save(any(TpoOutbox.class))).willAnswer(i -> i.getArgument(0));
             given(mediaService.requestFileUpload(any(), any(), any()))
                     .willReturn(List.of(
                             new FileUploadResponse(1L, "key1", "https://presigned1"),
@@ -165,7 +168,7 @@ class OutfitServiceTest {
                     () -> outfitService.requestOutfit(OutfitFixture.USER_ID, request, OutfitFixture.SESSION_ID),
                     ErrorCode.SESSION_BUSY);
 
-            then(outfitRequestProducer).should(never()).send(any());
+            then(tpoOutboxRepository).should(never()).save(any());
         }
 
         @Test

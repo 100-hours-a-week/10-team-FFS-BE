@@ -4,12 +4,13 @@ import com.example.kloset_lab.ai.dto.OutfitAcceptedResponse;
 import com.example.kloset_lab.ai.dto.OutfitStatusResponse;
 import com.example.kloset_lab.ai.dto.TpoFeedbackRequest;
 import com.example.kloset_lab.ai.dto.TpoOutfitsRequest;
+import com.example.kloset_lab.ai.entity.TpoOutbox;
 import com.example.kloset_lab.ai.entity.TpoRequest;
 import com.example.kloset_lab.ai.entity.TpoResult;
 import com.example.kloset_lab.ai.entity.TpoSession;
 import com.example.kloset_lab.ai.infrastructure.kafka.dto.OutfitKafkaRequest;
 import com.example.kloset_lab.ai.infrastructure.kafka.dto.UploadSlot;
-import com.example.kloset_lab.ai.infrastructure.kafka.producer.OutfitRequestProducer;
+import com.example.kloset_lab.ai.repository.TpoOutboxRepository;
 import com.example.kloset_lab.ai.repository.TpoRequestRepository;
 import com.example.kloset_lab.ai.repository.TpoResultRepository;
 import com.example.kloset_lab.ai.repository.TpoSessionRepository;
@@ -23,6 +24,8 @@ import com.example.kloset_lab.media.entity.Purpose;
 import com.example.kloset_lab.media.service.MediaService;
 import com.example.kloset_lab.user.entity.User;
 import com.example.kloset_lab.user.repository.UserRepository;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.IntStream;
@@ -43,18 +46,20 @@ public class OutfitService {
     private final TpoSessionRepository tpoSessionRepository;
     private final TpoRequestRepository tpoRequestRepository;
     private final TpoResultRepository tpoResultRepository;
-    private final OutfitRequestProducer outfitRequestProducer;
+    private final TpoOutboxRepository tpoOutboxRepository;
     private final RedisEventPublisher redisEventPublisher;
     private final MediaService mediaService;
+    private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
 
     private static final int VTON_UPLOAD_SLOT_COUNT = 3;
 
     /**
-     * 코디 추천 요청 수락 (TX1 + Kafka 발행)
+     * 코디 추천 요청 수락 (TX1 — Outbox 패턴)
      *
-     * <p>TX1에서 세션 잠금, inflight 확인, TpoRequest 생성을 처리한 뒤
-     * TX 커밋 후 Kafka에 메시지를 발행한다.
+     * <p>TX1에서 TpoRequest + TpoOutbox를 원자적으로 저장한다.
+     * Kafka 발행은 OutboxRelay가 PENDING 레코드를 감지해 처리하므로,
+     * TX1 직후 프로세스가 종료되어도 재시작 후 자동 재발행된다.
      *
      * @param userId 사용자 ID
      * @param request 코디 추천 요청 DTO
@@ -63,6 +68,10 @@ public class OutfitService {
      */
     public OutfitAcceptedResponse requestOutfit(Long userId, TpoOutfitsRequest request, String sessionId) {
 
+        // VTON presigned URL 발급 (S3 외부 호출 — TX 시작 전 수행)
+        List<UploadSlot> uploadSlots = generateVtonUploadSlots(userId);
+
+        // TX1: TpoRequest + TpoOutbox 원자적 저장
         OutfitAcceptedResponse response = transactionTemplate.execute(status -> {
             User user =
                     userRepository.findById(userId).orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
@@ -81,19 +90,19 @@ public class OutfitService {
 
             session.startInflight(requestId);
 
-            return OutfitAcceptedResponse.of(requestId, session.getSessionId(), turnNo);
+            // Outbox 레코드 저장 (Relay가 Kafka 발행 보장)
+            String resolvedSessionId = session.getSessionId();
+            OutfitKafkaRequest kafkaRequest =
+                    OutfitKafkaRequest.of(requestId, userId, request.content(), resolvedSessionId, uploadSlots);
+            try {
+                tpoOutboxRepository.save(
+                        TpoOutbox.pending(requestId, resolvedSessionId, objectMapper.writeValueAsString(kafkaRequest)));
+            } catch (JsonProcessingException e) {
+                throw new RuntimeException("outbox payload 직렬화 실패", e);
+            }
+
+            return OutfitAcceptedResponse.of(requestId, resolvedSessionId, turnNo);
         });
-
-        // [CHAOS S1] TX1 커밋 후 Kafka 발행 전 장애 주입
-        if (System.getenv("CHAOS_FAIL_BEFORE_KAFKA") != null) {
-            throw new RuntimeException("[CHAOS] Kafka 발행 전 장애 주입 - requestId: " + response.requestId());
-        }
-        // VTON presigned URL 발급 (MediaFile PENDING 생성 포함)
-        List<UploadSlot> uploadSlots = generateVtonUploadSlots(userId);
-
-        // TX 커밋 후 Kafka 발행
-        outfitRequestProducer.send(OutfitKafkaRequest.of(
-                response.requestId(), userId, request.content(), response.sessionId(), uploadSlots));
 
         return response;
     }

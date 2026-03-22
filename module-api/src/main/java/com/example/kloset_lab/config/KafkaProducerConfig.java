@@ -53,11 +53,12 @@ public class KafkaProducerConfig {
         return new KafkaTemplate<>(new DefaultKafkaProducerFactory<>(props, new StringSerializer(), baseSerializer()));
     }
 
-    // 코디 추천 요청용
+    // 코디 추천 요청용 (Outbox Relay 사용, 멱등성 활성화)
     @Bean
     public KafkaTemplate<String, Object> outfitKafkaTemplate() {
         Map<String, Object> props = baseProducerProps();
-        props.put(ProducerConfig.RETRIES_CONFIG, 3);
+        props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
+        props.put(ProducerConfig.ACKS_CONFIG, "all");
         props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, 5000);
         return new KafkaTemplate<>(new DefaultKafkaProducerFactory<>(props, new StringSerializer(), baseSerializer()));
     }

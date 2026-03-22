@@ -67,6 +67,20 @@ class OutfitResponseConsumerTest {
             then(redisEventPublisher).should().publish(eq("outfit:event:1"), any());
             then(acknowledgment).should().acknowledge();
         }
+
+        @Test
+        @DisplayName("이미 처리된 요청의 progress 수신 시 Redis 발행 안 함 (중복 메시지 방어)")
+        void progress_터미널_요청_미발행() throws Exception {
+            given(outfitResultService.handleProgress(any())).willReturn(null);
+
+            ConsumerRecord<String, String> record = new ConsumerRecord<>(
+                    "outfit-response", 0, 0, null, objectMapper.writeValueAsString(OutfitFixture.progressResponse()));
+
+            consumer.consume(record, acknowledgment);
+
+            then(redisEventPublisher).should(never()).publish(anyString(), any());
+            then(acknowledgment).should().acknowledge();
+        }
     }
 
     @Nested
