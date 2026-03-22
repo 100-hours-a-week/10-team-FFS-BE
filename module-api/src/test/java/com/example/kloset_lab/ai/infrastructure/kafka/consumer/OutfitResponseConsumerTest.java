@@ -74,8 +74,7 @@ class OutfitResponseConsumerTest {
             given(outfitResultService.handleProgress(any())).willReturn(null);
 
             ConsumerRecord<String, String> record = new ConsumerRecord<>(
-                    "outfit-response", 0, 0, null,
-                    objectMapper.writeValueAsString(OutfitFixture.progressResponse()));
+                    "outfit-response", 0, 0, null, objectMapper.writeValueAsString(OutfitFixture.progressResponse()));
 
             consumer.consume(record, acknowledgment);
 
