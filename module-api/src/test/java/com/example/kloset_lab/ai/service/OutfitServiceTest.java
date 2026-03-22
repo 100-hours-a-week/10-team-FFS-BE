@@ -23,9 +23,12 @@ import com.example.kloset_lab.ai.repository.TpoResultRepository;
 import com.example.kloset_lab.ai.repository.TpoSessionRepository;
 import com.example.kloset_lab.global.exception.CustomException;
 import com.example.kloset_lab.global.exception.ErrorCode;
+import com.example.kloset_lab.global.infrastructure.RedisEventPublisher;
+import com.example.kloset_lab.media.dto.FileUploadResponse;
 import com.example.kloset_lab.media.service.MediaService;
 import com.example.kloset_lab.user.entity.User;
 import com.example.kloset_lab.user.repository.UserRepository;
+import java.util.List;
 import java.util.Optional;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
@@ -57,6 +60,9 @@ class OutfitServiceTest {
     private OutfitRequestProducer outfitRequestProducer;
 
     @Mock
+    private RedisEventPublisher redisEventPublisher;
+
+    @Mock
     private MediaService mediaService;
 
     @Mock
@@ -75,6 +81,7 @@ class OutfitServiceTest {
                 tpoRequestRepository,
                 tpoResultRepository,
                 outfitRequestProducer,
+                redisEventPublisher,
                 mediaService,
                 transactionTemplate);
 
@@ -99,6 +106,11 @@ class OutfitServiceTest {
             given(userRepository.findById(OutfitFixture.USER_ID)).willReturn(Optional.of(user));
             given(tpoSessionRepository.save(any(TpoSession.class))).willReturn(session);
             given(tpoRequestRepository.save(any(TpoRequest.class))).willAnswer(i -> i.getArgument(0));
+            given(mediaService.requestFileUpload(any(), any(), any()))
+                    .willReturn(List.of(
+                            new FileUploadResponse(1L, "key1", "https://presigned1"),
+                            new FileUploadResponse(2L, "key2", "https://presigned2"),
+                            new FileUploadResponse(3L, "key3", "https://presigned3")));
 
             OutfitAcceptedResponse response = outfitService.requestOutfit(OutfitFixture.USER_ID, request, null);
 
@@ -123,6 +135,11 @@ class OutfitServiceTest {
             given(tpoSessionRepository.findBySessionIdForUpdate(OutfitFixture.SESSION_ID))
                     .willReturn(Optional.of(session));
             given(tpoRequestRepository.save(any(TpoRequest.class))).willAnswer(i -> i.getArgument(0));
+            given(mediaService.requestFileUpload(any(), any(), any()))
+                    .willReturn(List.of(
+                            new FileUploadResponse(1L, "key1", "https://presigned1"),
+                            new FileUploadResponse(2L, "key2", "https://presigned2"),
+                            new FileUploadResponse(3L, "key3", "https://presigned3")));
 
             OutfitAcceptedResponse response =
                     outfitService.requestOutfit(OutfitFixture.USER_ID, request, OutfitFixture.SESSION_ID);

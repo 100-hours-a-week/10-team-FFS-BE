@@ -80,4 +80,12 @@ public record OutfitWebSocketMessage(
                 .message(message)
                 .build();
     }
+
+    public static OutfitWebSocketMessage cancelled(String requestId, String sessionId) {
+        return OutfitWebSocketMessage.builder()
+                .requestId(requestId)
+                .sessionId(sessionId)
+                .status("cancelled")
+                .build();
+    }
 }
