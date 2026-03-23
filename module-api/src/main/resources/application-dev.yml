@@ -106,6 +106,7 @@ cors:
     - http://localhost:5173
     - http://localhost:8080
     - http://15.164.36.40
+    - http://15.164.36.40:80
     - http://15.164.36.40:3000
     - http://15.164.36.40:8080
     - https://d33bnagyzgkisg.cloudfront.net
