@@ -2,7 +2,6 @@ package com.example.kloset_lab.chat.infrastructure;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -120,12 +119,8 @@ public class ChatRedisRepository {
 
         Map<Long, Map<String, String>> result = new LinkedHashMap<>();
         for (int i = 0; i < roomIds.size(); i++) {
-            Map<byte[], byte[]> byteMap = (Map<byte[], byte[]>) raw.get(i);
-            Map<String, String> fields = new HashMap<>();
-            if (byteMap != null) {
-                byteMap.forEach((k, v) -> fields.put(new String(k), new String(v)));
-            }
-            result.put(roomIds.get(i), fields);
+            Map<String, String> fields = (Map<String, String>) raw.get(i);
+            result.put(roomIds.get(i), fields != null ? fields : Collections.emptyMap());
         }
         return result;
     }

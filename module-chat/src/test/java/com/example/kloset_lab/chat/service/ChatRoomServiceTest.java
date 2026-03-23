@@ -246,7 +246,8 @@ class ChatRoomServiceTest {
             roomScores.put("10", 1000.0);
             roomScores.put("20", 900.0);
             roomScores.put("30", 800.0);
-            given(chatRedisRepository.getRoomsDescWithScores(eq(ChatFixture.USER_ID), eq(Double.MAX_VALUE), eq(size + 1)))
+            given(chatRedisRepository.getRoomsDescWithScores(
+                            eq(ChatFixture.USER_ID), eq(Double.MAX_VALUE), eq(size + 1)))
                     .willReturn(roomScores);
             given(chatParticipantRepository.findOpponentsByRoomIds(anyList(), eq(ChatFixture.USER_ID)))
                     .willReturn(List.of());
