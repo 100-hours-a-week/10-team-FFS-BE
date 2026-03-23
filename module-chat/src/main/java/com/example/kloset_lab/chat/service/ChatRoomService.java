@@ -143,52 +143,52 @@ public class ChatRoomService {
 
         // 커서가 있으면 -1 적용해 직전 마지막 항목 중복 방지 (score는 epoch millis 정수)
         double maxScore = Optional.ofNullable(cursor).map(c -> c - 1.0).orElse(Double.MAX_VALUE);
-        List<String> roomIdStrs = chatRedisRepository.getRoomsDesc(userId, maxScore, size + 1);
 
-        boolean hasNextPage = roomIdStrs.size() > size;
-        List<String> pageRoomIds = hasNextPage ? roomIdStrs.subList(0, size) : roomIdStrs;
+        // Redis 1회: roomId + score 동시 조회 (ZREVRANGEBYSCORE WITHSCORES)
+        Map<String, Double> roomScoreMap = chatRedisRepository.getRoomsDescWithScores(userId, maxScore, size + 1);
 
-        List<ChatRoomItem> items = new ArrayList<>();
-        Map<Long, Double> roomScores = new HashMap<>();
-        Map<Long, Long> roomToOpponent = new HashMap<>();
-        List<Long> opponentUserIds = new ArrayList<>();
+        boolean hasNextPage = roomScoreMap.size() > size;
+        List<String> pageRoomIdStrs = hasNextPage
+                ? new ArrayList<>(roomScoreMap.keySet()).subList(0, size)
+                : new ArrayList<>(roomScoreMap.keySet());
+        List<Long> pageRoomIds = pageRoomIdStrs.stream().map(Long::parseLong).toList();
 
-        for (String roomIdStr : pageRoomIds) {
-            long roomId = Long.parseLong(roomIdStr);
-            Optional.ofNullable(chatRedisRepository.getRoomScore(userId, roomId))
-                    .ifPresent(score -> roomScores.put(roomId, score));
+        // MySQL 1회: 상대방 참여자 IN 배치 조회 (N+1 → 1회)
+        Map<Long, Long> roomToOpponent = chatParticipantRepository.findOpponentsByRoomIds(pageRoomIds, userId).stream()
+                .collect(Collectors.toMap(
+                        p -> p.getRoom().getId(), p -> p.getUser().getId(), (a, b) -> a));
 
-            chatParticipantRepository.findByRoomId(roomId).stream()
-                    .filter(p -> !p.getUser().getId().equals(userId))
-                    .findFirst()
-                    .ifPresent(p -> {
-                        roomToOpponent.put(roomId, p.getUser().getId());
-                        opponentUserIds.add(p.getUser().getId());
-                    });
-        }
-
+        // MySQL 1회: UserProfile 배치 조회
+        List<Long> opponentUserIds = new ArrayList<>(roomToOpponent.values());
         Map<Long, UserProfile> profileMap = userProfileRepository.findByUserIdIn(opponentUserIds).stream()
                 .collect(Collectors.toMap(up -> up.getUser().getId(), up -> up));
 
-        for (String roomIdStr : pageRoomIds) {
-            long roomId = Long.parseLong(roomIdStr);
-            Optional.ofNullable(roomToOpponent.get(roomId)).ifPresent(opponentUserId -> {
-                LastMessageDto lastMessageDto = buildLastMessageDto(chatRedisRepository.getLastMessage(roomId))
-                        .orElse(null);
-                long unread = chatRedisRepository.getUnread(userId, roomId);
-                OpponentDto opponentDto = buildOpponentDtoFromProfile(opponentUserId, profileMap.get(opponentUserId));
+        // Redis 1회: 마지막 메시지 Pipeline 일괄 조회
+        Map<Long, Map<String, String>> lastMessageBatch = chatRedisRepository.getLastMessagesBatch(pageRoomIds);
 
-                items.add(ChatRoomItem.builder()
-                        .roomId(roomId)
-                        .opponent(opponentDto)
-                        .lastMessage(lastMessageDto)
-                        .unreadCount(unread)
-                        .build());
-            });
+        // Redis 1회: 안읽은 메시지 수 MGET 일괄 조회
+        Map<Long, Long> unreadBatch = chatRedisRepository.getUnreadBatch(userId, pageRoomIds);
+
+        List<ChatRoomItem> items = new ArrayList<>();
+        for (Long roomId : pageRoomIds) {
+            Long opponentUserId = roomToOpponent.get(roomId);
+            if (opponentUserId == null) continue;
+
+            LastMessageDto lastMessageDto =
+                    buildLastMessageDto(lastMessageBatch.get(roomId)).orElse(null);
+            long unread = unreadBatch.getOrDefault(roomId, 0L);
+            OpponentDto opponentDto = buildOpponentDtoFromProfile(opponentUserId, profileMap.get(opponentUserId));
+
+            items.add(ChatRoomItem.builder()
+                    .roomId(roomId)
+                    .opponent(opponentDto)
+                    .lastMessage(lastMessageDto)
+                    .unreadCount(unread)
+                    .build());
         }
 
         Double nextCursor =
-                hasNextPage && !pageRoomIds.isEmpty() ? roomScores.get(Long.parseLong(pageRoomIds.getLast())) : null;
+                hasNextPage && !pageRoomIds.isEmpty() ? roomScoreMap.get(String.valueOf(pageRoomIds.getLast())) : null;
 
         return ChatRoomListResponse.builder()
                 .rooms(items)
@@ -273,11 +273,11 @@ public class ChatRoomService {
                 pageMessages.stream().map(this::buildMessageItem).collect(Collectors.toList());
 
         String nextCursor = hasNextPage && !pageMessages.isEmpty()
-                ? pageMessages.get(pageMessages.size() - 1).getId().toHexString()
+                ? pageMessages.getLast().getId().toHexString()
                 : null;
 
         if (!pageMessages.isEmpty()) {
-            String latestMessageId = pageMessages.get(0).getId().toHexString();
+            String latestMessageId = pageMessages.getFirst().getId().toHexString();
             applyReadEffect(participant, userId, roomId, latestMessageId);
         }
 
@@ -334,16 +334,14 @@ public class ChatRoomService {
 
         // ASC 정렬이므로 마지막 항목이 가장 최신
         if (!pageMessages.isEmpty()) {
-            String latestMessageId =
-                    pageMessages.get(pageMessages.size() - 1).getId().toHexString();
+            String latestMessageId = pageMessages.getLast().getId().toHexString();
             applyReadEffect(participant, userId, roomId, latestMessageId);
         } else if (cursor == null || !ObjectId.isValid(cursor)) {
             // 첫 진입 시 메시지 없어도 unread count 0 초기화
             eventPublisher.publishEvent(new ChatReadEvent(userId, roomId));
         }
 
-        String nextCursor =
-                hasNextPage ? pageMessages.get(pageMessages.size() - 1).getId().toHexString() : null;
+        String nextCursor = hasNextPage ? pageMessages.getLast().getId().toHexString() : null;
 
         return ChatMessageListResponse.builder()
                 .messages(items)
