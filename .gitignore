@@ -55,7 +55,7 @@ logs
 module-api/src/test/java/com/example/kloset_lab/loadtest
 
 ### Past CI/CD Script ###
-backend-cd.yml
-backend-ci.yml
+# backend-cd.yml
+# backend-ci.yml
 
 docker-compose.yml
