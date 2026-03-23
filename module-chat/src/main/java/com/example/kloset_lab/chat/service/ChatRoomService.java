@@ -172,7 +172,9 @@ public class ChatRoomService {
         List<ChatRoomItem> items = new ArrayList<>();
         for (Long roomId : pageRoomIds) {
             Long opponentUserId = roomToOpponent.get(roomId);
-            if (opponentUserId == null) continue;
+            if (opponentUserId == null) {
+                continue;
+            }
 
             LastMessageDto lastMessageDto =
                     buildLastMessageDto(lastMessageBatch.get(roomId)).orElse(null);
