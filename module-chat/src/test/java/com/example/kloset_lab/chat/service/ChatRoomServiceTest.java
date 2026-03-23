@@ -3,6 +3,7 @@ package com.example.kloset_lab.chat.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
@@ -35,7 +36,10 @@ import com.example.kloset_lab.global.exception.ErrorCode;
 import com.example.kloset_lab.user.repository.UserProfileRepository;
 import com.example.kloset_lab.user.repository.UserRepository;
 import java.time.Instant;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bson.types.ObjectId;
@@ -199,8 +203,8 @@ class ChatRoomServiceTest {
         void Redis_캐시_없음_재구축_호출() {
             given(chatRedisRepository.getRoomCount(ChatFixture.USER_ID)).willReturn(0L);
             given(chatParticipantRepository.findByUserId(ChatFixture.USER_ID)).willReturn(List.of());
-            given(chatRedisRepository.getRoomsDesc(eq(ChatFixture.USER_ID), eq(Double.MAX_VALUE), eq(11)))
-                    .willReturn(List.of());
+            given(chatRedisRepository.getRoomsDescWithScores(eq(ChatFixture.USER_ID), eq(Double.MAX_VALUE), eq(11)))
+                    .willReturn(Collections.emptyMap());
 
             chatRoomService.getRooms(ChatFixture.USER_ID, null, 10);
 
@@ -211,12 +215,12 @@ class ChatRoomServiceTest {
         @DisplayName("cursor가 없으면 Double.MAX_VALUE로 조회한다")
         void cursor_없으면_MAX_VALUE_사용() {
             given(chatRedisRepository.getRoomCount(ChatFixture.USER_ID)).willReturn(1L);
-            given(chatRedisRepository.getRoomsDesc(eq(ChatFixture.USER_ID), eq(Double.MAX_VALUE), eq(11)))
-                    .willReturn(List.of());
+            given(chatRedisRepository.getRoomsDescWithScores(eq(ChatFixture.USER_ID), eq(Double.MAX_VALUE), eq(11)))
+                    .willReturn(Collections.emptyMap());
 
             chatRoomService.getRooms(ChatFixture.USER_ID, null, 10);
 
-            then(chatRedisRepository).should().getRoomsDesc(ChatFixture.USER_ID, Double.MAX_VALUE, 11);
+            then(chatRedisRepository).should().getRoomsDescWithScores(ChatFixture.USER_ID, Double.MAX_VALUE, 11);
         }
 
         @Test
@@ -224,12 +228,12 @@ class ChatRoomServiceTest {
         void cursor_있으면_minus1_적용() {
             double cursor = 1_700_000_000_000.0;
             given(chatRedisRepository.getRoomCount(ChatFixture.USER_ID)).willReturn(1L);
-            given(chatRedisRepository.getRoomsDesc(eq(ChatFixture.USER_ID), eq(cursor - 1.0), eq(11)))
-                    .willReturn(List.of());
+            given(chatRedisRepository.getRoomsDescWithScores(eq(ChatFixture.USER_ID), eq(cursor - 1.0), eq(11)))
+                    .willReturn(Collections.emptyMap());
 
             chatRoomService.getRooms(ChatFixture.USER_ID, cursor, 10);
 
-            then(chatRedisRepository).should().getRoomsDesc(ChatFixture.USER_ID, cursor - 1.0, 11);
+            then(chatRedisRepository).should().getRoomsDescWithScores(ChatFixture.USER_ID, cursor - 1.0, 11);
         }
 
         @Test
@@ -238,9 +242,17 @@ class ChatRoomServiceTest {
             int size = 2;
             given(chatRedisRepository.getRoomCount(ChatFixture.USER_ID)).willReturn(1L);
             // size+1 = 3개를 반환 → 다음 페이지 존재
-            given(chatRedisRepository.getRoomsDesc(eq(ChatFixture.USER_ID), eq(Double.MAX_VALUE), eq(size + 1)))
-                    .willReturn(List.of("10", "20", "30"));
-            given(chatParticipantRepository.findByRoomId(anyLong())).willReturn(List.of());
+            Map<String, Double> roomScores = new LinkedHashMap<>();
+            roomScores.put("10", 1000.0);
+            roomScores.put("20", 900.0);
+            roomScores.put("30", 800.0);
+            given(chatRedisRepository.getRoomsDescWithScores(eq(ChatFixture.USER_ID), eq(Double.MAX_VALUE), eq(size + 1)))
+                    .willReturn(roomScores);
+            given(chatParticipantRepository.findOpponentsByRoomIds(anyList(), eq(ChatFixture.USER_ID)))
+                    .willReturn(List.of());
+            given(chatRedisRepository.getLastMessagesBatch(anyList())).willReturn(Collections.emptyMap());
+            given(chatRedisRepository.getUnreadBatch(eq(ChatFixture.USER_ID), anyList()))
+                    .willReturn(Collections.emptyMap());
 
             ChatRoomListResponse response = chatRoomService.getRooms(ChatFixture.USER_ID, null, size);
 
