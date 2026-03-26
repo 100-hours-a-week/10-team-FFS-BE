@@ -489,9 +489,9 @@ jobs:
             **이미지 태그:** `${{ steps.version.outputs.image_tag }}`
 
             **ECR URI:**
-```
+
             ${{ steps.meta.outputs.image_uri }}
-```
+
             [🔗 Actions 보기](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           embed-color: 3066993
           embed-footer-text: ${{ github.repository }}
@@ -647,9 +647,9 @@ jobs:
             **이미지 태그:** `${{ steps.version.outputs.image_tag }}`
 
             **ECR URI:**
-```
+
             ${{ steps.meta.outputs.image_uri }}
-```
+
             [🔗 Actions 보기](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           embed-color: 3066993
           embed-footer-text: ${{ github.repository }}
