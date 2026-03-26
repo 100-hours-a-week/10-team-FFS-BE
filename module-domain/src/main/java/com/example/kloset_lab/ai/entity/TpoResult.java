@@ -31,12 +31,16 @@ public class TpoResult extends BaseTimeEntity {
     @Column(name = "outfit_id", nullable = false)
     private String outfitId;
 
+    @Column(name = "vton_image_url")
+    private String vtonImageUrl;
+
     @Builder
-    public TpoResult(TpoRequest tpoRequest, String cordiExplainText, String outfitId) {
+    public TpoResult(TpoRequest tpoRequest, String cordiExplainText, String outfitId, String vtonImageUrl) {
         this.tpoRequest = tpoRequest;
         this.cordiExplainText = cordiExplainText;
         this.reaction = Reaction.NONE;
         this.outfitId = outfitId;
+        this.vtonImageUrl = vtonImageUrl;
     }
 
     public void updateReaction(Reaction reaction) {

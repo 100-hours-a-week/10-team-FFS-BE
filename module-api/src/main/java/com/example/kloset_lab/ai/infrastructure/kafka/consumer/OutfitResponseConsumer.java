@@ -1,0 +1,165 @@
+package com.example.kloset_lab.ai.infrastructure.kafka.consumer;
+
+import com.example.kloset_lab.ai.dto.OutfitResultContext;
+import com.example.kloset_lab.ai.dto.OutfitResultContext.OutfitSummary;
+import com.example.kloset_lab.ai.infrastructure.kafka.dto.OutfitKafkaResponse;
+import com.example.kloset_lab.ai.service.OutfitResultService;
+import com.example.kloset_lab.global.infrastructure.OutfitWebSocketMessage;
+import com.example.kloset_lab.global.infrastructure.OutfitWebSocketMessage.OutfitData;
+import com.example.kloset_lab.global.infrastructure.RedisEventPublisher;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.List;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.springframework.context.annotation.Profile;
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.support.Acknowledgment;
+import org.springframework.stereotype.Component;
+
+/**
+ * outfit-response 토픽 컨슈머: 진행 상태 / 최종 결과 / 실패 메시지 처리
+ */
+@Slf4j
+@Component
+@RequiredArgsConstructor
+@Profile("!ci")
+public class OutfitResponseConsumer {
+
+    private static final String OUTFIT_CHANNEL = "outfit:event:%d";
+
+    private final OutfitResultService outfitResultService;
+    private final RedisEventPublisher redisEventPublisher;
+    private final ObjectMapper objectMapper;
+
+    @KafkaListener(
+            topics = "outfit-response",
+            groupId = "outfit_result_worker_group",
+            containerFactory = "outfitResultListenerFactory")
+    public void consume(ConsumerRecord<String, String> record, Acknowledgment acknowledgment) {
+        try {
+            log.info("[OutfitConsumer] 메시지 수신 - partition: {}, offset: {}", record.partition(), record.offset());
+
+            OutfitKafkaResponse response = objectMapper.readValue(record.value(), OutfitKafkaResponse.class);
+
+            if (response.isProcessing()) {
+                handleProgress(response);
+            } else if (response.isSuccess()) {
+                handleSuccess(response);
+            } else if (response.isFailed()) {
+                handleFailure(response);
+            } else if (response.isClarificationNeeded()) {
+                handleClarificationNeeded(response);
+            } else {
+                log.warn("[OutfitConsumer] 알 수 없는 status: {} - requestId: {}", response.status(), response.requestId());
+            }
+
+            // [CHAOS S9] TX2 커밋 후, acknowledge 직전 장애 주입 → Kafka 재전송 → isTerminal()=true → 스킵
+            if (System.getenv("CHAOS_FAIL_BEFORE_ACK") != null) {
+                throw new RuntimeException("[CHAOS] acknowledge 전 장애 주입 - offset: " + record.offset());
+            }
+
+            acknowledgment.acknowledge();
+            log.info("[OutfitConsumer] offset 커밋 완료 - partition: {}, offset: {}", record.partition(), record.offset());
+
+        } catch (JsonProcessingException e) {
+            log.warn("[OutfitConsumer] JSON 파싱 실패, 건너뜀 - offset: {}", record.offset(), e);
+            acknowledgment.acknowledge();
+        } catch (Exception e) {
+            log.error(
+                    "[OutfitConsumer] 메시지 처리 실패 - partition: {}, offset: {}, error: {}",
+                    record.partition(),
+                    record.offset(),
+                    e.getMessage(),
+                    e);
+        }
+    }
+
+    /**
+     * 진행 상태 메시지 → OutfitResultService 위임 (트랜잭션 내 lazy 연관관계 초기화)
+     */
+    private void handleProgress(OutfitKafkaResponse response) {
+        OutfitResultContext context = outfitResultService.handleProgress(response);
+        if (context == null) {
+            return;
+        }
+
+        OutfitWebSocketMessage message = OutfitWebSocketMessage.progress(
+                response.requestId(), context.sessionId(), response.step(), response.stepLabel());
+
+        publishToUser(context.userId(), message);
+    }
+
+    /**
+     * 성공 응답 → DB 저장 + inflight 해제 + Redis 이벤트 발행 (outfit 데이터 포함)
+     */
+    private void handleSuccess(OutfitKafkaResponse response) {
+        OutfitResultContext context = outfitResultService.handleSuccess(response);
+        if (context == null) {
+            return;
+        }
+
+        List<OutfitData> outfitData = toOutfitData(context.outfits());
+        OutfitWebSocketMessage message = OutfitWebSocketMessage.success(
+                response.requestId(), context.sessionId(), response.querySummary(), outfitData);
+        publishToUser(context.userId(), message);
+    }
+
+    /**
+     * 실패 응답 → DB 상태 변경 + inflight 해제 + Redis 이벤트 발행
+     */
+    private void handleFailure(OutfitKafkaResponse response) {
+        OutfitResultContext context = outfitResultService.handleFailure(response);
+        if (context == null) {
+            return;
+        }
+
+        String errorCode = response.error() != null ? response.error().code() : "unknown";
+        String errorMessage = response.error() != null ? response.error().message() : "알 수 없는 오류";
+
+        OutfitWebSocketMessage message =
+                OutfitWebSocketMessage.failed(response.requestId(), context.sessionId(), errorCode, errorMessage);
+
+        publishToUser(context.userId(), message);
+    }
+
+    /**
+     * 재질문 응답 → 상태 변경 + inflight 해제 + Redis 이벤트 발행
+     */
+    private void handleClarificationNeeded(OutfitKafkaResponse response) {
+        OutfitResultContext context = outfitResultService.handleClarificationNeeded(response);
+        if (context == null) {
+            return;
+        }
+
+        OutfitWebSocketMessage message = OutfitWebSocketMessage.clarificationNeeded(
+                response.requestId(), context.sessionId(), response.message());
+
+        publishToUser(context.userId(), message);
+    }
+
+    private List<OutfitData> toOutfitData(List<OutfitSummary> summaries) {
+        if (summaries == null || summaries.isEmpty()) {
+            return List.of();
+        }
+        return summaries.stream()
+                .map(s -> OutfitData.builder()
+                        .resultId(s.resultId())
+                        .clothesIds(s.clothesIds())
+                        .reaction(s.reaction())
+                        .vtonImageUrl(s.vtonImageUrl())
+                        .build())
+                .toList();
+    }
+
+    private void publishToUser(Long userId, OutfitWebSocketMessage message) {
+        // [CHAOS S13] TX2 커밋 후, Redis 발행 직전 장애 주입 → ack 미호출 → Kafka 재전송 → isTerminal()=true → Redis 재발행 없이 스킵 →
+        // WebSocket 알림 영구 유실
+        if (System.getenv("CHAOS_FAIL_BEFORE_REDIS") != null) {
+            throw new RuntimeException("[CHAOS] Redis 발행 전 장애 주입 - userId: " + userId);
+        }
+        String channel = String.format(OUTFIT_CHANNEL, userId);
+        redisEventPublisher.publish(channel, message);
+    }
+}

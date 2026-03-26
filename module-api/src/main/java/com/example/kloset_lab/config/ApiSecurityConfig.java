@@ -50,9 +50,7 @@ public class ApiSecurityConfig {
                         .permitAll()
                         .requestMatchers("/api/v1/users", "/api/v1/users/validation")
                         .permitAll()
-                        .requestMatchers("/api/v1/presigned-url")
-                        .permitAll()
-                        .requestMatchers("/api/internal/presigned-url")
+                        .requestMatchers("/api/internal/**")
                         .permitAll()
                         .requestMatchers(
                                 "/swagger",
@@ -69,6 +67,12 @@ public class ApiSecurityConfig {
                                 "/api/v1/feeds/{feedId}/likes",
                                 "/api/v1/feeds/{feedId}/comments",
                                 "/api/v1/feeds/{feedId}/comments/{commentId}/replies",
+                                "/api/v1/users/{userId}",
+                                "/api/v1/users/{userId}/feeds",
+                                "/api/v1/users/{userId}/clothes",
+                                "/api/v1/clothes/{clothesId}",
+                                "/api/v2/clothes/{clothesId}/feeds",
+                                "/api/v1/users/{userId}/**",
                                 "/api/v2/users/{userId}/following",
                                 "/api/v2/users/{userId}/followers")
                         .permitAll()

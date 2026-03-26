@@ -1,12 +1,15 @@
 package com.example.kloset_lab.chat.infrastructure;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ZSetOperations.TypedTuple;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -68,6 +71,93 @@ public class ChatRedisRepository {
     }
 
     /**
+     * 사용자의 채팅방 목록 커서 기반 조회 — roomId와 score를 함께 반환 (최신순)
+     *
+     * <p>ZREVRANGEBYSCORE WITHSCORES 단일 커맨드로 roomId + lastMessageAt score를 동시에 반환하여
+     * 이후 ZSCORE N회 재조회를 제거한다.
+     *
+     * @param userId   사용자 ID
+     * @param maxScore 최대 score (커서, 포함)
+     * @param size     조회 개수
+     * @return roomId → score 맵 (삽입 순서 = 최신순 유지)
+     */
+    public Map<String, Double> getRoomsDescWithScores(Long userId, double maxScore, int size) {
+        Set<TypedTuple<String>> result = redisTemplate
+                .opsForZSet()
+                .reverseRangeByScoreWithScores(roomsKey(userId), Double.NEGATIVE_INFINITY, maxScore, 0, size);
+        if (result == null || result.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<String, Double> map = new LinkedHashMap<>();
+        for (TypedTuple<String> tuple : result) {
+            if (tuple.getValue() != null && tuple.getScore() != null) {
+                map.put(tuple.getValue(), tuple.getScore());
+            }
+        }
+        return map;
+    }
+
+    /**
+     * 복수 채팅방의 마지막 메시지 정보를 Pipeline으로 일괄 조회
+     *
+     * <p>HGETALL N회 개별 왕복 → 단일 Pipeline 왕복으로 대체
+     *
+     * @param roomIds 채팅방 ID 목록 (순서 보존)
+     * @return roomId → 마지막 메시지 필드 맵 (순서 보존)
+     */
+    @SuppressWarnings("unchecked")
+    public Map<Long, Map<String, String>> getLastMessagesBatch(List<Long> roomIds) {
+        if (roomIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        List<Object> raw = redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+            for (Long roomId : roomIds) {
+                connection.hashCommands().hGetAll(lastKey(roomId).getBytes());
+            }
+            return null;
+        });
+
+        Map<Long, Map<String, String>> result = new LinkedHashMap<>();
+        for (int i = 0; i < roomIds.size(); i++) {
+            Map<String, String> fields = (Map<String, String>) raw.get(i);
+            result.put(roomIds.get(i), fields != null ? fields : Collections.emptyMap());
+        }
+        return result;
+    }
+
+    /**
+     * 복수 채팅방의 안읽은 메시지 수를 MGET으로 일괄 조회
+     *
+     * <p>GET N회 개별 왕복 → MGET 단일 커맨드로 대체
+     *
+     * @param userId  사용자 ID
+     * @param roomIds 채팅방 ID 목록 (순서 보존)
+     * @return roomId → 안읽은 메시지 수 맵
+     */
+    public Map<Long, Long> getUnreadBatch(Long userId, List<Long> roomIds) {
+        if (roomIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        List<String> keys =
+                roomIds.stream().map(roomId -> unreadKey(userId, roomId)).toList();
+        List<String> values = redisTemplate.opsForValue().multiGet(keys);
+
+        Map<Long, Long> result = new LinkedHashMap<>();
+        for (int i = 0; i < roomIds.size(); i++) {
+            String value = (values != null) ? values.get(i) : null;
+            long count = 0L;
+            if (value != null) {
+                try {
+                    count = Long.parseLong(value);
+                } catch (NumberFormatException ignored) {
+                }
+            }
+            result.put(roomIds.get(i), count);
+        }
+        return result;
+    }
+
+    /**
      * 사용자의 채팅방 목록 전체 카운트 조회
      *
      * @param userId 사용자 ID
@@ -102,19 +192,6 @@ public class ChatRedisRepository {
     }
 
     /**
-     * 채팅방 마지막 메시지 정보 조회
-     *
-     * @param roomId 채팅방 ID
-     * @return Hash 필드 맵 (없으면 empty)
-     */
-    public Map<String, String> getLastMessage(Long roomId) {
-        Map<Object, Object> raw = redisTemplate.opsForHash().entries(lastKey(roomId));
-        Map<String, String> result = new HashMap<>();
-        raw.forEach((k, v) -> result.put((String) k, (String) v));
-        return result;
-    }
-
-    /**
      * 채팅방 마지막 메시지 정보 삭제
      *
      * @param roomId 채팅방 ID
@@ -130,10 +207,9 @@ public class ChatRedisRepository {
      *
      * @param userId 수신자 사용자 ID
      * @param roomId 채팅방 ID
-     * @return 증가 후 값
      */
-    public Long incrementUnread(Long userId, Long roomId) {
-        return redisTemplate.opsForValue().increment(unreadKey(userId, roomId));
+    public void incrementUnread(Long userId, Long roomId) {
+        redisTemplate.opsForValue().increment(unreadKey(userId, roomId));
     }
 
     /**

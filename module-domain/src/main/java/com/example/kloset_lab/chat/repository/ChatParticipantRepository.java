@@ -64,4 +64,21 @@ public interface ChatParticipantRepository extends JpaRepository<ChatParticipant
      */
     @Query("SELECT cp FROM ChatParticipant cp WHERE cp.user.id = :userId AND cp.leftAt IS NULL")
     List<ChatParticipant> findByUserId(@Param("userId") Long userId);
+
+    /**
+     * 복수 채팅방에서 특정 사용자를 제외한 상대방 참여자 일괄 조회
+     *
+     * @param roomIds       채팅방 ID 목록
+     * @param excludeUserId 제외할 사용자 ID (현재 로그인 사용자)
+     * @return 상대방 참여자 레코드 목록 (user 포함)
+     */
+    @Query(
+            """
+            SELECT cp FROM ChatParticipant cp
+            JOIN FETCH cp.user
+            WHERE cp.room.id IN :roomIds
+              AND cp.user.id <> :excludeUserId
+            """)
+    List<ChatParticipant> findOpponentsByRoomIds(
+            @Param("roomIds") List<Long> roomIds, @Param("excludeUserId") Long excludeUserId);
 }
