@@ -1,2157 +1,2157 @@
-name: Backend CD V2
-
-# ============================================================
-# 트리거 설정: CI 워크플로우 완료 후 자동 실행
-# ============================================================
-on:
-  workflow_run:
-    workflows: ["Backend CI V2"]
-    types:
-      - completed
-    branches:
-      - dev
-      - main
-
-permissions:
-  contents: read
-  actions: read
-  id-token: write
-
-# ============================================================
-# 환경 변수 설정
-# ============================================================
-env:
-  AWS_REGION: ap-northeast-2
-
-# ============================================================
-# Jobs
-# ============================================================
-jobs:
-  # ============================================================
-  # Staging API 배포 (dev 브랜치)
-  # ASG 교체 방식
-  # ============================================================
-  deploy-staging-api:
-    name: Deploy API to Staging
-    if: |
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'dev' &&
-      github.event.workflow_run.event == 'push'
-    runs-on: ubuntu-latest
-    environment:
-      name: staging
-      url: https://staging-api.klosetlab.site
-    timeout-minutes: 30
-
-    permissions:
-      id-token: write
-      contents: read
-      actions: read
-
-    steps:
-      # ------------------------------------------------------
-      # 1. Checkout (스크립트 사용을 위해)
-      # ------------------------------------------------------
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # ------------------------------------------------------
-      # 2. API Docker 메타데이터 다운로드
-      # ------------------------------------------------------
-      - name: Download API Docker metadata
-        uses: actions/download-artifact@v4
-        with:
-          name: docker-metadata-api-${{ github.event.workflow_run.head_sha }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ github.event.workflow_run.id }}
-
-      # ------------------------------------------------------
-      # 3. 이미지 정보 추출
-      # ------------------------------------------------------
-      - name: Extract image info
-        id: image
-        run: |
-          if [ -f docker-metadata-api.json ]; then
-            IMAGE_URI=$(cat docker-metadata-api.json | jq -r '.imageUri')
-            IMAGE_TAG=$(cat docker-metadata-api.json | jq -r '.imageTag')
-            VERSION=$(cat docker-metadata-api.json | jq -r '.version')
-
-            echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
-            echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
-            echo "version=${VERSION}" >> $GITHUB_OUTPUT
-
-            echo "### API Docker Image Info" >> $GITHUB_STEP_SUMMARY
-            echo "- **API Image URI:** \`${IMAGE_URI}\`" >> $GITHUB_STEP_SUMMARY
-            echo "- **API Image Tag:** \`${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
-
-            cat docker-metadata-api.json | jq '.'
-          else
-            echo "::error::API Docker metadata not found!"
-            exit 1
-          fi
-
-      # ------------------------------------------------------
-      # 4. AWS OIDC 인증
-      # ------------------------------------------------------
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_DEV_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-          role-session-name: GitHubActions-StagingAPI-${{ github.run_id }}
-
-      # ------------------------------------------------------
-      # 5. 현재 환경 확인
-      # ------------------------------------------------------
-      - name: Check current API environment
-        id: current-check
-        run: |
-          LISTENER_ARN="${{ secrets.DEV_ALB_LISTENER_ARN }}"
-
-          API_RULE_ARN=$(aws elbv2 describe-rules \
-            --listener-arn ${LISTENER_ARN} \
-            --query "Rules[?contains(Conditions[].Values[], '/api/*')].RuleArn" \
-            --output text)
-
-          CURRENT_TG_ARN=$(aws elbv2 describe-rules \
-            --rule-arns ${API_RULE_ARN} \
-            --query 'Rules[0].Actions[0].ForwardConfig.TargetGroups[0].TargetGroupArn' \
-            --output text)
-
-          echo "current_tg_arn=${CURRENT_TG_ARN}" >> $GITHUB_OUTPUT
-
-          ALL_ASGS=$(aws autoscaling describe-auto-scaling-groups \
-            --query 'AutoScalingGroups[?starts_with(AutoScalingGroupName, `klosetlab-staging-v2-app-asg-`)].AutoScalingGroupName' \
-            --output json)
-
-          CURRENT_ASG="none"
-          for asg in $(echo "$ALL_ASGS" | jq -r '.[]'); do
-            TG_ARNS=$(aws autoscaling describe-auto-scaling-groups \
-              --auto-scaling-group-names "$asg" \
-              --query 'AutoScalingGroups[0].TargetGroupARNs' \
-              --output json)
-
-            if echo "$TG_ARNS" | jq -e --arg tg "$CURRENT_TG_ARN" 'index($tg)' > /dev/null; then
-              CURRENT_ASG="$asg"
-              break
-            fi
-          done
-
-          echo "current_asg=${CURRENT_ASG}" >> $GITHUB_OUTPUT
-
-          if [ "$CURRENT_ASG" != "none" ]; then
-            DESIRED=$(aws autoscaling describe-auto-scaling-groups \
-              --auto-scaling-group-names ${CURRENT_ASG} \
-              --query 'AutoScalingGroups[0].DesiredCapacity' \
-              --output text)
-            MIN=$(aws autoscaling describe-auto-scaling-groups \
-              --auto-scaling-group-names ${CURRENT_ASG} \
-              --query 'AutoScalingGroups[0].MinSize' \
-              --output text)
-            MAX=$(aws autoscaling describe-auto-scaling-groups \
-              --auto-scaling-group-names ${CURRENT_ASG} \
-              --query 'AutoScalingGroups[0].MaxSize' \
-              --output text)
-            echo "desired=${DESIRED}" >> $GITHUB_OUTPUT
-            echo "min=${MIN}" >> $GITHUB_OUTPUT
-            echo "max=${MAX}" >> $GITHUB_OUTPUT
-
-            echo "### 📊 Current Environment" >> $GITHUB_STEP_SUMMARY
-            echo "- **ASG:** \`${CURRENT_ASG}\`" >> $GITHUB_STEP_SUMMARY
-            echo "- **Capacity:** ${DESIRED} (min: ${MIN}, max: ${MAX})" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "desired=1" >> $GITHUB_OUTPUT
-            echo "min=1" >> $GITHUB_OUTPUT
-            echo "max=2" >> $GITHUB_OUTPUT
-          fi
-
-      # ------------------------------------------------------
-      # 6. API User Data 생성
-      # ------------------------------------------------------
-      - name: Generate API User Data script
-        id: userdata
-        run: |
-          chmod +x .github/scripts/generate-userdata.sh
-          .github/scripts/generate-userdata.sh \
-            "staging" \
-            "${{ steps.image.outputs.image_uri }}" \
-            "${{ env.AWS_REGION }}"
-
-      # ------------------------------------------------------
-      # 7. Launch Template 버전 생성
-      # ------------------------------------------------------
-      - name: Create new Launch Template version
-        id: new-lt
-        run: |
-          LT_ID="${{ secrets.DEV_LAUNCH_TEMPLATE_ID }}"
-          USER_DATA="${{ steps.userdata.outputs.user_data_base64 }}"
-          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-
-          NEW_LT_VERSION=$(aws ec2 create-launch-template-version \
-            --launch-template-id ${LT_ID} \
-            --source-version '$Latest' \
-            --launch-template-data "{
-              \"UserData\": \"${USER_DATA}\",
-              \"TagSpecifications\": [{
-                \"ResourceType\": \"instance\",
-                \"Tags\": [
-                  {\"Key\": \"Name\", \"Value\": \"klosetlab-staging-v2-app-${TIMESTAMP}\"},
-                  {\"Key\": \"Environment\", \"Value\": \"staging\"},
-                  {\"Key\": \"Service\", \"Value\": \"api\"},
-                  {\"Key\": \"ImageTag\", \"Value\": \"${{ steps.image.outputs.image_tag }}\"}
-                ]
-              }]
-            }" \
-            --query 'LaunchTemplateVersion.VersionNumber' \
-            --output text)
-
-          echo "new_lt_version=${NEW_LT_VERSION}" >> $GITHUB_OUTPUT
-          echo "✅ API Launch Template version ${NEW_LT_VERSION} created"
-
-      # ------------------------------------------------------
-      # 8. ASG 생성
-      # ------------------------------------------------------
-      - name: Create new API ASG
-        id: new-asg
-        run: |
-          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-          NEW_ASG_NAME="klosetlab-staging-v2-app-asg-${TIMESTAMP}"
-          CURRENT_TG_ARN="${{ steps.current-check.outputs.current_tg_arn }}"
-
-          if [ -z "$CURRENT_TG_ARN" ] || [ "$CURRENT_TG_ARN" = "None" ]; then
-            CURRENT_TG_ARN="${{ secrets.DEV_TARGET_GROUP_ARN }}"
-          fi
-
-          aws autoscaling create-auto-scaling-group \
-            --auto-scaling-group-name ${NEW_ASG_NAME} \
-            --launch-template "LaunchTemplateId=${{ secrets.DEV_LAUNCH_TEMPLATE_ID }},Version=${{ steps.new-lt.outputs.new_lt_version }}" \
-            --min-size ${{ steps.current-check.outputs.min }} \
-            --max-size ${{ steps.current-check.outputs.max }} \
-            --desired-capacity ${{ steps.current-check.outputs.desired }} \
-            --target-group-arns ${CURRENT_TG_ARN} \
-            --vpc-zone-identifier "${{ secrets.DEV_SUBNET_IDS }}" \
-            --health-check-type ELB \
-            --health-check-grace-period 300 \
-            --tags "Key=Name,Value=klosetlab-staging-v2-app,PropagateAtLaunch=true" \
-                   "Key=Environment,Value=staging,PropagateAtLaunch=true" \
-                   "Key=Service,Value=api,PropagateAtLaunch=true" \
-                   "Key=ImageTag,Value=${{ steps.image.outputs.image_tag }},PropagateAtLaunch=true"
-
-          echo "new_asg_name=${NEW_ASG_NAME}" >> $GITHUB_OUTPUT
-
-          echo "### 🟢 New API ASG: ${NEW_ASG_NAME}" >> $GITHUB_STEP_SUMMARY
-          echo "- **ASG:** \`${NEW_ASG_NAME}\`" >> $GITHUB_STEP_SUMMARY
-
-      # ------------------------------------------------------
-      # 9. ASG 준비 대기
-      # ------------------------------------------------------
-      - name: Wait for new API ASG to be ready
-        timeout-minutes: 15
-        run: |
-          NEW_ASG="${{ steps.new-asg.outputs.new_asg_name }}"
-          CURRENT_TG_ARN="${{ steps.current-check.outputs.current_tg_arn }}"
-          EXPECTED=${{ steps.current-check.outputs.desired }}
-
-          if [ -z "$CURRENT_TG_ARN" ] || [ "$CURRENT_TG_ARN" = "None" ]; then
-            CURRENT_TG_ARN="${{ secrets.DEV_TARGET_GROUP_ARN }}"
-          fi
-
-          MAX_RETRIES=90
-          RETRY_COUNT=0
-
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            HEALTHY_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
-              --auto-scaling-group-names ${NEW_ASG} \
-              --query 'AutoScalingGroups[0].Instances[?HealthStatus==`Healthy` && LifecycleState==`InService`]' \
-              --output json | jq 'length')
-
-            NEW_INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
-              --auto-scaling-group-names ${NEW_ASG} \
-              --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`].InstanceId' \
-              --output json)
-
-            HEALTHY_TARGETS=0
-            for instance_id in $(echo "$NEW_INSTANCE_IDS" | jq -r '.[]'); do
-              STATE=$(aws elbv2 describe-target-health \
-                --target-group-arn ${CURRENT_TG_ARN} \
-                --targets Id=${instance_id} \
-                --query 'TargetHealthDescriptions[0].TargetHealth.State' \
-                --output text 2>/dev/null || echo "unknown")
-              if [ "$STATE" = "healthy" ]; then
-                HEALTHY_TARGETS=$((HEALTHY_TARGETS + 1))
-              fi
-            done
-
-            echo "[$((RETRY_COUNT + 1))/$MAX_RETRIES] Healthy: ${HEALTHY_INSTANCES} instances, ${HEALTHY_TARGETS} targets (expected: ${EXPECTED})"
-
-            if [ "$HEALTHY_INSTANCES" -ge "$EXPECTED" ] && [ "$HEALTHY_TARGETS" -ge "$EXPECTED" ]; then
-              echo "✅ New API ASG is ready!"
-              exit 0
-            fi
-
-            sleep 10
-            RETRY_COUNT=$((RETRY_COUNT + 1))
-          done
-
-          echo "❌ New API ASG failed to become healthy"
-          exit 1
-
-      # ------------------------------------------------------
-      # 10. ASG 정리
-      # ------------------------------------------------------
-      - name: Remove old API ASG
-        if: success() && steps.current-check.outputs.current_asg != 'none'
-        run: |
-          OLD_ASG="${{ steps.current-check.outputs.current_asg }}"
-
-          aws autoscaling update-auto-scaling-group \
-            --auto-scaling-group-name ${OLD_ASG} \
-            --min-size 0 --max-size 0 --desired-capacity 0
-
-          sleep 20
-
-          aws autoscaling delete-auto-scaling-group \
-            --auto-scaling-group-name ${OLD_ASG} \
-            --force-delete
-
-          echo "✅ Old API ASG removed: ${OLD_ASG}"
-          echo "### 🗑️ Old ASG Removed" >> $GITHUB_STEP_SUMMARY
-          echo "- **Deleted:** \`${OLD_ASG}\`" >> $GITHUB_STEP_SUMMARY
-
-      # ------------------------------------------------------
-      # 11. 배포 정보 기록
-      # ------------------------------------------------------
-      - name: Record deployment info
-        if: success()
-        run: |
-          cat > deployment-info.json <<EOF
-          {
-            "environment": "staging",
-            "service": "api",
-            "deployed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "image_uri": "${{ steps.image.outputs.image_uri }}",
-            "image_tag": "${{ steps.image.outputs.image_tag }}",
-            "new_asg": "${{ steps.new-asg.outputs.new_asg_name }}",
-            "old_asg": "${{ steps.current-check.outputs.current_asg }}",
-            "commit_sha": "${{ github.event.workflow_run.head_sha }}"
-          }
-          EOF
-          cat deployment-info.json
-
-      # ------------------------------------------------------
-      # 12. 롤백 (실패 시)
-      # ------------------------------------------------------
-      - name: Rollback on failure
-        if: failure() && steps.new-asg.outputs.new_asg_name != ''
-        run: |
-          NEW_ASG="${{ steps.new-asg.outputs.new_asg_name }}"
-
-          echo "=== Rolling back ==="
-
-          aws autoscaling update-auto-scaling-group \
-            --auto-scaling-group-name ${NEW_ASG} \
-            --min-size 0 --max-size 0 --desired-capacity 0 || true
-
-          sleep 10
-
-          aws autoscaling delete-auto-scaling-group \
-            --auto-scaling-group-name ${NEW_ASG} \
-            --force-delete || true
-
-          echo "⚠️ API Rollback completed"
-
-      # ------------------------------------------------------
-      # 13. Discord 알림 
-      # ------------------------------------------------------
-      - name: Send Discord notification on success
-        if: success()
-        uses: tsickert/discord-webhook@v5.3.0
-        with:
-          webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          username: "Backend CD Bot"
-          avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
-          embed-title: "✅ [API] Staging 배포 성공"
-          embed-description: |
-            **이미지:** `${{ steps.image.outputs.image_tag }}`
-            **New ASG:** `${{ steps.new-asg.outputs.new_asg_name }}`
-            **Old ASG:** `${{ steps.current-check.outputs.current_asg }}`
-            [📋 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-
-            ✅ 새 ASG 생성 → 기존 ASG 교체 완료!
-
-            [📋 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          embed-color: 3066993
-
-      - name: Send Discord notification on failure
-        if: failure()
-        uses: tsickert/discord-webhook@v5.3.0
-        with:
-          webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          username: "Backend CD Bot"
-          avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
-          embed-title: "❌ [API] Staging 배포 실패"
-          embed-description: |
-            **환경:** Staging 🟢
-            **이미지:** `${{ steps.image.outputs.image_tag }}`
-
-            ❌ 배포 실패 - 롤백됨
-
-            [📋 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          embed-color: 15158332
-
-  # ============================================================
-  # Staging Chat 배포 (dev 브랜치)
-  # ASG 교체 방식
-  # ============================================================
-  deploy-staging-chat:
-    name: Deploy Chat to Staging
-    if: |
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'dev' &&
-      github.event.workflow_run.event == 'push'
-    runs-on: ubuntu-latest
-    environment:
-      name: staging
-      url: https://staging-api.klosetlab.site
-    timeout-minutes: 30
-
-    permissions:
-      id-token: write
-      contents: read
-      actions: read
-
-    steps:
-      # ------------------------------------------------------
-      # 1. Checkout (스크립트 사용을 위해)
-      # ------------------------------------------------------
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # ------------------------------------------------------
-      # 2. Chat Docker 메타데이터 다운로드
-      # ------------------------------------------------------
-      - name: Download Chat Docker metadata
-        uses: actions/download-artifact@v4
-        with:
-          name: docker-metadata-chat-${{ github.event.workflow_run.head_sha }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ github.event.workflow_run.id }}
-
-      # ------------------------------------------------------
-      # 3. 이미지 정보 추출
-      # ------------------------------------------------------
-      - name: Extract image info
-        id: image
-        run: |
-          if [ -f docker-metadata-chat.json ]; then
-            IMAGE_URI=$(cat docker-metadata-chat.json | jq -r '.imageUri')
-            IMAGE_TAG=$(cat docker-metadata-chat.json | jq -r '.imageTag')
-            VERSION=$(cat docker-metadata-chat.json | jq -r '.version')
-
-            echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
-            echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
-            echo "version=${VERSION}" >> $GITHUB_OUTPUT
-
-            echo "### Chat Docker Image Info" >> $GITHUB_STEP_SUMMARY
-            echo "- **Chat Image URI:** \`${IMAGE_URI}\`" >> $GITHUB_STEP_SUMMARY
-            echo "- **Chat Image Tag:** \`${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
-
-            cat docker-metadata-chat.json | jq '.'
-          else
-            echo "::error::Chat Docker metadata not found!"
-            exit 1
-          fi
-
-      # ------------------------------------------------------
-      # 4. AWS OIDC 인증
-      # ------------------------------------------------------
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_DEV_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-          role-session-name: GitHubActions-StagingChat-${{ github.run_id }}
-
-      # ------------------------------------------------------
-      # 5. 현재 환경 확인
-      # ------------------------------------------------------
-      - name: Check current Chat environment
-        id: current-check
-        run: |
-          CHAT_TG_ARN="${{ secrets.DEV_CHAT_TARGET_GROUP_ARN }}"
-          echo "current_tg_arn=${CHAT_TG_ARN}" >> $GITHUB_OUTPUT
-
-          ALL_ASGS=$(aws autoscaling describe-auto-scaling-groups \
-            --query 'AutoScalingGroups[?starts_with(AutoScalingGroupName, `klosetlab-staging-v2-chat-asg-`)].AutoScalingGroupName' \
-            --output json)
-
-          CURRENT_ASG="none"
-
-          for asg in $(echo "$ALL_ASGS" | jq -r '.[]'); do
-            TG_ARNS=$(aws autoscaling describe-auto-scaling-groups \
-              --auto-scaling-group-names "$asg" \
-              --query 'AutoScalingGroups[0].TargetGroupARNs' \
-              --output json)
-            if echo "$TG_ARNS" | jq -e --arg tg "$CHAT_TG_ARN" 'index($tg)' > /dev/null; then
-              CURRENT_ASG="$asg"
-              break
-            fi
-          done
-
-          echo "current_asg=${CURRENT_ASG}" >> $GITHUB_OUTPUT
-
-          if [ "$CURRENT_ASG" != "none" ]; then
-            DESIRED=$(aws autoscaling describe-auto-scaling-groups \
-              --auto-scaling-group-names ${CURRENT_ASG} \
-              --query 'AutoScalingGroups[0].DesiredCapacity' --output text)
-            MIN=$(aws autoscaling describe-auto-scaling-groups \
-              --auto-scaling-group-names ${CURRENT_ASG} \
-              --query 'AutoScalingGroups[0].MinSize' --output text)
-            MAX=$(aws autoscaling describe-auto-scaling-groups \
-              --auto-scaling-group-names ${CURRENT_ASG} \
-              --query 'AutoScalingGroups[0].MaxSize' --output text)
-
-            echo "desired=${DESIRED}" >> $GITHUB_OUTPUT
-            echo "min=${MIN}" >> $GITHUB_OUTPUT
-            echo "max=${MAX}" >> $GITHUB_OUTPUT
-
-            echo "### 📊 Current Environment" >> $GITHUB_STEP_SUMMARY
-            echo "- **ASG:** \`${CURRENT_ASG}\`" >> $GITHUB_STEP_SUMMARY
-            echo "- **Capacity:** ${DESIRED} (min: ${MIN}, max: ${MAX})" >> $GITHUB_STEP_SUMMARY
-
-          else
-            echo "desired=1" >> $GITHUB_OUTPUT
-            echo "min=1" >> $GITHUB_OUTPUT
-            echo "max=2" >> $GITHUB_OUTPUT
-          fi
-
-      # ------------------------------------------------------
-      # 6. Chat User Data 생성
-      # ------------------------------------------------------
-      - name: Generate Chat User Data script
-        id: userdata
-        run: |
-          chmod +x .github/scripts/generate-userdata-chat.sh
-          .github/scripts/generate-userdata-chat.sh \
-            "staging" \
-            "${{ steps.image.outputs.image_uri }}" \
-            "${{ env.AWS_REGION }}"
-
-      # ------------------------------------------------------
-      # 7. Launch Template 버전 생성
-      # ------------------------------------------------------
-      - name: Create new Chat Launch Template version
-        id: new-lt
-        run: |
-          LT_ID="${{ secrets.DEV_CHAT_LAUNCH_TEMPLATE_ID }}"
-          USER_DATA="${{ steps.userdata.outputs.user_data_base64 }}"
-          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-
-          NEW_LT_VERSION=$(aws ec2 create-launch-template-version \
-            --launch-template-id ${LT_ID} \
-            --source-version '$Latest' \
-            --launch-template-data "{
-              \"UserData\": \"${USER_DATA}\",
-              \"TagSpecifications\": [{
-                \"ResourceType\": \"instance\",
-                \"Tags\": [
-                  {\"Key\": \"Name\", \"Value\": \"klosetlab-staging-v2-chat-${TIMESTAMP}\"},
-                  {\"Key\": \"Environment\", \"Value\": \"staging\"},
-                  {\"Key\": \"Service\", \"Value\": \"chat\"},
-                  {\"Key\": \"ImageTag\", \"Value\": \"${{ steps.image.outputs.image_tag }}\"}
-                ]
-              }]
-            }" \
-            --query 'LaunchTemplateVersion.VersionNumber' \
-            --output text)
-
-          echo "new_lt_version=${NEW_LT_VERSION}" >> $GITHUB_OUTPUT
-          echo "✅ Chat Launch Template version ${NEW_LT_VERSION} created"
-
-      # ------------------------------------------------------
-      # 8. ASG 생성
-      # ------------------------------------------------------
-      - name: Create new Chat ASG
-        id: new-asg
-        run: |
-          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-          NEW_ASG_NAME="klosetlab-staging-v2-chat-asg-${TIMESTAMP}"
-          CHAT_TG_ARN="${{ steps.current-check.outputs.current_tg_arn }}"
-
-          aws autoscaling create-auto-scaling-group \
-            --auto-scaling-group-name ${NEW_ASG_NAME} \
-            --launch-template "LaunchTemplateId=${{ secrets.DEV_CHAT_LAUNCH_TEMPLATE_ID }},Version=${{ steps.new-lt.outputs.new_lt_version }}" \
-            --min-size ${{ steps.current-check.outputs.min }} \
-            --max-size ${{ steps.current-check.outputs.max }} \
-            --desired-capacity ${{ steps.current-check.outputs.desired }} \
-            --target-group-arns ${CHAT_TG_ARN} \
-            --vpc-zone-identifier "${{ secrets.DEV_SUBNET_IDS }}" \
-            --health-check-type ELB \
-            --health-check-grace-period 300 \
-            --tags "Key=Name,Value=klosetlab-staging-v2-chat,PropagateAtLaunch=true" \
-                   "Key=Environment,Value=staging,PropagateAtLaunch=true" \
-                   "Key=Service,Value=chat,PropagateAtLaunch=true" \
-                   "Key=ImageTag,Value=${{ steps.image.outputs.image_tag }},PropagateAtLaunch=true"
-
-          echo "new_asg_name=${NEW_ASG_NAME}" >> $GITHUB_OUTPUT
-
-          echo "### 🟢 New Chat ASG: ${NEW_ASG_NAME}" >> $GITHUB_STEP_SUMMARY
-          echo "- **ASG:** \`${NEW_ASG_NAME}\`" >> $GITHUB_STEP_SUMMARY
-
-      # ------------------------------------------------------
-      # 9. ASG 준비 대기
-      # ------------------------------------------------------
-      - name: Wait for new Chat ASG to be ready
-        timeout-minutes: 15
-        run: |
-          NEW_ASG="${{ steps.new-asg.outputs.new_asg_name }}"
-          CHAT_TG_ARN="${{ steps.current-check.outputs.current_tg_arn }}"
-          EXPECTED=${{ steps.current-check.outputs.desired }}
-
-          MAX_RETRIES=90
-          RETRY_COUNT=0
-
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            HEALTHY_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
-              --auto-scaling-group-names ${NEW_ASG} \
-              --query 'AutoScalingGroups[0].Instances[?HealthStatus==`Healthy` && LifecycleState==`InService`]' \
-              --output json | jq 'length')
-
-            NEW_INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
-              --auto-scaling-group-names ${NEW_ASG} \
-              --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`].InstanceId' \
-              --output json)
-
-            HEALTHY_TARGETS=0
-            for instance_id in $(echo "$NEW_INSTANCE_IDS" | jq -r '.[]'); do
-              STATE=$(aws elbv2 describe-target-health \
-                --target-group-arn ${CHAT_TG_ARN} \
-                --targets Id=${instance_id} \
-                --query 'TargetHealthDescriptions[0].TargetHealth.State' \
-                --output text 2>/dev/null || echo "unknown")
-              if [ "$STATE" = "healthy" ]; then
-                HEALTHY_TARGETS=$((HEALTHY_TARGETS + 1))
-              fi
-            done
-
-            echo "[$((RETRY_COUNT + 1))/$MAX_RETRIES] Healthy: ${HEALTHY_INSTANCES} instances, ${HEALTHY_TARGETS} targets (expected: ${EXPECTED})"
-
-            if [ "$HEALTHY_INSTANCES" -ge "$EXPECTED" ] && [ "$HEALTHY_TARGETS" -ge "$EXPECTED" ]; then
-              echo "✅ New Chat ASG is ready!"
-              exit 0
-            fi
-
-            sleep 10
-            RETRY_COUNT=$((RETRY_COUNT + 1))
-          done
-
-          echo "❌ New Chat ASG failed to become healthy"
-          exit 1
-
-      # ------------------------------------------------------
-      # 10. ASG 정리
-      # ------------------------------------------------------
-      - name: Remove old Chat ASG
-        if: success() && steps.current-check.outputs.current_asg != 'none'
-        run: |
-          OLD_ASG="${{ steps.current-check.outputs.current_asg }}"
-
-          aws autoscaling update-auto-scaling-group \
-            --auto-scaling-group-name ${OLD_ASG} \
-            --min-size 0 --max-size 0 --desired-capacity 0
-
-          sleep 20
-
-          aws autoscaling delete-auto-scaling-group \
-            --auto-scaling-group-name ${OLD_ASG} \
-            --force-delete
-
-          echo "✅ Old Chat ASG removed: ${OLD_ASG}"
-          echo "### 🗑️ Old ASG Removed" >> $GITHUB_STEP_SUMMARY
-          echo "- **Deleted:** \`${OLD_ASG}\`" >> $GITHUB_STEP_SUMMARY
-
-      # ------------------------------------------------------
-      # 11. 배포 정보 기록
-      # ------------------------------------------------------
-      - name: Record deployment info
-        if: success()
-        run: |
-          cat > deployment-info.json <<EOF
-          {
-            "environment": "staging",
-            "service": "chat",
-            "deployed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "image_uri": "${{ steps.image.outputs.image_uri }}",
-            "image_tag": "${{ steps.image.outputs.image_tag }}",
-            "new_asg": "${{ steps.new-asg.outputs.new_asg_name }}",
-            "old_asg": "${{ steps.current-check.outputs.current_asg }}",
-            "commit_sha": "${{ github.event.workflow_run.head_sha }}"
-          }
-          EOF
-          cat deployment-info.json
-
-      # ------------------------------------------------------
-      # 12. 롤백 (실패 시)
-      # ------------------------------------------------------
-      - name: Rollback on failure
-        if: failure() && steps.new-asg.outputs.new_asg_name != ''
-        run: |
-          NEW_ASG="${{ steps.new-asg.outputs.new_asg_name }}"
-
-          echo "=== Rolling back ==="
-
-          aws autoscaling update-auto-scaling-group \
-            --auto-scaling-group-name ${NEW_ASG} \
-            --min-size 0 --max-size 0 --desired-capacity 0 || true
-
-          sleep 10
-
-          aws autoscaling delete-auto-scaling-group \
-            --auto-scaling-group-name ${NEW_ASG} \
-            --force-delete || true
-
-          echo "⚠️ Chat Rollback completed"
-
-      # ------------------------------------------------------
-      # 13. Discord 알림
-      # ------------------------------------------------------
-      - name: Send Discord notification on success
-        if: success()
-        uses: tsickert/discord-webhook@v5.3.0
-        with:
-          webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          username: "Backend CD Bot"
-          avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
-          embed-title: "✅ [Chat] Staging 배포 성공"
-          embed-description: |
-            **환경:** Staging 🟢
-            **이미지:** `${{ steps.image.outputs.image_tag }}`
-            **New ASG:** `${{ steps.new-asg.outputs.new_asg_name }}`
-            **Old ASG:** `${{ steps.current-check.outputs.current_asg }}`
-
-            ✅ 새 ASG 생성 → 기존 ASG 교체 완료!
-
-            [📋 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          embed-color: 3066993
-
-
-      - name: Send Discord notification on failure
-        if: failure()
-        uses: tsickert/discord-webhook@v5.3.0
-        with:
-          webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          username: "Backend CD Bot"
-          avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
-          embed-title: "❌ [Chat] Staging 배포 실패"
-          embed-description: |
-            **환경:** Staging 🟢
-            **이미지:** `${{ steps.image.outputs.image_tag }}`
-
-            ❌ 배포 실패 - 롤백됨
-
-            [📋 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          embed-color: 15158332
-
-  # ============================================================
-  # Production API 배포 (main 브랜치)
-  # Blue/Green 방식
-  # ============================================================
-  deploy-prod-api:
-    name: Deploy API to Production
-    if: |
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'main' &&
-      github.event.workflow_run.event == 'push'
-    runs-on: ubuntu-latest
-    environment:
-      name: production
-      url: https://klosetlab.site
-    timeout-minutes: 60
-
-    permissions:
-      id-token: write
-      contents: read
-      actions: read
-
-    steps:
-      # ------------------------------------------------------
-      # 1. Checkout (스크립트 사용을 위해)
-      # ------------------------------------------------------
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # ------------------------------------------------------
-      # 2. API Docker 메타데이터 다운로드
-      # ------------------------------------------------------
-      - name: Download API Docker metadata
-        uses: actions/download-artifact@v4
-        with:
-          name: docker-metadata-api-${{ github.event.workflow_run.head_sha }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ github.event.workflow_run.id }}
-
-      # ------------------------------------------------------
-      # 3. 이미지 정보 추출
-      # ------------------------------------------------------
-      - name: Extract image info
-        id: image
-        run: |
-          if [ -f docker-metadata-api.json ]; then
-            IMAGE_URI=$(cat docker-metadata-api.json | jq -r '.imageUri')
-            IMAGE_TAG=$(cat docker-metadata-api.json | jq -r '.imageTag')
-            VERSION=$(cat docker-metadata-api.json | jq -r '.version')
-
-            echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
-            echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
-            echo "version=${VERSION}" >> $GITHUB_OUTPUT
-
-            echo "### API Docker Image Info" >> $GITHUB_STEP_SUMMARY
-            echo "- **API Image URI:** \`${IMAGE_URI}\`" >> $GITHUB_STEP_SUMMARY
-            echo "- **API Image Tag:** \`${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
-
-            cat docker-metadata-api.json | jq '.'
-          else
-            echo "::error::API Docker metadata not found!"
-            exit 1
-          fi
-
-      # ------------------------------------------------------
-      # 4. AWS OIDC 인증
-      # ------------------------------------------------------
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_PROD_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-          role-session-name: GitHubActions-ProdAPI-${{ github.run_id }}
-
-      # ------------------------------------------------------
-      # 5. 현재 Blue 환경 확인
-      # ------------------------------------------------------
-      - name: Check Blue environment
-        id: blue-check
-        run: |
-          LISTENER_ARN="${{ secrets.PROD_ALB_LISTENER_ARN }}"
-          BLUE_TG_ARN="${{ secrets.PROD_BLUE_TARGET_GROUP_ARN }}"
-          GREEN_TG_ARN="${{ secrets.PROD_GREEN_TARGET_GROUP_ARN }}"
-
-          API_RULE_ARN=$(aws elbv2 describe-rules \
-            --listener-arn ${LISTENER_ARN} \
-            --query "Rules[?contains(Conditions[].Values[], '/api/*')].RuleArn" \
-            --output text)
-
-          CURRENT_TG_ARN=$(aws elbv2 describe-rules \
-            --rule-arns ${API_RULE_ARN} \
-            --query 'Rules[0].Actions[0].ForwardConfig.TargetGroups[0].TargetGroupArn' \
-            --output text)
-
-          echo "api_rule_arn=${API_RULE_ARN}" >> $GITHUB_OUTPUT
-          echo "blue_tg_arn=${BLUE_TG_ARN}" >> $GITHUB_OUTPUT
-          echo "green_tg_arn=${GREEN_TG_ARN}" >> $GITHUB_OUTPUT
-
-          if [ "$CURRENT_TG_ARN" != "$BLUE_TG_ARN" ]; then
-            echo "❌ Listener is not pointing to Blue TG!"
-            echo "Expected: ${BLUE_TG_ARN}"
-            echo "Current:  ${API_CURRENT_TG_ARN}"
-            echo "이전 배포가 정상 완료되지 않은 상태입니다. 확인 후 재시도하세요."
-            exit 1
-          fi
-          echo "✅ Listener → Blue TG confirmed"
-
-          ALL_ASGS=$(aws autoscaling describe-auto-scaling-groups \
-            --query 'AutoScalingGroups[?starts_with(AutoScalingGroupName, `klosetlab-app-`)].AutoScalingGroupName' \
-            --output json)
-
-          BLUE_ASG="none"
-          for asg in $(echo "$ALL_ASGS" | jq -r '.[]'); do
-            TG_ARNS=$(aws autoscaling describe-auto-scaling-groups \
-              --auto-scaling-group-names "$asg" \
-              --query 'AutoScalingGroups[0].TargetGroupARNs' \
-              --output json)
-            if echo "$TG_ARNS" | jq -e --arg tg "$BLUE_TG_ARN" 'index($tg)' > /dev/null; then
-              BLUE_ASG="$asg"
-              break
-            fi
-          done
-
-          echo "blue_asg=${BLUE_ASG}" >> $GITHUB_OUTPUT
-
-          if [ "$BLUE_ASG" != "none" ]; then
-            DESIRED=$(aws autoscaling describe-auto-scaling-groups \
-              --auto-scaling-group-names ${BLUE_ASG} \
-              --query 'AutoScalingGroups[0].DesiredCapacity' --output text)
-            MIN=$(aws autoscaling describe-auto-scaling-groups \
-              --auto-scaling-group-names ${BLUE_ASG} \
-              --query 'AutoScalingGroups[0].MinSize' --output text)
-            MAX=$(aws autoscaling describe-auto-scaling-groups \
-              --auto-scaling-group-names ${BLUE_ASG} \
-              --query 'AutoScalingGroups[0].MaxSize' --output text)
-
-            echo "desired=${DESIRED}" >> $GITHUB_OUTPUT
-            echo "min=${MIN}" >> $GITHUB_OUTPUT
-            echo "max=${MAX}" >> $GITHUB_OUTPUT
-
-            echo "### 🔵 Blue Environment" >> $GITHUB_STEP_SUMMARY
-            echo "- **ASG:** \`${BLUE_ASG}\`" >> $GITHUB_STEP_SUMMARY
-            echo "- **Capacity:** ${DESIRED} (min: ${MIN}, max: ${MAX})" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "desired=1" >> $GITHUB_OUTPUT
-            echo "min=1" >> $GITHUB_OUTPUT
-            echo "max=2" >> $GITHUB_OUTPUT
-          fi
-
-      # ------------------------------------------------------
-      # 6. API User Data 생성
-      # ------------------------------------------------------
-      - name: Generate API User Data script
-        id: userdata
-        run: |
-          chmod +x .github/scripts/generate-userdata.sh
-          .github/scripts/generate-userdata.sh \
-            "prod" \
-            "${{ steps.image.outputs.image_uri }}" \
-            "${{ env.AWS_REGION }}"
-
-      # ------------------------------------------------------
-      # 7. Green Launch Template 버전 생성
-      # ------------------------------------------------------
-      - name: Create new Green Launch Template version
-        id: new-lt
-        run: |
-          LT_ID="${{ secrets.PROD_LAUNCH_TEMPLATE_ID }}"
-          USER_DATA="${{ steps.userdata.outputs.user_data_base64 }}"
-          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-
-          NEW_LT_VERSION=$(aws ec2 create-launch-template-version \
-            --launch-template-id ${LT_ID} \
-            --source-version '$Latest' \
-            --launch-template-data "{
-              \"UserData\": \"${USER_DATA}\",
-              \"TagSpecifications\": [{
-                \"ResourceType\": \"instance\",
-                \"Tags\": [
-                  {\"Key\": \"Name\", \"Value\": \"klosetlab-app-${TIMESTAMP}\"},
-                  {\"Key\": \"Environment\", \"Value\": \"production\"},
-                  {\"Key\": \"Service\", \"Value\": \"api\"},
-                  {\"Key\": \"ImageTag\", \"Value\": \"${{ steps.image.outputs.image_tag }}\"}
-                ]
-              }]
-            }" \
-            --query 'LaunchTemplateVersion.VersionNumber' \
-            --output text)
-
-          echo "new_lt_version=${NEW_LT_VERSION}" >> $GITHUB_OUTPUT
-
-      # ------------------------------------------------------
-      # 8. Green ASG 생성
-      # ------------------------------------------------------
-      - name: Create Green ASG
-        id: green-asg
-        run: |
-          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-          GREEN_ASG_NAME="klosetlab-app-asg-${TIMESTAMP}"
-          GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
-
-          aws autoscaling create-auto-scaling-group \
-            --auto-scaling-group-name ${GREEN_ASG_NAME} \
-            --launch-template "LaunchTemplateId=${{ secrets.PROD_LAUNCH_TEMPLATE_ID }},Version=${{ steps.new-lt.outputs.new_lt_version }}" \
-            --min-size ${{ steps.blue-check.outputs.min }} \
-            --max-size ${{ steps.blue-check.outputs.max }} \
-            --desired-capacity ${{ steps.blue-check.outputs.desired }} \
-            --target-group-arns ${GREEN_TG_ARN} \
-            --vpc-zone-identifier "${{ secrets.PROD_SUBNET_IDS }}" \
-            --health-check-type ELB \
-            --health-check-grace-period 300 \
-            --tags "Key=Name,Value=klosetlab-app,PropagateAtLaunch=true" \
-                   "Key=Environment,Value=production,PropagateAtLaunch=true" \
-                   "Key=Service,Value=api,PropagateAtLaunch=true" \
-                   "Key=ImageTag,Value=${{ steps.image.outputs.image_tag }},PropagateAtLaunch=true"
-
-          echo "green_asg_name=${GREEN_ASG_NAME}" >> $GITHUB_OUTPUT
-
-          echo "### 🟢 Green ASG" >> $GITHUB_STEP_SUMMARY
-          echo "- **ASG:** \`${GREEN_ASG_NAME}\`" >> $GITHUB_STEP_SUMMARY
-
-      # ------------------------------------------------------
-      # 9. Green 환경 준비 대기
-      # ------------------------------------------------------
-      - name: Wait for Green ASG to be ready
-        timeout-minutes: 20
-        run: |
-          GREEN_ASG="${{ steps.green-asg.outputs.green_asg_name }}"
-          GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
-          EXPECTED=${{ steps.blue-check.outputs.desired }}
-
-          MAX_RETRIES=120
-          RETRY_COUNT=0
-
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            HEALTHY_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
-              --auto-scaling-group-names ${GREEN_ASG} \
-              --query 'AutoScalingGroups[0].Instances[?HealthStatus==`Healthy` && LifecycleState==`InService`]' \
-              --output json | jq 'length')
-
-            NEW_INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
-              --auto-scaling-group-names ${GREEN_ASG} \
-              --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`].InstanceId' \
-              --output json)
-
-            HEALTHY_TARGETS=0
-            for instance_id in $(echo "$NEW_INSTANCE_IDS" | jq -r '.[]'); do
-              STATE=$(aws elbv2 describe-target-health \
-                --target-group-arn ${GREEN_TG_ARN} \
-                --targets Id=${instance_id} \
-                --query 'TargetHealthDescriptions[0].TargetHealth.State' \
-                --output text 2>/dev/null || echo "unknown")
-              if [ "$STATE" = "healthy" ]; then
-                HEALTHY_TARGETS=$((HEALTHY_TARGETS + 1))
-              fi
-            done
-
-            echo "[$((RETRY_COUNT + 1))/$MAX_RETRIES] Healthy: ${HEALTHY_INSTANCES} instances, ${HEALTHY_TARGETS} targets (expected: ${EXPECTED})"
-
-            if [ "$HEALTHY_INSTANCES" -ge "$EXPECTED" ] && [ "$HEALTHY_TARGETS" -ge "$EXPECTED" ]; then
-              echo "✅ Green ASG is ready!"
-              exit 0
-            fi
-
-            sleep 10
-            RETRY_COUNT=$((RETRY_COUNT + 1))
-          done
-
-          echo "❌ Green ASG failed to become healthy"
-          exit 1
-
-      # === CANARY DEPLOYMENT (API) ===
-      # 아래 카나리 배포 스텝을 활성화하려면:
-      # 1. 이 섹션의 주석(#)을 해제
-      # 2. Rollback 스텝의 "CANARY ROLLBACK" 섹션도 함께 주석 해제
-      # 3. 기존 "Switch traffic Blue → Green" 스텝은 그대로 유지 (100% 전환은 카나리 통과 후 실행)
-      #
-
-      # # ------------------------------------------------------
-      # # 10. 단계적 트래픽 전환 시작
-      # # ------------------------------------------------------
-      # - name: "Canary: Traffic Shift - 10% to Green"
-      #   id: canary-shift-10
-      #   run: |
-      #     API_RULE_ARN="${{ steps.blue-check.outputs.api_rule_arn }}"
-      #     BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
-      #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
-      #
-      #     aws elbv2 modify-rule \
-      #       --rule-arn ${API_RULE_ARN} \
-      #       --actions "[{
-      #         \"Type\": \"forward\",
-      #         \"ForwardConfig\": {
-      #           \"TargetGroups\": [
-      #             {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 90},
-      #             {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 10}
-      #           ]
-      #         }
-      #       }]"
-      #
-      #     echo "✅ Canary: 10% traffic on Green"
-      #     echo "### 🔄 Traffic: Blue 90% / Green 10%" >> $GITHUB_STEP_SUMMARY
-      #
-      # - name: "Canary: Monitor 10% traffic (10 min)"
-      #   run: |
-      #     echo "=== Monitoring Green with 10% traffic ==="
-      #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
-      #     FAIL_COUNT=0
-      #
-      #     for i in {1..10}; do
-      #       echo "Monitoring... $i/10 minutes"
-      #
-      #       # Green TG health 체크
-      #       UNHEALTHY=$(aws elbv2 describe-target-health \
-      #         --target-group-arn ${GREEN_TG_ARN} \
-      #         --query 'TargetHealthDescriptions[?TargetHealth.State==`unhealthy`]' \
-      #         --output json | jq 'length')
-      #
-      #       if [ "$UNHEALTHY" -gt 0 ]; then
-      #         FAIL_COUNT=$((FAIL_COUNT + 1))
-      #         echo "⚠️ Unhealthy detected ($FAIL_COUNT times)"
-      #       else
-      #         FAIL_COUNT=0
-      #       fi
-      #
-      #       if [ "$FAIL_COUNT" -ge 3 ]; then
-      #         echo "❌ 3 consecutive unhealthy checks. Failing deployment."
-      #         exit 1
-      #       fi
-      #
-      #       sleep 60
-      #     done
-      #
-      #     echo "✅ 10% traffic monitoring passed"
-      #
-      # - name: "Canary: Traffic Shift - 50% to Green"
-      #   id: canary-shift-50
-      #   run: |
-      #     API_RULE_ARN="${{ steps.blue-check.outputs.api_rule_arn }}"
-      #     BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
-      #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
-      #
-      #     aws elbv2 modify-rule \
-      #       --rule-arn ${API_RULE_ARN} \
-      #       --actions "[{
-      #         \"Type\": \"forward\",
-      #         \"ForwardConfig\": {
-      #           \"TargetGroups\": [
-      #             {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 50},
-      #             {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 50}
-      #           ]
-      #         }
-      #       }]"
-      #
-      #     echo "✅ Canary: 50% traffic on Green"
-      #     echo "### 🔄 Traffic: Blue 50% / Green 50%" >> $GITHUB_STEP_SUMMARY
-      #
-      # - name: "Canary: Monitor 50% traffic (15 min)"
-      #   run: |
-      #     echo "=== Monitoring Green with 50% traffic ==="
-      #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
-      #     FAIL_COUNT=0
-      #
-      #     for i in {1..15}; do
-      #       echo "Monitoring... $i/15 minutes"
-      #
-      #       UNHEALTHY=$(aws elbv2 describe-target-health \
-      #         --target-group-arn ${GREEN_TG_ARN} \
-      #         --query 'TargetHealthDescriptions[?TargetHealth.State==`unhealthy`]' \
-      #         --output json | jq 'length')
-      #
-      #       if [ "$UNHEALTHY" -gt 0 ]; then
-      #         FAIL_COUNT=$((FAIL_COUNT + 1))
-      #         echo "⚠️ Unhealthy detected ($FAIL_COUNT times)"
-      #       else
-      #         FAIL_COUNT=0
-      #       fi
-      #
-      #       if [ "$FAIL_COUNT" -ge 3 ]; then
-      #         echo "❌ 3 consecutive unhealthy checks. Failing deployment."
-      #         exit 1
-      #       fi
-      #
-      #       sleep 60
-      #     done
-      #
-      #     echo "✅ 50% traffic monitoring passed"
-
-      - name: Switch traffic Blue → Green
-        id: traffic-switch
-        run: |
-          API_RULE_ARN="${{ steps.blue-check.outputs.api_rule_arn }}"
-          BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
-          GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
-
-          aws elbv2 modify-rule \
-            --rule-arn ${API_RULE_ARN} \
-            --actions "[{
-              \"Type\": \"forward\",
-              \"ForwardConfig\": {
-                \"TargetGroups\": [
-                  {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 0},
-                  {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 100}
-                ]
-              }
-            }]"
-
-          echo "✅ Traffic switched: Blue(0%) → Green(100%)"
-          echo "### ✅ Traffic: Green 100%" >> $GITHUB_STEP_SUMMARY
-
-      # - name: "Canary: Final monitoring after 100% switch (10 min)"
-      #   run: |
-      #     echo "=== Final monitoring on Green ==="
-      #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
-      #
-      #     for i in {1..10}; do
-      #       echo "Final check... $i/10 minutes"
-      #
-      #       UNHEALTHY=$(aws elbv2 describe-target-health \
-      #         --target-group-arn ${GREEN_TG_ARN} \
-      #         --query 'TargetHealthDescriptions[?TargetHealth.State==`unhealthy`]' \
-      #         --output json | jq 'length')
-      #
-      #       if [ "$UNHEALTHY" -gt 0 ]; then
-      #         echo "❌ Unhealthy target detected in final monitoring!"
-      #         exit 1
-      #       fi
-      #
-      #       sleep 60
-      #     done
-      #
-      #     echo "✅ Final monitoring passed"
-
-      # -------------------------------------------------------
-      # 11. Promote Green → Blue
-      # -------------------------------------------------------
-      - name: Promote Green to Blue
-        id: promote
-        run: |
-          GREEN_ASG="${{ steps.green-asg.outputs.green_asg_name }}"
-          BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
-          GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
-          API_RULE_ARN="${{ steps.blue-check.outputs.api_rule_arn }}"
-          EXPECTED=${{ steps.blue-check.outputs.desired }}
-
-          echo "=== Promoting Green to Blue ==="
-
-          # 1. Green ASG를 Blue TG에 연결
-          aws autoscaling attach-load-balancer-target-groups \
-            --auto-scaling-group-name ${GREEN_ASG} \
-            --target-group-arns ${BLUE_TG_ARN}
-
-          echo "Waiting for Green instances to register in Blue TG..."
-          sleep 30
-
-          # 2. Blue TG에서 healthy 확인
-          for i in {1..20}; do
-            HEALTHY_IN_BLUE=$(aws elbv2 describe-target-health \
-              --target-group-arn ${BLUE_TG_ARN} \
-              --query 'TargetHealthDescriptions[?TargetHealth.State==`healthy`]' \
-              --output json | jq 'length')
-
-            echo "[$i/20] Healthy in Blue TG: ${HEALTHY_IN_BLUE}/${EXPECTED}"
-
-            if [ "$HEALTHY_IN_BLUE" -ge "$EXPECTED" ]; then
-              echo "✅ Green instances healthy in Blue TG"
-              break
-            fi
-
-            if [ "$i" -eq 20 ]; then
-              echo "❌ Green instances not healthy in Blue TG"
-              exit 1
-            fi
-
-            sleep 10
-          done
-
-          # 3. Listener를 Blue TG로 복구
-          aws elbv2 modify-rule \
-            --rule-arn "$API_RULE_ARN" \
-            --actions "[
-              {
-                \"Type\": \"forward\",
-                \"ForwardConfig\": {
-                  \"TargetGroups\": [
-                    {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100},
-                    {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 0}
-                  ]
-                }
-              }
-            ]"
-
-          # 4. Green TG에서 연결 해제
-          aws autoscaling detach-load-balancer-target-groups \
-            --auto-scaling-group-name ${GREEN_ASG} \
-            --target-group-arns ${GREEN_TG_ARN} || true
-
-          echo "✅ Promote complete"
-          echo "### 🔵 Green → Blue 승격 완료" >> $GITHUB_STEP_SUMMARY
-          echo "- **New Blue ASG:** \`${GREEN_ASG}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Listener:** → Blue TG" >> $GITHUB_STEP_SUMMARY
-
-      # -------------------------------------------------------
-      # 12. Blue ASG 삭제
-      # -------------------------------------------------------
-      - name: Remove Blue ASG
-        if: success() && steps.blue-check.outputs.blue_asg != 'none'
-        run: |
-          BLUE_ASG="${{ steps.blue-check.outputs.blue_asg }}"
-
-          aws autoscaling update-auto-scaling-group \
-            --auto-scaling-group-name ${BLUE_ASG} \
-            --min-size 0 --max-size 0 --desired-capacity 0
-
-          sleep 30
-
-          aws autoscaling delete-auto-scaling-group \
-            --auto-scaling-group-name ${BLUE_ASG} \
-            --force-delete
-
-          echo "✅ Blue ASG removed: ${BLUE_ASG}"
-
-      # ------------------------------------------------------
-      # 13. 배포 정보 기록
-      # ------------------------------------------------------
-      - name: Record deployment info
-        if: success()
-        run: |
-          cat > deployment-info.json <<EOF
-          {
-            "environment": "production",
-            "service": "api",
-            "deployment_strategy": "weighted-blue-green",
-            "deployed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "image_uri": "${{ steps.image.outputs.image_uri }}",
-            "image_tag": "${{ steps.image.outputs.image_tag }}",
-            "new_asg": "${{ steps.green-asg.outputs.green_asg_name }}",
-            "old_blue_asg": "${{ steps.blue-check.outputs.blue_asg }}",
-            "traffic_shift": "10% → 50% → 100%",
-            "listener_state": "Blue TG (promoted from Green)"
-          }
-          EOF
-          cat deployment-info.json
-
-      # ------------------------------------------------------
-      # 14. 롤백 (실패 시 즉시 Blue로)
-      # ------------------------------------------------------
-      - name: Rollback on failure
-        if: failure()
-        run: |
-          API_RULE_ARN="${{ steps.blue-check.outputs.api_rule_arn }}"
-          BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
-          GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
-
-          # === CANARY ROLLBACK (API) ===
-          # 카나리 단계에서 실패 시 Blue 100%로 원복
-          # if [ "${{ steps.canary-shift-10.outputs.canary_shifted }}" = "true" ]; then
-          #   aws elbv2 modify-rule \
-          #     --rule-arn ${API_RULE_ARN} \
-          #     --actions "[{
-          #       \"Type\": \"forward\",
-          #       \"ForwardConfig\": {
-          #         \"TargetGroups\": [
-          #           {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100},
-          #           {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 0}
-          #         ]
-          #       }
-          #     }]" || true
-          #   echo "⚠️ Canary rollback: Traffic reverted to Blue 100%"
-          # fi
-          # === END CANARY ROLLBACK (API) ===
-
-          # 트래픽이 이미 전환된 경우 원복
-          if [ "${{ steps.traffic-switch.outputs.traffic_switched }}" = "true" ]; then
-            aws elbv2 modify-rule \
-              --rule-arn ${API_RULE_ARN} \
-              --actions "[{
-                \"Type\": \"forward\",
-                \"ForwardConfig\": {
-                  \"TargetGroups\": [
-                    {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100},
-                    {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 0}
-                  ]
-                }
-              }]" || true
-            echo "⚠️ Traffic reverted to Blue"
-          fi
-
-          # Green ASG 삭제
-          GREEN_ASG="${{ steps.green-asg.outputs.green_asg_name }}"
-          if [ -n "$GREEN_ASG" ]; then
-            aws autoscaling update-auto-scaling-group \
-              --auto-scaling-group-name ${GREEN_ASG} \
-              --min-size 0 --max-size 0 --desired-capacity 0 || true
-
-            sleep 10
-
-            aws autoscaling delete-auto-scaling-group \
-              --auto-scaling-group-name ${GREEN_ASG} \
-              --force-delete || true
-          fi
-
-          echo "⚠️ API Prod Rollback completed"
-
-      # ------------------------------------------------------
-      # 15. Discord 알림
-      # ------------------------------------------------------
-      - name: Send Discord notification on success
-        if: success()
-        uses: tsickert/discord-webhook@v5.3.0
-        with:
-          webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          username: "Backend CD Bot"
-          avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
-          embed-title: "✅ [API] Production 배포 성공 (Blue → Green)"
-          embed-description: |
-            **환경:** Production 🔴
-            **전략:** Weighted Blue-Green
-            **이미지:** `${{ steps.image.outputs.image_tag }}`
-            **New ASG:** `${{ steps.green-asg.outputs.green_asg_name }}`
-            **Old Blue ASG:** `${{ steps.blue-check.outputs.blue_asg }}`
-
-            ✅ 트래픽 전환 → Blue 승격 → Old Blue 삭제 완료!
-
-            [📋 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          embed-color: 3066993
-
-      - name: Send Discord notification on failure
-        if: failure()
-        uses: tsickert/discord-webhook@v5.3.0
-        with:
-          webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          username: "Backend CD Bot"
-          avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
-          embed-title: "❌ [API] Production 배포 실패 - 롤백됨"
-          embed-description: |
-            **환경:** Production 🔴
-            **전략:** Weighted Blue-Green
-            **이미지:** `${{ steps.image.outputs.image_tag }}`
-            ❌ 배포 실패 - Blue로 즉시 롤백됨
-
-            [📋 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          embed-color: 15158332
-
-  # ============================================================
-  # Production Chat 배포 (main 브랜치)
-  # Blue/Green 방식
-  # ============================================================
-  deploy-prod-chat:
-    name: Deploy Chat to Production
-    if: |
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'main' &&
-      github.event.workflow_run.event == 'push'
-    runs-on: ubuntu-latest
-    environment:
-      name: production
-      url: https://klosetlab.site
-    timeout-minutes: 60
-
-    permissions:
-      id-token: write
-      contents: read
-      actions: read
-
-    steps:
-      # ------------------------------------------------------
-      # 1. Checkout (스크립트 사용을 위해)
-      # ------------------------------------------------------
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # ------------------------------------------------------
-      # 2. Chat Docker 메타데이터 다운로드
-      # ------------------------------------------------------
-      - name: Download Chat Docker metadata
-        uses: actions/download-artifact@v4
-        with:
-          name: docker-metadata-chat-${{ github.event.workflow_run.head_sha }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ github.event.workflow_run.id }}
-
-      # ------------------------------------------------------
-      # 3. 이미지 정보 추출
-      # ------------------------------------------------------
-      - name: Extract image info
-        id: image
-        run: |
-          if [ -f docker-metadata-chat.json ]; then
-            IMAGE_URI=$(cat docker-metadata-chat.json | jq -r '.imageUri')
-            IMAGE_TAG=$(cat docker-metadata-chat.json | jq -r '.imageTag')
-            VERSION=$(cat docker-metadata-chat.json | jq -r '.version')
-
-            echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
-            echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
-            echo "version=${VERSION}" >> $GITHUB_OUTPUT
-
-            echo "### Chat Docker Image Info" >> $GITHUB_STEP_SUMMARY
-            echo "- **Chat Image URI:** \`${IMAGE_URI}\`" >> $GITHUB_STEP_SUMMARY
-            echo "- **Chat Image Tag:** \`${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
-
-            cat docker-metadata-chat.json | jq '.'
-          else
-            echo "::error::Chat Docker metadata not found!"
-            exit 1
-          fi
-
-      # ------------------------------------------------------
-      # 4. AWS OIDC 인증
-      # ------------------------------------------------------
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_PROD_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-          role-session-name: GitHubActions-ProdChat-${{ github.run_id }}
-
-      # ------------------------------------------------------
-      # 5. 현재 Blue 환경 확인
-      # ------------------------------------------------------
-      - name: Check Blue environment
-        id: blue-check
-        run: |
-          LISTENER_ARN="${{ secrets.PROD_ALB_LISTENER_ARN }}"
-          BLUE_TG_ARN="${{ secrets.PROD_CHAT_BLUE_TARGET_GROUP_ARN }}"
-          GREEN_TG_ARN="${{ secrets.PROD_CHAT_GREEN_TARGET_GROUP_ARN }}"
-
-          # WebSocket 규칙 (/ws*)
-          CHAT_RULE_ARN=$(aws elbv2 describe-rules \
-            --listener-arn ${LISTENER_ARN} \
-            --query "Rules[?contains(Conditions[].Values[], '/ws*')].RuleArn" \
-            --output text)
-
-          # Chat API 규칙 (/api/v2/chat/*)
-          CHAT_API_RULE_ARN=$(aws elbv2 describe-rules \
-            --listener-arn ${LISTENER_ARN} \
-            --query "Rules[?contains(Conditions[].Values[], '/api/v2/chat/*')].RuleArn" \
-            --output text)
-
-          echo "chat_rule_arn=${CHAT_RULE_ARN}" >> $GITHUB_OUTPUT
-          echo "chat_api_rule_arn=${CHAT_API_RULE_ARN}" >> $GITHUB_OUTPUT
-          echo "blue_tg_arn=${BLUE_TG_ARN}" >> $GITHUB_OUTPUT
-          echo "green_tg_arn=${GREEN_TG_ARN}" >> $GITHUB_OUTPUT
-
-          # WebSocket 규칙이 Blue TG를 가리키는지 확인
-          CURRENT_TG_ARN=$(aws elbv2 describe-rules \
-            --rule-arns ${CHAT_RULE_ARN} \
-            --query 'Rules[0].Actions[0].ForwardConfig.TargetGroups | sort_by(@, &Weight) | [-1].TargetGroupArn' \
-            --output text)
-
-          # Chat API 규칙이 Blue TG를 가리키는지 확인
-          API_CURRENT_TG_ARN=$(aws elbv2 describe-rules \
-            --rule-arns ${CHAT_API_RULE_ARN} \
-            --query 'Rules[0].Actions[0].ForwardConfig.TargetGroups | sort_by(@, &Weight) | [-1].TargetGroupArn' \
-            --output text)
-
-          echo "=== Debug Info ==="
-          echo "CHAT_RULE_ARN: ${CHAT_RULE_ARN}"
-          echo "BLUE_TG_ARN:   ${BLUE_TG_ARN}"
-          echo "CURRENT_TG (ws):        ${CURRENT_TG_ARN}"
-          echo "CURRENT_TG (chat api):  ${API_CURRENT_TG_ARN}"
-
-          if [ "$CURRENT_TG_ARN" != "$BLUE_TG_ARN" ]; then
-            echo "❌ /ws* rule is not pointing to Blue TG!"
-            echo "Expected: ${BLUE_TG_ARN}"
-            echo "Current:  ${CURRENT_TG_ARN}"
-            echo "이전 배포가 정상 완료되지 않은 상태입니다. 확인 후 재시도하세요."
-            exit 1
-          fi
-          if [ "$API_CURRENT_TG_ARN" != "$BLUE_TG_ARN" ]; then
-            echo "❌ /api/v2/chat/* rule is not pointing to Blue TG!"
-            echo "Expected: ${BLUE_TG_ARN}"
-            echo "Current:  ${API_CURRENT_TG_ARN}"
-            echo "이전 배포가 정상 완료되지 않은 상태입니다. 확인 후 재시도하세요."
-            exit 1
-          fi
-          echo "✅ Both Chat rules → Blue TG confirmed"
-
-          ALL_ASGS=$(aws autoscaling describe-auto-scaling-groups \
-            --query 'AutoScalingGroups[?starts_with(AutoScalingGroupName, `klosetlab-chat-`)].AutoScalingGroupName' \
-            --output json)
-
-          BLUE_ASG="none"
-          for asg in $(echo "$ALL_ASGS" | jq -r '.[]'); do
-            TG_ARNS=$(aws autoscaling describe-auto-scaling-groups \
-              --auto-scaling-group-names "$asg" \
-              --query 'AutoScalingGroups[0].TargetGroupARNs' \
-              --output json)
-
-            if echo "$TG_ARNS" | jq -e --arg tg "$BLUE_TG_ARN" 'index($tg)' > /dev/null; then
-              BLUE_ASG="$asg"
-              break
-            fi
-          done
-
-          echo "blue_asg=${BLUE_ASG}" >> $GITHUB_OUTPUT
-
-          if [ "$BLUE_ASG" != "none" ]; then
-            DESIRED=$(aws autoscaling describe-auto-scaling-groups \
-              --auto-scaling-group-names ${BLUE_ASG} \
-              --query 'AutoScalingGroups[0].DesiredCapacity' --output text)
-            MIN=$(aws autoscaling describe-auto-scaling-groups \
-              --auto-scaling-group-names ${BLUE_ASG} \
-              --query 'AutoScalingGroups[0].MinSize' --output text)
-            MAX=$(aws autoscaling describe-auto-scaling-groups \
-              --auto-scaling-group-names ${BLUE_ASG} \
-              --query 'AutoScalingGroups[0].MaxSize' --output text)
-
-            echo "desired=${DESIRED}" >> $GITHUB_OUTPUT
-            echo "min=${MIN}" >> $GITHUB_OUTPUT
-            echo "max=${MAX}" >> $GITHUB_OUTPUT
-
-            echo "### 🔵 Blue Environment" >> $GITHUB_STEP_SUMMARY
-            echo "- **ASG:** \`${BLUE_ASG}\`" >> $GITHUB_STEP_SUMMARY
-            echo "- **Capacity:** ${DESIRED} (min: ${MIN}, max: ${MAX})" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "desired=1" >> $GITHUB_OUTPUT
-            echo "min=1" >> $GITHUB_OUTPUT
-            echo "max=2" >> $GITHUB_OUTPUT
-          fi
-
-      # ------------------------------------------------------
-      # 6. Chat User Data 생성
-      # ------------------------------------------------------
-      - name: Generate Chat User Data script
-        id: userdata
-        run: |
-          chmod +x .github/scripts/generate-userdata-chat.sh
-          .github/scripts/generate-userdata-chat.sh \
-            "prod" \
-            "${{ steps.image.outputs.image_uri }}" \
-            "${{ env.AWS_REGION }}"
-
-      # ------------------------------------------------------
-      # 7. Green Launch Template 버전 생성
-      # ------------------------------------------------------
-      - name: Create new Green Chat Launch Template version
-        id: new-lt
-        run: |
-          LT_ID="${{ secrets.PROD_CHAT_LAUNCH_TEMPLATE_ID }}"
-          USER_DATA="${{ steps.userdata.outputs.user_data_base64 }}"
-          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-
-          NEW_LT_VERSION=$(aws ec2 create-launch-template-version \
-            --launch-template-id ${LT_ID} \
-            --source-version '$Latest' \
-            --launch-template-data "{
-              \"UserData\": \"${USER_DATA}\",
-              \"TagSpecifications\": [{
-                \"ResourceType\": \"instance\",
-                \"Tags\": [
-                  {\"Key\": \"Name\", \"Value\": \"klosetlab-chat-${TIMESTAMP}\"},
-                  {\"Key\": \"Environment\", \"Value\": \"production\"},
-                  {\"Key\": \"Service\", \"Value\": \"chat\"},
-                  {\"Key\": \"ImageTag\", \"Value\": \"${{ steps.image.outputs.image_tag }}\"}
-                ]
-              }]
-            }" \
-            --query 'LaunchTemplateVersion.VersionNumber' \
-            --output text)
-
-          echo "new_lt_version=${NEW_LT_VERSION}" >> $GITHUB_OUTPUT
-
-      # ------------------------------------------------------
-      # 8. Green ASG 생성
-      # ------------------------------------------------------
-      - name: Create Green Chat ASG
-        id: green-asg
-        run: |
-          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-          GREEN_ASG_NAME="klosetlab-chat-asg-${TIMESTAMP}"
-          GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
-
-          aws autoscaling create-auto-scaling-group \
-            --auto-scaling-group-name ${GREEN_ASG_NAME} \
-            --launch-template "LaunchTemplateId=${{ secrets.PROD_CHAT_LAUNCH_TEMPLATE_ID }},Version=${{ steps.new-lt.outputs.new_lt_version }}" \
-            --min-size ${{ steps.blue-check.outputs.min }} \
-            --max-size ${{ steps.blue-check.outputs.max }} \
-            --desired-capacity ${{ steps.blue-check.outputs.desired }} \
-            --target-group-arns ${GREEN_TG_ARN} \
-            --vpc-zone-identifier "${{ secrets.PROD_SUBNET_IDS }}" \
-            --health-check-type ELB \
-            --health-check-grace-period 300 \
-            --tags "Key=Name,Value=klosetlab-chat,PropagateAtLaunch=true" \
-                   "Key=Environment,Value=production,PropagateAtLaunch=true" \
-                   "Key=Service,Value=chat,PropagateAtLaunch=true" \
-                   "Key=ImageTag,Value=${{ steps.image.outputs.image_tag }},PropagateAtLaunch=true"
-
-          echo "green_asg_name=${GREEN_ASG_NAME}" >> $GITHUB_OUTPUT
-
-          echo "### 🟢 Green ASG" >> $GITHUB_STEP_SUMMARY
-          echo "- **ASG:** \`${GREEN_ASG_NAME}\`" >> $GITHUB_STEP_SUMMARY
-
-      # ------------------------------------------------------
-      # 9. Green 환경 준비 대기 (EC2 및 Target Group 헬스체크)
-      # ------------------------------------------------------
-      - name: Wait for Green Chat ASG to be ready
-        timeout-minutes: 20
-        run: |
-          GREEN_ASG="${{ steps.green-asg.outputs.green_asg_name }}"
-          GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
-          EXPECTED=${{ steps.blue-check.outputs.desired }}
-
-          MAX_RETRIES=120
-          RETRY_COUNT=0
-
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            HEALTHY_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
-              --auto-scaling-group-names ${GREEN_ASG} \
-              --query 'AutoScalingGroups[0].Instances[?HealthStatus==`Healthy` && LifecycleState==`InService`]' \
-              --output json | jq 'length')
-
-            NEW_INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
-              --auto-scaling-group-names ${GREEN_ASG} \
-              --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`].InstanceId' \
-              --output json)
-
-            HEALTHY_TARGETS=0
-            for instance_id in $(echo "$NEW_INSTANCE_IDS" | jq -r '.[]'); do
-              STATE=$(aws elbv2 describe-target-health \
-                --target-group-arn ${GREEN_TG_ARN} \
-                --targets Id=${instance_id} \
-                --query 'TargetHealthDescriptions[0].TargetHealth.State' \
-                --output text 2>/dev/null || echo "unknown")
-              if [ "$STATE" = "healthy" ]; then
-                HEALTHY_TARGETS=$((HEALTHY_TARGETS + 1))
-              fi
-            done
-
-            echo "[$((RETRY_COUNT + 1))/$MAX_RETRIES] Healthy: ${HEALTHY_INSTANCES} instances, ${HEALTHY_TARGETS} targets (expected: ${EXPECTED})"
-
-            if [ "$HEALTHY_INSTANCES" -ge "$EXPECTED" ] && [ "$HEALTHY_TARGETS" -ge "$EXPECTED" ]; then
-              echo "✅ Green Chat ASG is ready!"
-              exit 0
-            fi
-
-            sleep 10
-            RETRY_COUNT=$((RETRY_COUNT + 1))
-          done
-
-          echo "❌ Green Chat ASG failed to become healthy"
-          exit 1
-
-      # === CANARY DEPLOYMENT (Chat) ===
-      # 아래 카나리 배포 스텝을 활성화하려면:
-      # 1. 이 섹션의 주석(#)을 해제
-      # 2. Rollback 스텝의 "CANARY ROLLBACK" 섹션도 함께 주석 해제
-      # 3. 기존 "Switch traffic Blue → Green" 스텝은 그대로 유지 (100% 전환은 카나리 통과 후 실행)
-      # 4. Chat은 /ws* 와 /api/v2/chat/* 두 규칙을 모두 전환해야 함
-      #
-
-      # # ------------------------------------------------------
-      # # 10. 단계적 트래픽 전환 시작
-      # # ------------------------------------------------------
-      # - name: "Canary: Traffic Shift - 10% to Green"
-      #   id: canary-shift-10
-      #   run: |
-      #     CHAT_RULE_ARN="${{ steps.blue-check.outputs.chat_rule_arn }}"
-      #     CHAT_API_RULE_ARN="${{ steps.blue-check.outputs.chat_api_rule_arn }}"
-      #     BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
-      #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
-      #
-      #     # /ws* 규칙 10% 전환
-      #     aws elbv2 modify-rule \
-      #       --rule-arn ${CHAT_RULE_ARN} \
-      #       --actions "[{
-      #         \"Type\": \"forward\",
-      #         \"ForwardConfig\": {
-      #           \"TargetGroups\": [
-      #             {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 90},
-      #             {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 10}
-      #           ]
-      #         }
-      #       }]"
-      #
-      #     # /api/v2/chat/* 규칙 10% 전환
-      #     aws elbv2 modify-rule \
-      #       --rule-arn ${CHAT_API_RULE_ARN} \
-      #       --actions "[{
-      #         \"Type\": \"forward\",
-      #         \"ForwardConfig\": {
-      #           \"TargetGroups\": [
-      #             {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 90},
-      #             {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 10}
-      #           ]
-      #         }
-      #       }]"
-      #
-      #     echo "✅ Canary: 10% traffic on Green (both /ws* and /api/v2/chat/*)"
-      #     echo "### 🔄 Traffic: Blue 90% / Green 10%" >> $GITHUB_STEP_SUMMARY
-      #
-      # - name: "Canary: Monitor 10% traffic (10 min)"
-      #   run: |
-      #     echo "=== Monitoring Green with 10% traffic ==="
-      #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
-      #     FAIL_COUNT=0
-      #
-      #     for i in {1..10}; do
-      #       echo "Monitoring... $i/10 minutes"
-      #
-      #       # Green TG health 체크
-      #       UNHEALTHY=$(aws elbv2 describe-target-health \
-      #         --target-group-arn ${GREEN_TG_ARN} \
-      #         --query 'TargetHealthDescriptions[?TargetHealth.State==`unhealthy`]' \
-      #         --output json | jq 'length')
-      #
-      #       if [ "$UNHEALTHY" -gt 0 ]; then
-      #         FAIL_COUNT=$((FAIL_COUNT + 1))
-      #         echo "⚠️ Unhealthy detected ($FAIL_COUNT times)"
-      #       else
-      #         FAIL_COUNT=0
-      #       fi
-      #
-      #       if [ "$FAIL_COUNT" -ge 3 ]; then
-      #         echo "❌ 3 consecutive unhealthy checks. Failing deployment."
-      #         exit 1
-      #       fi
-      #
-      #       sleep 60
-      #     done
-      #
-      #     echo "✅ 10% traffic monitoring passed"
-      #
-      # - name: "Canary: Traffic Shift - 50% to Green"
-      #   id: canary-shift-50
-      #   run: |
-      #     CHAT_RULE_ARN="${{ steps.blue-check.outputs.chat_rule_arn }}"
-      #     CHAT_API_RULE_ARN="${{ steps.blue-check.outputs.chat_api_rule_arn }}"
-      #     BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
-      #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
-      #
-      #     # /ws* 규칙 50% 전환
-      #     aws elbv2 modify-rule \
-      #       --rule-arn ${CHAT_RULE_ARN} \
-      #       --actions "[{
-      #         \"Type\": \"forward\",
-      #         \"ForwardConfig\": {
-      #           \"TargetGroups\": [
-      #             {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 50},
-      #             {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 50}
-      #           ]
-      #         }
-      #       }]"
-      #
-      #     # /api/v2/chat/* 규칙 50% 전환
-      #     aws elbv2 modify-rule \
-      #       --rule-arn ${CHAT_API_RULE_ARN} \
-      #       --actions "[{
-      #         \"Type\": \"forward\",
-      #         \"ForwardConfig\": {
-      #           \"TargetGroups\": [
-      #             {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 50},
-      #             {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 50}
-      #           ]
-      #         }
-      #       }]"
-      #
-      #     echo "✅ Canary: 50% traffic on Green (both /ws* and /api/v2/chat/*)"
-      #     echo "### 🔄 Traffic: Blue 50% / Green 50%" >> $GITHUB_STEP_SUMMARY
-      #
-      # - name: "Canary: Monitor 50% traffic (15 min)"
-      #   run: |
-      #     echo "=== Monitoring Green with 50% traffic ==="
-      #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
-      #     FAIL_COUNT=0
-      #
-      #     for i in {1..15}; do
-      #       echo "Monitoring... $i/15 minutes"
-      #
-      #       UNHEALTHY=$(aws elbv2 describe-target-health \
-      #         --target-group-arn ${GREEN_TG_ARN} \
-      #         --query 'TargetHealthDescriptions[?TargetHealth.State==`unhealthy`]' \
-      #         --output json | jq 'length')
-      #
-      #       if [ "$UNHEALTHY" -gt 0 ]; then
-      #         FAIL_COUNT=$((FAIL_COUNT + 1))
-      #         echo "⚠️ Unhealthy detected ($FAIL_COUNT times)"
-      #       else
-      #         FAIL_COUNT=0
-      #       fi
-      #
-      #       if [ "$FAIL_COUNT" -ge 3 ]; then
-      #         echo "❌ 3 consecutive unhealthy checks. Failing deployment."
-      #         exit 1
-      #       fi
-      #
-      #       sleep 60
-      #     done
-      #
-      #     echo "✅ 50% traffic monitoring passed"
-
-      - name: Switch traffic Blue → Green
-        id: traffic-switch
-        run: |
-          CHAT_RULE_ARN="${{ steps.blue-check.outputs.chat_rule_arn }}"
-          CHAT_API_RULE_ARN="${{ steps.blue-check.outputs.chat_api_rule_arn }}"
-          BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
-          GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
-
-          # /ws* 규칙 전환
-          aws elbv2 modify-rule \
-            --rule-arn ${CHAT_RULE_ARN} \
-            --actions "[{
-              \"Type\": \"forward\",
-              \"ForwardConfig\": {
-                \"TargetGroups\": [
-                  {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 0},
-                  {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 100}
-                ]
-              }
-            }]"
-
-          # /api/v2/chat/* 규칙 전환
-          aws elbv2 modify-rule \
-            --rule-arn ${CHAT_API_RULE_ARN} \
-            --actions "[{
-              \"Type\": \"forward\",
-              \"ForwardConfig\": {
-                \"TargetGroups\": [
-                  {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 0},
-                  {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 100}
-                ]
-              }
-            }]"
-
-          echo "✅ Traffic switched: Blue(0%) → Green(100%) for both /ws* and /api/v2/chat/*"
-          echo "### ✅ Traffic: Green 100%" >> $GITHUB_STEP_SUMMARY
-
-      # === CANARY FINAL MONITORING (Chat) ===
-      # - name: "Canary: Final monitoring after 100% switch (10 min)"
-      #   run: |
-      #     echo "=== Final monitoring on Green (zero tolerance) ==="
-      #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
-      #
-      #     for i in {1..10}; do
-      #       echo "Final check... $i/10 minutes"
-      #
-      #       UNHEALTHY=$(aws elbv2 describe-target-health \
-      #         --target-group-arn ${GREEN_TG_ARN} \
-      #         --query 'TargetHealthDescriptions[?TargetHealth.State==`unhealthy`]' \
-      #         --output json | jq 'length')
-      #
-      #       if [ "$UNHEALTHY" -gt 0 ]; then
-      #         echo "❌ Unhealthy target detected in final monitoring!"
-      #         exit 1
-      #       fi
-      #
-      #       sleep 60
-      #     done
-      #
-      #     echo "✅ Final monitoring passed"
-
-      # -------------------------------------------------------
-      # 11. Promote Green → Blue
-      # -------------------------------------------------------
-      - name: Promote Green to Blue
-        id: promote
-        run: |
-          GREEN_ASG="${{ steps.green-asg.outputs.green_asg_name }}"
-          BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
-          GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
-          CHAT_RULE_ARN="${{ steps.blue-check.outputs.chat_rule_arn }}"
-          CHAT_API_RULE_ARN="${{ steps.blue-check.outputs.chat_api_rule_arn }}"
-          EXPECTED=${{ steps.blue-check.outputs.desired }}
-
-          echo "=== Promoting Green to Blue ==="
-
-          # 1. Green ASG를 Blue TG에 연결
-          aws autoscaling attach-load-balancer-target-groups \
-            --auto-scaling-group-name ${GREEN_ASG} \
-            --target-group-arns ${BLUE_TG_ARN}
-
-          echo "Waiting for Green instances to register in Blue TG..."
-          sleep 30
-
-          # 2. Blue TG에서 healthy 확인
-          for i in {1..20}; do
-            HEALTHY_IN_BLUE=$(aws elbv2 describe-target-health \
-              --target-group-arn ${BLUE_TG_ARN} \
-              --query 'TargetHealthDescriptions[?TargetHealth.State==`healthy`]' \
-              --output json | jq 'length')
-
-            echo "[$i/20] Healthy in Blue TG: ${HEALTHY_IN_BLUE}/${EXPECTED}"
-
-            if [ "$HEALTHY_IN_BLUE" -ge "$EXPECTED" ]; then
-              echo "✅ Green instances healthy in Blue TG"
-              break
-            fi
-
-            if [ "$i" -eq 20 ]; then
-              echo "❌ Green instances not healthy in Blue TG"
-              exit 1
-            fi
-
-            sleep 10
-          done
-
-          # 3. Listener를 Blue TG로 복구
-          aws elbv2 modify-rule \
-            --rule-arn "$CHAT_RULE_ARN" \
-            --actions "[
-              {
-                \"Type\": \"forward\",
-                \"ForwardConfig\": {
-                  \"TargetGroups\": [
-                    {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100},
-                    {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 0}
-                  ]
-                }
-              }
-            ]"
-
-            aws elbv2 modify-rule \
-            --rule-arn "$CHAT_API_RULE_ARN" \
-            --actions "[
-              {
-                \"Type\": \"forward\",
-                \"ForwardConfig\": {
-                  \"TargetGroups\": [
-                    {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100},
-                    {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 0}
-                  ]
-                }
-              }
-            ]"
-
-          # 4. Green TG에서 연결 해제
-          aws autoscaling detach-load-balancer-target-groups \
-            --auto-scaling-group-name ${GREEN_ASG} \
-            --target-group-arns ${GREEN_TG_ARN} || true
-
-          echo "✅ Promote complete"
-          echo "### 🔵 Green → Blue 승격 완료" >> $GITHUB_STEP_SUMMARY
-          echo "- **New Blue ASG:** \`${GREEN_ASG}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Listener:** → Blue TG" >> $GITHUB_STEP_SUMMARY
-
-      # -------------------------------------------------------
-      # 12. Old Blue ASG 삭제
-      # -------------------------------------------------------
-      - name: Remove Blue Chat ASG
-        if: success() && steps.blue-check.outputs.blue_asg != 'none'
-        run: |
-          BLUE_ASG="${{ steps.blue-check.outputs.blue_asg }}"
-
-          aws autoscaling update-auto-scaling-group \
-            --auto-scaling-group-name ${BLUE_ASG} \
-            --min-size 0 --max-size 0 --desired-capacity 0
-
-          sleep 30
-
-          aws autoscaling delete-auto-scaling-group \
-            --auto-scaling-group-name ${BLUE_ASG} \
-            --force-delete
-
-          echo "✅ Blue Chat ASG removed: ${BLUE_ASG}"
-
-      # ------------------------------------------------------
-      # 13. 배포 정보 기록
-      # ------------------------------------------------------
-      - name: Record deployment info
-        if: success()
-        run: |
-          cat > deployment-info.json <<EOF
-          {
-            "environment": "production",
-            "service": "chat",
-            "deployment_strategy": "weighted-blue-green",
-            "deployed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "image_uri": "${{ steps.image.outputs.image_uri }}",
-            "image_tag": "${{ steps.image.outputs.image_tag }}",
-            "new_asg": "${{ steps.green-asg.outputs.green_asg_name }}",
-            "old_blue_asg": "${{ steps.blue-check.outputs.blue_asg }}",
-            "traffic_shift": "10% → 50% → 100%",
-            "listener_state": "Blue TG (promoted from Green)"
-          }
-          EOF
-          cat deployment-info.json
-
-      # ------------------------------------------------------
-      # 14. 롤백 (실패 시 즉시 Blue로)
-      # ------------------------------------------------------
-      - name: Rollback on failure
-        if: failure()
-        run: |
-          CHAT_RULE_ARN="${{ steps.blue-check.outputs.chat_rule_arn }}"
-          CHAT_API_RULE_ARN="${{ steps.blue-check.outputs.chat_api_rule_arn }}"
-          BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
-          GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
-
-          # === CANARY ROLLBACK (Chat) ===
-          # 카나리 단계에서 실패 시 Blue 100%로 원복 (두 규칙 모두)
-          # if [ "${{ steps.canary-shift-10.outputs.canary_shifted }}" = "true" ]; then
-          #   # /ws* 원복
-          #   aws elbv2 modify-rule \
-          #     --rule-arn ${CHAT_RULE_ARN} \
-          #     --actions "[{
-          #       \"Type\": \"forward\",
-          #       \"ForwardConfig\": {
-          #         \"TargetGroups\": [
-          #           {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100},
-          #           {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 0}
-          #         ]
-          #       }
-          #     }]" || true
-          #   # /api/v2/chat/* 원복
-          #   aws elbv2 modify-rule \
-          #     --rule-arn ${CHAT_API_RULE_ARN} \
-          #     --actions "[{
-          #       \"Type\": \"forward\",
-          #       \"ForwardConfig\": {
-          #         \"TargetGroups\": [
-          #           {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100},
-          #           {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 0}
-          #         ]
-          #       }
-          #     }]" || true
-          #   echo "⚠️ Canary rollback: Traffic reverted to Blue 100%"
-          # fi
-          # === END CANARY ROLLBACK (Chat) ===
-
-          # 트래픽이 이미 전환된 경우 원복 (두 규칙 모두)
-          if [ "${{ steps.traffic-switch.outputs.traffic_switched }}" = "true" ]; then
-            # /ws* 원복
-            aws elbv2 modify-rule \
-              --rule-arn ${CHAT_RULE_ARN} \
-              --actions "[{
-                \"Type\": \"forward\",
-                \"ForwardConfig\": {
-                  \"TargetGroups\": [
-                    {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100},
-                    {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 0}
-                  ]
-                }
-              }]" || true
-            # /api/v2/chat/* 원복
-            aws elbv2 modify-rule \
-              --rule-arn ${CHAT_API_RULE_ARN} \
-              --actions "[{
-                \"Type\": \"forward\",
-                \"ForwardConfig\": {
-                  \"TargetGroups\": [
-                    {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100},
-                    {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 0}
-                  ]
-                }
-              }]" || true
-            echo "⚠️ Traffic reverted to Blue"
-          fi
-
-          # Green ASG 삭제
-          GREEN_ASG="${{ steps.green-asg.outputs.green_asg_name }}"
-          if [ -n "$GREEN_ASG" ]; then
-            aws autoscaling update-auto-scaling-group \
-              --auto-scaling-group-name ${GREEN_ASG} \
-              --min-size 0 --max-size 0 --desired-capacity 0 || true
-
-            sleep 10
-
-            aws autoscaling delete-auto-scaling-group \
-              --auto-scaling-group-name ${GREEN_ASG} \
-              --force-delete || true
-          fi
-
-          echo "⚠️ Chat Prod Rollback completed"
-
-      # ------------------------------------------------------
-      # 15. Discord 알림
-      # ------------------------------------------------------
-      - name: Send Discord notification on success
-        if: success()
-        uses: tsickert/discord-webhook@v5.3.0
-        with:
-          webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          username: "Backend CD Bot"
-          avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
-          embed-title: "✅ [Chat] Production 배포 성공 (Blue → Green)"
-          embed-description: |
-            **환경:** Production 🔴
-            **전략:** Weighted Blue-Green
-            **이미지:** `${{ steps.image.outputs.image_tag }}`
-            **New ASG:** `${{ steps.green-asg.outputs.green_asg_name }}`
-            **Old Blue ASG:** `${{ steps.blue-check.outputs.blue_asg }}`
-
-            ✅ 트래픽 전환 → Blue 승격 → Old Blue 삭제 완료!
-
-            [📋 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          embed-color: 3066993
-
-      - name: Send Discord notification on failure
-        if: failure()
-        uses: tsickert/discord-webhook@v5.3.0
-        with:
-          webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          username: "Backend CD Bot"
-          avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
-          embed-title: "❌ [Chat] Production 배포 실패 - 롤백됨"
-          embed-description: |
-            **환경:** Production 🔴
-            **전략:** Weighted Blue-Green
-            **이미지:** `${{ steps.image.outputs.image_tag }}`
-            ❌ 배포 실패 - Blue로 즉시 롤백됨
-
-            [📋 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          embed-color: 15158332
+# name: Backend CD V2
+
+# # ============================================================
+# # 트리거 설정: CI 워크플로우 완료 후 자동 실행
+# # ============================================================
+# on:
+#   workflow_run:
+#     workflows: ["Backend CI V2"]
+#     types:
+#       - completed
+#     branches:
+#       - dev
+#       - main
+
+# permissions:
+#   contents: read
+#   actions: read
+#   id-token: write
+
+# # ============================================================
+# # 환경 변수 설정
+# # ============================================================
+# env:
+#   AWS_REGION: ap-northeast-2
+
+# # ============================================================
+# # Jobs
+# # ============================================================
+# jobs:
+#   # ============================================================
+#   # Staging API 배포 (dev 브랜치)
+#   # ASG 교체 방식
+#   # ============================================================
+#   deploy-staging-api:
+#     name: Deploy API to Staging
+#     if: |
+#       github.event.workflow_run.conclusion == 'success' &&
+#       github.event.workflow_run.head_branch == 'dev' &&
+#       github.event.workflow_run.event == 'push'
+#     runs-on: ubuntu-latest
+#     environment:
+#       name: staging
+#       url: https://staging-api.klosetlab.site
+#     timeout-minutes: 30
+
+#     permissions:
+#       id-token: write
+#       contents: read
+#       actions: read
+
+#     steps:
+#       # ------------------------------------------------------
+#       # 1. Checkout (스크립트 사용을 위해)
+#       # ------------------------------------------------------
+#       - name: Checkout repository
+#         uses: actions/checkout@v4
+
+#       # ------------------------------------------------------
+#       # 2. API Docker 메타데이터 다운로드
+#       # ------------------------------------------------------
+#       - name: Download API Docker metadata
+#         uses: actions/download-artifact@v4
+#         with:
+#           name: docker-metadata-api-${{ github.event.workflow_run.head_sha }}
+#           github-token: ${{ secrets.GITHUB_TOKEN }}
+#           run-id: ${{ github.event.workflow_run.id }}
+
+#       # ------------------------------------------------------
+#       # 3. 이미지 정보 추출
+#       # ------------------------------------------------------
+#       - name: Extract image info
+#         id: image
+#         run: |
+#           if [ -f docker-metadata-api.json ]; then
+#             IMAGE_URI=$(cat docker-metadata-api.json | jq -r '.imageUri')
+#             IMAGE_TAG=$(cat docker-metadata-api.json | jq -r '.imageTag')
+#             VERSION=$(cat docker-metadata-api.json | jq -r '.version')
+
+#             echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+#             echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+#             echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+#             echo "### API Docker Image Info" >> $GITHUB_STEP_SUMMARY
+#             echo "- **API Image URI:** \`${IMAGE_URI}\`" >> $GITHUB_STEP_SUMMARY
+#             echo "- **API Image Tag:** \`${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+
+#             cat docker-metadata-api.json | jq '.'
+#           else
+#             echo "::error::API Docker metadata not found!"
+#             exit 1
+#           fi
+
+#       # ------------------------------------------------------
+#       # 4. AWS OIDC 인증
+#       # ------------------------------------------------------
+#       - name: Configure AWS credentials via OIDC
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           role-to-assume: ${{ secrets.AWS_DEV_ROLE_ARN }}
+#           aws-region: ${{ env.AWS_REGION }}
+#           role-session-name: GitHubActions-StagingAPI-${{ github.run_id }}
+
+#       # ------------------------------------------------------
+#       # 5. 현재 환경 확인
+#       # ------------------------------------------------------
+#       - name: Check current API environment
+#         id: current-check
+#         run: |
+#           LISTENER_ARN="${{ secrets.DEV_ALB_LISTENER_ARN }}"
+
+#           API_RULE_ARN=$(aws elbv2 describe-rules \
+#             --listener-arn ${LISTENER_ARN} \
+#             --query "Rules[?contains(Conditions[].Values[], '/api/*')].RuleArn" \
+#             --output text)
+
+#           CURRENT_TG_ARN=$(aws elbv2 describe-rules \
+#             --rule-arns ${API_RULE_ARN} \
+#             --query 'Rules[0].Actions[0].ForwardConfig.TargetGroups[0].TargetGroupArn' \
+#             --output text)
+
+#           echo "current_tg_arn=${CURRENT_TG_ARN}" >> $GITHUB_OUTPUT
+
+#           ALL_ASGS=$(aws autoscaling describe-auto-scaling-groups \
+#             --query 'AutoScalingGroups[?starts_with(AutoScalingGroupName, `klosetlab-staging-v2-app-asg-`)].AutoScalingGroupName' \
+#             --output json)
+
+#           CURRENT_ASG="none"
+#           for asg in $(echo "$ALL_ASGS" | jq -r '.[]'); do
+#             TG_ARNS=$(aws autoscaling describe-auto-scaling-groups \
+#               --auto-scaling-group-names "$asg" \
+#               --query 'AutoScalingGroups[0].TargetGroupARNs' \
+#               --output json)
+
+#             if echo "$TG_ARNS" | jq -e --arg tg "$CURRENT_TG_ARN" 'index($tg)' > /dev/null; then
+#               CURRENT_ASG="$asg"
+#               break
+#             fi
+#           done
+
+#           echo "current_asg=${CURRENT_ASG}" >> $GITHUB_OUTPUT
+
+#           if [ "$CURRENT_ASG" != "none" ]; then
+#             DESIRED=$(aws autoscaling describe-auto-scaling-groups \
+#               --auto-scaling-group-names ${CURRENT_ASG} \
+#               --query 'AutoScalingGroups[0].DesiredCapacity' \
+#               --output text)
+#             MIN=$(aws autoscaling describe-auto-scaling-groups \
+#               --auto-scaling-group-names ${CURRENT_ASG} \
+#               --query 'AutoScalingGroups[0].MinSize' \
+#               --output text)
+#             MAX=$(aws autoscaling describe-auto-scaling-groups \
+#               --auto-scaling-group-names ${CURRENT_ASG} \
+#               --query 'AutoScalingGroups[0].MaxSize' \
+#               --output text)
+#             echo "desired=${DESIRED}" >> $GITHUB_OUTPUT
+#             echo "min=${MIN}" >> $GITHUB_OUTPUT
+#             echo "max=${MAX}" >> $GITHUB_OUTPUT
+
+#             echo "### 📊 Current Environment" >> $GITHUB_STEP_SUMMARY
+#             echo "- **ASG:** \`${CURRENT_ASG}\`" >> $GITHUB_STEP_SUMMARY
+#             echo "- **Capacity:** ${DESIRED} (min: ${MIN}, max: ${MAX})" >> $GITHUB_STEP_SUMMARY
+#           else
+#             echo "desired=1" >> $GITHUB_OUTPUT
+#             echo "min=1" >> $GITHUB_OUTPUT
+#             echo "max=2" >> $GITHUB_OUTPUT
+#           fi
+
+#       # ------------------------------------------------------
+#       # 6. API User Data 생성
+#       # ------------------------------------------------------
+#       - name: Generate API User Data script
+#         id: userdata
+#         run: |
+#           chmod +x .github/scripts/generate-userdata.sh
+#           .github/scripts/generate-userdata.sh \
+#             "staging" \
+#             "${{ steps.image.outputs.image_uri }}" \
+#             "${{ env.AWS_REGION }}"
+
+#       # ------------------------------------------------------
+#       # 7. Launch Template 버전 생성
+#       # ------------------------------------------------------
+#       - name: Create new Launch Template version
+#         id: new-lt
+#         run: |
+#           LT_ID="${{ secrets.DEV_LAUNCH_TEMPLATE_ID }}"
+#           USER_DATA="${{ steps.userdata.outputs.user_data_base64 }}"
+#           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+
+#           NEW_LT_VERSION=$(aws ec2 create-launch-template-version \
+#             --launch-template-id ${LT_ID} \
+#             --source-version '$Latest' \
+#             --launch-template-data "{
+#               \"UserData\": \"${USER_DATA}\",
+#               \"TagSpecifications\": [{
+#                 \"ResourceType\": \"instance\",
+#                 \"Tags\": [
+#                   {\"Key\": \"Name\", \"Value\": \"klosetlab-staging-v2-app-${TIMESTAMP}\"},
+#                   {\"Key\": \"Environment\", \"Value\": \"staging\"},
+#                   {\"Key\": \"Service\", \"Value\": \"api\"},
+#                   {\"Key\": \"ImageTag\", \"Value\": \"${{ steps.image.outputs.image_tag }}\"}
+#                 ]
+#               }]
+#             }" \
+#             --query 'LaunchTemplateVersion.VersionNumber' \
+#             --output text)
+
+#           echo "new_lt_version=${NEW_LT_VERSION}" >> $GITHUB_OUTPUT
+#           echo "✅ API Launch Template version ${NEW_LT_VERSION} created"
+
+#       # ------------------------------------------------------
+#       # 8. ASG 생성
+#       # ------------------------------------------------------
+#       - name: Create new API ASG
+#         id: new-asg
+#         run: |
+#           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+#           NEW_ASG_NAME="klosetlab-staging-v2-app-asg-${TIMESTAMP}"
+#           CURRENT_TG_ARN="${{ steps.current-check.outputs.current_tg_arn }}"
+
+#           if [ -z "$CURRENT_TG_ARN" ] || [ "$CURRENT_TG_ARN" = "None" ]; then
+#             CURRENT_TG_ARN="${{ secrets.DEV_TARGET_GROUP_ARN }}"
+#           fi
+
+#           aws autoscaling create-auto-scaling-group \
+#             --auto-scaling-group-name ${NEW_ASG_NAME} \
+#             --launch-template "LaunchTemplateId=${{ secrets.DEV_LAUNCH_TEMPLATE_ID }},Version=${{ steps.new-lt.outputs.new_lt_version }}" \
+#             --min-size ${{ steps.current-check.outputs.min }} \
+#             --max-size ${{ steps.current-check.outputs.max }} \
+#             --desired-capacity ${{ steps.current-check.outputs.desired }} \
+#             --target-group-arns ${CURRENT_TG_ARN} \
+#             --vpc-zone-identifier "${{ secrets.DEV_SUBNET_IDS }}" \
+#             --health-check-type ELB \
+#             --health-check-grace-period 300 \
+#             --tags "Key=Name,Value=klosetlab-staging-v2-app,PropagateAtLaunch=true" \
+#                    "Key=Environment,Value=staging,PropagateAtLaunch=true" \
+#                    "Key=Service,Value=api,PropagateAtLaunch=true" \
+#                    "Key=ImageTag,Value=${{ steps.image.outputs.image_tag }},PropagateAtLaunch=true"
+
+#           echo "new_asg_name=${NEW_ASG_NAME}" >> $GITHUB_OUTPUT
+
+#           echo "### 🟢 New API ASG: ${NEW_ASG_NAME}" >> $GITHUB_STEP_SUMMARY
+#           echo "- **ASG:** \`${NEW_ASG_NAME}\`" >> $GITHUB_STEP_SUMMARY
+
+#       # ------------------------------------------------------
+#       # 9. ASG 준비 대기
+#       # ------------------------------------------------------
+#       - name: Wait for new API ASG to be ready
+#         timeout-minutes: 15
+#         run: |
+#           NEW_ASG="${{ steps.new-asg.outputs.new_asg_name }}"
+#           CURRENT_TG_ARN="${{ steps.current-check.outputs.current_tg_arn }}"
+#           EXPECTED=${{ steps.current-check.outputs.desired }}
+
+#           if [ -z "$CURRENT_TG_ARN" ] || [ "$CURRENT_TG_ARN" = "None" ]; then
+#             CURRENT_TG_ARN="${{ secrets.DEV_TARGET_GROUP_ARN }}"
+#           fi
+
+#           MAX_RETRIES=90
+#           RETRY_COUNT=0
+
+#           while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+#             HEALTHY_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
+#               --auto-scaling-group-names ${NEW_ASG} \
+#               --query 'AutoScalingGroups[0].Instances[?HealthStatus==`Healthy` && LifecycleState==`InService`]' \
+#               --output json | jq 'length')
+
+#             NEW_INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
+#               --auto-scaling-group-names ${NEW_ASG} \
+#               --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`].InstanceId' \
+#               --output json)
+
+#             HEALTHY_TARGETS=0
+#             for instance_id in $(echo "$NEW_INSTANCE_IDS" | jq -r '.[]'); do
+#               STATE=$(aws elbv2 describe-target-health \
+#                 --target-group-arn ${CURRENT_TG_ARN} \
+#                 --targets Id=${instance_id} \
+#                 --query 'TargetHealthDescriptions[0].TargetHealth.State' \
+#                 --output text 2>/dev/null || echo "unknown")
+#               if [ "$STATE" = "healthy" ]; then
+#                 HEALTHY_TARGETS=$((HEALTHY_TARGETS + 1))
+#               fi
+#             done
+
+#             echo "[$((RETRY_COUNT + 1))/$MAX_RETRIES] Healthy: ${HEALTHY_INSTANCES} instances, ${HEALTHY_TARGETS} targets (expected: ${EXPECTED})"
+
+#             if [ "$HEALTHY_INSTANCES" -ge "$EXPECTED" ] && [ "$HEALTHY_TARGETS" -ge "$EXPECTED" ]; then
+#               echo "✅ New API ASG is ready!"
+#               exit 0
+#             fi
+
+#             sleep 10
+#             RETRY_COUNT=$((RETRY_COUNT + 1))
+#           done
+
+#           echo "❌ New API ASG failed to become healthy"
+#           exit 1
+
+#       # ------------------------------------------------------
+#       # 10. ASG 정리
+#       # ------------------------------------------------------
+#       - name: Remove old API ASG
+#         if: success() && steps.current-check.outputs.current_asg != 'none'
+#         run: |
+#           OLD_ASG="${{ steps.current-check.outputs.current_asg }}"
+
+#           aws autoscaling update-auto-scaling-group \
+#             --auto-scaling-group-name ${OLD_ASG} \
+#             --min-size 0 --max-size 0 --desired-capacity 0
+
+#           sleep 20
+
+#           aws autoscaling delete-auto-scaling-group \
+#             --auto-scaling-group-name ${OLD_ASG} \
+#             --force-delete
+
+#           echo "✅ Old API ASG removed: ${OLD_ASG}"
+#           echo "### 🗑️ Old ASG Removed" >> $GITHUB_STEP_SUMMARY
+#           echo "- **Deleted:** \`${OLD_ASG}\`" >> $GITHUB_STEP_SUMMARY
+
+#       # ------------------------------------------------------
+#       # 11. 배포 정보 기록
+#       # ------------------------------------------------------
+#       - name: Record deployment info
+#         if: success()
+#         run: |
+#           cat > deployment-info.json <<EOF
+#           {
+#             "environment": "staging",
+#             "service": "api",
+#             "deployed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+#             "image_uri": "${{ steps.image.outputs.image_uri }}",
+#             "image_tag": "${{ steps.image.outputs.image_tag }}",
+#             "new_asg": "${{ steps.new-asg.outputs.new_asg_name }}",
+#             "old_asg": "${{ steps.current-check.outputs.current_asg }}",
+#             "commit_sha": "${{ github.event.workflow_run.head_sha }}"
+#           }
+#           EOF
+#           cat deployment-info.json
+
+#       # ------------------------------------------------------
+#       # 12. 롤백 (실패 시)
+#       # ------------------------------------------------------
+#       - name: Rollback on failure
+#         if: failure() && steps.new-asg.outputs.new_asg_name != ''
+#         run: |
+#           NEW_ASG="${{ steps.new-asg.outputs.new_asg_name }}"
+
+#           echo "=== Rolling back ==="
+
+#           aws autoscaling update-auto-scaling-group \
+#             --auto-scaling-group-name ${NEW_ASG} \
+#             --min-size 0 --max-size 0 --desired-capacity 0 || true
+
+#           sleep 10
+
+#           aws autoscaling delete-auto-scaling-group \
+#             --auto-scaling-group-name ${NEW_ASG} \
+#             --force-delete || true
+
+#           echo "⚠️ API Rollback completed"
+
+#       # ------------------------------------------------------
+#       # 13. Discord 알림 
+#       # ------------------------------------------------------
+#       - name: Send Discord notification on success
+#         if: success()
+#         uses: tsickert/discord-webhook@v5.3.0
+#         with:
+#           webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+#           username: "Backend CD Bot"
+#           avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
+#           embed-title: "✅ [API] Staging 배포 성공"
+#           embed-description: |
+#             **이미지:** `${{ steps.image.outputs.image_tag }}`
+#             **New ASG:** `${{ steps.new-asg.outputs.new_asg_name }}`
+#             **Old ASG:** `${{ steps.current-check.outputs.current_asg }}`
+#             [📋 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+#             ✅ 새 ASG 생성 → 기존 ASG 교체 완료!
+
+#             [📋 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+#           embed-color: 3066993
+
+#       - name: Send Discord notification on failure
+#         if: failure()
+#         uses: tsickert/discord-webhook@v5.3.0
+#         with:
+#           webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+#           username: "Backend CD Bot"
+#           avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
+#           embed-title: "❌ [API] Staging 배포 실패"
+#           embed-description: |
+#             **환경:** Staging 🟢
+#             **이미지:** `${{ steps.image.outputs.image_tag }}`
+
+#             ❌ 배포 실패 - 롤백됨
+
+#             [📋 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+#           embed-color: 15158332
+
+#   # ============================================================
+#   # Staging Chat 배포 (dev 브랜치)
+#   # ASG 교체 방식
+#   # ============================================================
+#   deploy-staging-chat:
+#     name: Deploy Chat to Staging
+#     if: |
+#       github.event.workflow_run.conclusion == 'success' &&
+#       github.event.workflow_run.head_branch == 'dev' &&
+#       github.event.workflow_run.event == 'push'
+#     runs-on: ubuntu-latest
+#     environment:
+#       name: staging
+#       url: https://staging-api.klosetlab.site
+#     timeout-minutes: 30
+
+#     permissions:
+#       id-token: write
+#       contents: read
+#       actions: read
+
+#     steps:
+#       # ------------------------------------------------------
+#       # 1. Checkout (스크립트 사용을 위해)
+#       # ------------------------------------------------------
+#       - name: Checkout repository
+#         uses: actions/checkout@v4
+
+#       # ------------------------------------------------------
+#       # 2. Chat Docker 메타데이터 다운로드
+#       # ------------------------------------------------------
+#       - name: Download Chat Docker metadata
+#         uses: actions/download-artifact@v4
+#         with:
+#           name: docker-metadata-chat-${{ github.event.workflow_run.head_sha }}
+#           github-token: ${{ secrets.GITHUB_TOKEN }}
+#           run-id: ${{ github.event.workflow_run.id }}
+
+#       # ------------------------------------------------------
+#       # 3. 이미지 정보 추출
+#       # ------------------------------------------------------
+#       - name: Extract image info
+#         id: image
+#         run: |
+#           if [ -f docker-metadata-chat.json ]; then
+#             IMAGE_URI=$(cat docker-metadata-chat.json | jq -r '.imageUri')
+#             IMAGE_TAG=$(cat docker-metadata-chat.json | jq -r '.imageTag')
+#             VERSION=$(cat docker-metadata-chat.json | jq -r '.version')
+
+#             echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+#             echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+#             echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+#             echo "### Chat Docker Image Info" >> $GITHUB_STEP_SUMMARY
+#             echo "- **Chat Image URI:** \`${IMAGE_URI}\`" >> $GITHUB_STEP_SUMMARY
+#             echo "- **Chat Image Tag:** \`${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+
+#             cat docker-metadata-chat.json | jq '.'
+#           else
+#             echo "::error::Chat Docker metadata not found!"
+#             exit 1
+#           fi
+
+#       # ------------------------------------------------------
+#       # 4. AWS OIDC 인증
+#       # ------------------------------------------------------
+#       - name: Configure AWS credentials via OIDC
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           role-to-assume: ${{ secrets.AWS_DEV_ROLE_ARN }}
+#           aws-region: ${{ env.AWS_REGION }}
+#           role-session-name: GitHubActions-StagingChat-${{ github.run_id }}
+
+#       # ------------------------------------------------------
+#       # 5. 현재 환경 확인
+#       # ------------------------------------------------------
+#       - name: Check current Chat environment
+#         id: current-check
+#         run: |
+#           CHAT_TG_ARN="${{ secrets.DEV_CHAT_TARGET_GROUP_ARN }}"
+#           echo "current_tg_arn=${CHAT_TG_ARN}" >> $GITHUB_OUTPUT
+
+#           ALL_ASGS=$(aws autoscaling describe-auto-scaling-groups \
+#             --query 'AutoScalingGroups[?starts_with(AutoScalingGroupName, `klosetlab-staging-v2-chat-asg-`)].AutoScalingGroupName' \
+#             --output json)
+
+#           CURRENT_ASG="none"
+
+#           for asg in $(echo "$ALL_ASGS" | jq -r '.[]'); do
+#             TG_ARNS=$(aws autoscaling describe-auto-scaling-groups \
+#               --auto-scaling-group-names "$asg" \
+#               --query 'AutoScalingGroups[0].TargetGroupARNs' \
+#               --output json)
+#             if echo "$TG_ARNS" | jq -e --arg tg "$CHAT_TG_ARN" 'index($tg)' > /dev/null; then
+#               CURRENT_ASG="$asg"
+#               break
+#             fi
+#           done
+
+#           echo "current_asg=${CURRENT_ASG}" >> $GITHUB_OUTPUT
+
+#           if [ "$CURRENT_ASG" != "none" ]; then
+#             DESIRED=$(aws autoscaling describe-auto-scaling-groups \
+#               --auto-scaling-group-names ${CURRENT_ASG} \
+#               --query 'AutoScalingGroups[0].DesiredCapacity' --output text)
+#             MIN=$(aws autoscaling describe-auto-scaling-groups \
+#               --auto-scaling-group-names ${CURRENT_ASG} \
+#               --query 'AutoScalingGroups[0].MinSize' --output text)
+#             MAX=$(aws autoscaling describe-auto-scaling-groups \
+#               --auto-scaling-group-names ${CURRENT_ASG} \
+#               --query 'AutoScalingGroups[0].MaxSize' --output text)
+
+#             echo "desired=${DESIRED}" >> $GITHUB_OUTPUT
+#             echo "min=${MIN}" >> $GITHUB_OUTPUT
+#             echo "max=${MAX}" >> $GITHUB_OUTPUT
+
+#             echo "### 📊 Current Environment" >> $GITHUB_STEP_SUMMARY
+#             echo "- **ASG:** \`${CURRENT_ASG}\`" >> $GITHUB_STEP_SUMMARY
+#             echo "- **Capacity:** ${DESIRED} (min: ${MIN}, max: ${MAX})" >> $GITHUB_STEP_SUMMARY
+
+#           else
+#             echo "desired=1" >> $GITHUB_OUTPUT
+#             echo "min=1" >> $GITHUB_OUTPUT
+#             echo "max=2" >> $GITHUB_OUTPUT
+#           fi
+
+#       # ------------------------------------------------------
+#       # 6. Chat User Data 생성
+#       # ------------------------------------------------------
+#       - name: Generate Chat User Data script
+#         id: userdata
+#         run: |
+#           chmod +x .github/scripts/generate-userdata-chat.sh
+#           .github/scripts/generate-userdata-chat.sh \
+#             "staging" \
+#             "${{ steps.image.outputs.image_uri }}" \
+#             "${{ env.AWS_REGION }}"
+
+#       # ------------------------------------------------------
+#       # 7. Launch Template 버전 생성
+#       # ------------------------------------------------------
+#       - name: Create new Chat Launch Template version
+#         id: new-lt
+#         run: |
+#           LT_ID="${{ secrets.DEV_CHAT_LAUNCH_TEMPLATE_ID }}"
+#           USER_DATA="${{ steps.userdata.outputs.user_data_base64 }}"
+#           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+
+#           NEW_LT_VERSION=$(aws ec2 create-launch-template-version \
+#             --launch-template-id ${LT_ID} \
+#             --source-version '$Latest' \
+#             --launch-template-data "{
+#               \"UserData\": \"${USER_DATA}\",
+#               \"TagSpecifications\": [{
+#                 \"ResourceType\": \"instance\",
+#                 \"Tags\": [
+#                   {\"Key\": \"Name\", \"Value\": \"klosetlab-staging-v2-chat-${TIMESTAMP}\"},
+#                   {\"Key\": \"Environment\", \"Value\": \"staging\"},
+#                   {\"Key\": \"Service\", \"Value\": \"chat\"},
+#                   {\"Key\": \"ImageTag\", \"Value\": \"${{ steps.image.outputs.image_tag }}\"}
+#                 ]
+#               }]
+#             }" \
+#             --query 'LaunchTemplateVersion.VersionNumber' \
+#             --output text)
+
+#           echo "new_lt_version=${NEW_LT_VERSION}" >> $GITHUB_OUTPUT
+#           echo "✅ Chat Launch Template version ${NEW_LT_VERSION} created"
+
+#       # ------------------------------------------------------
+#       # 8. ASG 생성
+#       # ------------------------------------------------------
+#       - name: Create new Chat ASG
+#         id: new-asg
+#         run: |
+#           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+#           NEW_ASG_NAME="klosetlab-staging-v2-chat-asg-${TIMESTAMP}"
+#           CHAT_TG_ARN="${{ steps.current-check.outputs.current_tg_arn }}"
+
+#           aws autoscaling create-auto-scaling-group \
+#             --auto-scaling-group-name ${NEW_ASG_NAME} \
+#             --launch-template "LaunchTemplateId=${{ secrets.DEV_CHAT_LAUNCH_TEMPLATE_ID }},Version=${{ steps.new-lt.outputs.new_lt_version }}" \
+#             --min-size ${{ steps.current-check.outputs.min }} \
+#             --max-size ${{ steps.current-check.outputs.max }} \
+#             --desired-capacity ${{ steps.current-check.outputs.desired }} \
+#             --target-group-arns ${CHAT_TG_ARN} \
+#             --vpc-zone-identifier "${{ secrets.DEV_SUBNET_IDS }}" \
+#             --health-check-type ELB \
+#             --health-check-grace-period 300 \
+#             --tags "Key=Name,Value=klosetlab-staging-v2-chat,PropagateAtLaunch=true" \
+#                    "Key=Environment,Value=staging,PropagateAtLaunch=true" \
+#                    "Key=Service,Value=chat,PropagateAtLaunch=true" \
+#                    "Key=ImageTag,Value=${{ steps.image.outputs.image_tag }},PropagateAtLaunch=true"
+
+#           echo "new_asg_name=${NEW_ASG_NAME}" >> $GITHUB_OUTPUT
+
+#           echo "### 🟢 New Chat ASG: ${NEW_ASG_NAME}" >> $GITHUB_STEP_SUMMARY
+#           echo "- **ASG:** \`${NEW_ASG_NAME}\`" >> $GITHUB_STEP_SUMMARY
+
+#       # ------------------------------------------------------
+#       # 9. ASG 준비 대기
+#       # ------------------------------------------------------
+#       - name: Wait for new Chat ASG to be ready
+#         timeout-minutes: 15
+#         run: |
+#           NEW_ASG="${{ steps.new-asg.outputs.new_asg_name }}"
+#           CHAT_TG_ARN="${{ steps.current-check.outputs.current_tg_arn }}"
+#           EXPECTED=${{ steps.current-check.outputs.desired }}
+
+#           MAX_RETRIES=90
+#           RETRY_COUNT=0
+
+#           while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+#             HEALTHY_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
+#               --auto-scaling-group-names ${NEW_ASG} \
+#               --query 'AutoScalingGroups[0].Instances[?HealthStatus==`Healthy` && LifecycleState==`InService`]' \
+#               --output json | jq 'length')
+
+#             NEW_INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
+#               --auto-scaling-group-names ${NEW_ASG} \
+#               --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`].InstanceId' \
+#               --output json)
+
+#             HEALTHY_TARGETS=0
+#             for instance_id in $(echo "$NEW_INSTANCE_IDS" | jq -r '.[]'); do
+#               STATE=$(aws elbv2 describe-target-health \
+#                 --target-group-arn ${CHAT_TG_ARN} \
+#                 --targets Id=${instance_id} \
+#                 --query 'TargetHealthDescriptions[0].TargetHealth.State' \
+#                 --output text 2>/dev/null || echo "unknown")
+#               if [ "$STATE" = "healthy" ]; then
+#                 HEALTHY_TARGETS=$((HEALTHY_TARGETS + 1))
+#               fi
+#             done
+
+#             echo "[$((RETRY_COUNT + 1))/$MAX_RETRIES] Healthy: ${HEALTHY_INSTANCES} instances, ${HEALTHY_TARGETS} targets (expected: ${EXPECTED})"
+
+#             if [ "$HEALTHY_INSTANCES" -ge "$EXPECTED" ] && [ "$HEALTHY_TARGETS" -ge "$EXPECTED" ]; then
+#               echo "✅ New Chat ASG is ready!"
+#               exit 0
+#             fi
+
+#             sleep 10
+#             RETRY_COUNT=$((RETRY_COUNT + 1))
+#           done
+
+#           echo "❌ New Chat ASG failed to become healthy"
+#           exit 1
+
+#       # ------------------------------------------------------
+#       # 10. ASG 정리
+#       # ------------------------------------------------------
+#       - name: Remove old Chat ASG
+#         if: success() && steps.current-check.outputs.current_asg != 'none'
+#         run: |
+#           OLD_ASG="${{ steps.current-check.outputs.current_asg }}"
+
+#           aws autoscaling update-auto-scaling-group \
+#             --auto-scaling-group-name ${OLD_ASG} \
+#             --min-size 0 --max-size 0 --desired-capacity 0
+
+#           sleep 20
+
+#           aws autoscaling delete-auto-scaling-group \
+#             --auto-scaling-group-name ${OLD_ASG} \
+#             --force-delete
+
+#           echo "✅ Old Chat ASG removed: ${OLD_ASG}"
+#           echo "### 🗑️ Old ASG Removed" >> $GITHUB_STEP_SUMMARY
+#           echo "- **Deleted:** \`${OLD_ASG}\`" >> $GITHUB_STEP_SUMMARY
+
+#       # ------------------------------------------------------
+#       # 11. 배포 정보 기록
+#       # ------------------------------------------------------
+#       - name: Record deployment info
+#         if: success()
+#         run: |
+#           cat > deployment-info.json <<EOF
+#           {
+#             "environment": "staging",
+#             "service": "chat",
+#             "deployed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+#             "image_uri": "${{ steps.image.outputs.image_uri }}",
+#             "image_tag": "${{ steps.image.outputs.image_tag }}",
+#             "new_asg": "${{ steps.new-asg.outputs.new_asg_name }}",
+#             "old_asg": "${{ steps.current-check.outputs.current_asg }}",
+#             "commit_sha": "${{ github.event.workflow_run.head_sha }}"
+#           }
+#           EOF
+#           cat deployment-info.json
+
+#       # ------------------------------------------------------
+#       # 12. 롤백 (실패 시)
+#       # ------------------------------------------------------
+#       - name: Rollback on failure
+#         if: failure() && steps.new-asg.outputs.new_asg_name != ''
+#         run: |
+#           NEW_ASG="${{ steps.new-asg.outputs.new_asg_name }}"
+
+#           echo "=== Rolling back ==="
+
+#           aws autoscaling update-auto-scaling-group \
+#             --auto-scaling-group-name ${NEW_ASG} \
+#             --min-size 0 --max-size 0 --desired-capacity 0 || true
+
+#           sleep 10
+
+#           aws autoscaling delete-auto-scaling-group \
+#             --auto-scaling-group-name ${NEW_ASG} \
+#             --force-delete || true
+
+#           echo "⚠️ Chat Rollback completed"
+
+#       # ------------------------------------------------------
+#       # 13. Discord 알림
+#       # ------------------------------------------------------
+#       - name: Send Discord notification on success
+#         if: success()
+#         uses: tsickert/discord-webhook@v5.3.0
+#         with:
+#           webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+#           username: "Backend CD Bot"
+#           avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
+#           embed-title: "✅ [Chat] Staging 배포 성공"
+#           embed-description: |
+#             **환경:** Staging 🟢
+#             **이미지:** `${{ steps.image.outputs.image_tag }}`
+#             **New ASG:** `${{ steps.new-asg.outputs.new_asg_name }}`
+#             **Old ASG:** `${{ steps.current-check.outputs.current_asg }}`
+
+#             ✅ 새 ASG 생성 → 기존 ASG 교체 완료!
+
+#             [📋 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+#           embed-color: 3066993
+
+
+#       - name: Send Discord notification on failure
+#         if: failure()
+#         uses: tsickert/discord-webhook@v5.3.0
+#         with:
+#           webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+#           username: "Backend CD Bot"
+#           avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
+#           embed-title: "❌ [Chat] Staging 배포 실패"
+#           embed-description: |
+#             **환경:** Staging 🟢
+#             **이미지:** `${{ steps.image.outputs.image_tag }}`
+
+#             ❌ 배포 실패 - 롤백됨
+
+#             [📋 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+#           embed-color: 15158332
+
+#   # ============================================================
+#   # Production API 배포 (main 브랜치)
+#   # Blue/Green 방식
+#   # ============================================================
+#   deploy-prod-api:
+#     name: Deploy API to Production
+#     if: |
+#       github.event.workflow_run.conclusion == 'success' &&
+#       github.event.workflow_run.head_branch == 'main' &&
+#       github.event.workflow_run.event == 'push'
+#     runs-on: ubuntu-latest
+#     environment:
+#       name: production
+#       url: https://klosetlab.site
+#     timeout-minutes: 60
+
+#     permissions:
+#       id-token: write
+#       contents: read
+#       actions: read
+
+#     steps:
+#       # ------------------------------------------------------
+#       # 1. Checkout (스크립트 사용을 위해)
+#       # ------------------------------------------------------
+#       - name: Checkout repository
+#         uses: actions/checkout@v4
+
+#       # ------------------------------------------------------
+#       # 2. API Docker 메타데이터 다운로드
+#       # ------------------------------------------------------
+#       - name: Download API Docker metadata
+#         uses: actions/download-artifact@v4
+#         with:
+#           name: docker-metadata-api-${{ github.event.workflow_run.head_sha }}
+#           github-token: ${{ secrets.GITHUB_TOKEN }}
+#           run-id: ${{ github.event.workflow_run.id }}
+
+#       # ------------------------------------------------------
+#       # 3. 이미지 정보 추출
+#       # ------------------------------------------------------
+#       - name: Extract image info
+#         id: image
+#         run: |
+#           if [ -f docker-metadata-api.json ]; then
+#             IMAGE_URI=$(cat docker-metadata-api.json | jq -r '.imageUri')
+#             IMAGE_TAG=$(cat docker-metadata-api.json | jq -r '.imageTag')
+#             VERSION=$(cat docker-metadata-api.json | jq -r '.version')
+
+#             echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+#             echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+#             echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+#             echo "### API Docker Image Info" >> $GITHUB_STEP_SUMMARY
+#             echo "- **API Image URI:** \`${IMAGE_URI}\`" >> $GITHUB_STEP_SUMMARY
+#             echo "- **API Image Tag:** \`${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+
+#             cat docker-metadata-api.json | jq '.'
+#           else
+#             echo "::error::API Docker metadata not found!"
+#             exit 1
+#           fi
+
+#       # ------------------------------------------------------
+#       # 4. AWS OIDC 인증
+#       # ------------------------------------------------------
+#       - name: Configure AWS credentials via OIDC
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           role-to-assume: ${{ secrets.AWS_PROD_ROLE_ARN }}
+#           aws-region: ${{ env.AWS_REGION }}
+#           role-session-name: GitHubActions-ProdAPI-${{ github.run_id }}
+
+#       # ------------------------------------------------------
+#       # 5. 현재 Blue 환경 확인
+#       # ------------------------------------------------------
+#       - name: Check Blue environment
+#         id: blue-check
+#         run: |
+#           LISTENER_ARN="${{ secrets.PROD_ALB_LISTENER_ARN }}"
+#           BLUE_TG_ARN="${{ secrets.PROD_BLUE_TARGET_GROUP_ARN }}"
+#           GREEN_TG_ARN="${{ secrets.PROD_GREEN_TARGET_GROUP_ARN }}"
+
+#           API_RULE_ARN=$(aws elbv2 describe-rules \
+#             --listener-arn ${LISTENER_ARN} \
+#             --query "Rules[?contains(Conditions[].Values[], '/api/*')].RuleArn" \
+#             --output text)
+
+#           CURRENT_TG_ARN=$(aws elbv2 describe-rules \
+#             --rule-arns ${API_RULE_ARN} \
+#             --query 'Rules[0].Actions[0].ForwardConfig.TargetGroups[0].TargetGroupArn' \
+#             --output text)
+
+#           echo "api_rule_arn=${API_RULE_ARN}" >> $GITHUB_OUTPUT
+#           echo "blue_tg_arn=${BLUE_TG_ARN}" >> $GITHUB_OUTPUT
+#           echo "green_tg_arn=${GREEN_TG_ARN}" >> $GITHUB_OUTPUT
+
+#           if [ "$CURRENT_TG_ARN" != "$BLUE_TG_ARN" ]; then
+#             echo "❌ Listener is not pointing to Blue TG!"
+#             echo "Expected: ${BLUE_TG_ARN}"
+#             echo "Current:  ${API_CURRENT_TG_ARN}"
+#             echo "이전 배포가 정상 완료되지 않은 상태입니다. 확인 후 재시도하세요."
+#             exit 1
+#           fi
+#           echo "✅ Listener → Blue TG confirmed"
+
+#           ALL_ASGS=$(aws autoscaling describe-auto-scaling-groups \
+#             --query 'AutoScalingGroups[?starts_with(AutoScalingGroupName, `klosetlab-app-`)].AutoScalingGroupName' \
+#             --output json)
+
+#           BLUE_ASG="none"
+#           for asg in $(echo "$ALL_ASGS" | jq -r '.[]'); do
+#             TG_ARNS=$(aws autoscaling describe-auto-scaling-groups \
+#               --auto-scaling-group-names "$asg" \
+#               --query 'AutoScalingGroups[0].TargetGroupARNs' \
+#               --output json)
+#             if echo "$TG_ARNS" | jq -e --arg tg "$BLUE_TG_ARN" 'index($tg)' > /dev/null; then
+#               BLUE_ASG="$asg"
+#               break
+#             fi
+#           done
+
+#           echo "blue_asg=${BLUE_ASG}" >> $GITHUB_OUTPUT
+
+#           if [ "$BLUE_ASG" != "none" ]; then
+#             DESIRED=$(aws autoscaling describe-auto-scaling-groups \
+#               --auto-scaling-group-names ${BLUE_ASG} \
+#               --query 'AutoScalingGroups[0].DesiredCapacity' --output text)
+#             MIN=$(aws autoscaling describe-auto-scaling-groups \
+#               --auto-scaling-group-names ${BLUE_ASG} \
+#               --query 'AutoScalingGroups[0].MinSize' --output text)
+#             MAX=$(aws autoscaling describe-auto-scaling-groups \
+#               --auto-scaling-group-names ${BLUE_ASG} \
+#               --query 'AutoScalingGroups[0].MaxSize' --output text)
+
+#             echo "desired=${DESIRED}" >> $GITHUB_OUTPUT
+#             echo "min=${MIN}" >> $GITHUB_OUTPUT
+#             echo "max=${MAX}" >> $GITHUB_OUTPUT
+
+#             echo "### 🔵 Blue Environment" >> $GITHUB_STEP_SUMMARY
+#             echo "- **ASG:** \`${BLUE_ASG}\`" >> $GITHUB_STEP_SUMMARY
+#             echo "- **Capacity:** ${DESIRED} (min: ${MIN}, max: ${MAX})" >> $GITHUB_STEP_SUMMARY
+#           else
+#             echo "desired=1" >> $GITHUB_OUTPUT
+#             echo "min=1" >> $GITHUB_OUTPUT
+#             echo "max=2" >> $GITHUB_OUTPUT
+#           fi
+
+#       # ------------------------------------------------------
+#       # 6. API User Data 생성
+#       # ------------------------------------------------------
+#       - name: Generate API User Data script
+#         id: userdata
+#         run: |
+#           chmod +x .github/scripts/generate-userdata.sh
+#           .github/scripts/generate-userdata.sh \
+#             "prod" \
+#             "${{ steps.image.outputs.image_uri }}" \
+#             "${{ env.AWS_REGION }}"
+
+#       # ------------------------------------------------------
+#       # 7. Green Launch Template 버전 생성
+#       # ------------------------------------------------------
+#       - name: Create new Green Launch Template version
+#         id: new-lt
+#         run: |
+#           LT_ID="${{ secrets.PROD_LAUNCH_TEMPLATE_ID }}"
+#           USER_DATA="${{ steps.userdata.outputs.user_data_base64 }}"
+#           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+
+#           NEW_LT_VERSION=$(aws ec2 create-launch-template-version \
+#             --launch-template-id ${LT_ID} \
+#             --source-version '$Latest' \
+#             --launch-template-data "{
+#               \"UserData\": \"${USER_DATA}\",
+#               \"TagSpecifications\": [{
+#                 \"ResourceType\": \"instance\",
+#                 \"Tags\": [
+#                   {\"Key\": \"Name\", \"Value\": \"klosetlab-app-${TIMESTAMP}\"},
+#                   {\"Key\": \"Environment\", \"Value\": \"production\"},
+#                   {\"Key\": \"Service\", \"Value\": \"api\"},
+#                   {\"Key\": \"ImageTag\", \"Value\": \"${{ steps.image.outputs.image_tag }}\"}
+#                 ]
+#               }]
+#             }" \
+#             --query 'LaunchTemplateVersion.VersionNumber' \
+#             --output text)
+
+#           echo "new_lt_version=${NEW_LT_VERSION}" >> $GITHUB_OUTPUT
+
+#       # ------------------------------------------------------
+#       # 8. Green ASG 생성
+#       # ------------------------------------------------------
+#       - name: Create Green ASG
+#         id: green-asg
+#         run: |
+#           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+#           GREEN_ASG_NAME="klosetlab-app-asg-${TIMESTAMP}"
+#           GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+
+#           aws autoscaling create-auto-scaling-group \
+#             --auto-scaling-group-name ${GREEN_ASG_NAME} \
+#             --launch-template "LaunchTemplateId=${{ secrets.PROD_LAUNCH_TEMPLATE_ID }},Version=${{ steps.new-lt.outputs.new_lt_version }}" \
+#             --min-size ${{ steps.blue-check.outputs.min }} \
+#             --max-size ${{ steps.blue-check.outputs.max }} \
+#             --desired-capacity ${{ steps.blue-check.outputs.desired }} \
+#             --target-group-arns ${GREEN_TG_ARN} \
+#             --vpc-zone-identifier "${{ secrets.PROD_SUBNET_IDS }}" \
+#             --health-check-type ELB \
+#             --health-check-grace-period 300 \
+#             --tags "Key=Name,Value=klosetlab-app,PropagateAtLaunch=true" \
+#                    "Key=Environment,Value=production,PropagateAtLaunch=true" \
+#                    "Key=Service,Value=api,PropagateAtLaunch=true" \
+#                    "Key=ImageTag,Value=${{ steps.image.outputs.image_tag }},PropagateAtLaunch=true"
+
+#           echo "green_asg_name=${GREEN_ASG_NAME}" >> $GITHUB_OUTPUT
+
+#           echo "### 🟢 Green ASG" >> $GITHUB_STEP_SUMMARY
+#           echo "- **ASG:** \`${GREEN_ASG_NAME}\`" >> $GITHUB_STEP_SUMMARY
+
+#       # ------------------------------------------------------
+#       # 9. Green 환경 준비 대기
+#       # ------------------------------------------------------
+#       - name: Wait for Green ASG to be ready
+#         timeout-minutes: 20
+#         run: |
+#           GREEN_ASG="${{ steps.green-asg.outputs.green_asg_name }}"
+#           GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+#           EXPECTED=${{ steps.blue-check.outputs.desired }}
+
+#           MAX_RETRIES=120
+#           RETRY_COUNT=0
+
+#           while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+#             HEALTHY_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
+#               --auto-scaling-group-names ${GREEN_ASG} \
+#               --query 'AutoScalingGroups[0].Instances[?HealthStatus==`Healthy` && LifecycleState==`InService`]' \
+#               --output json | jq 'length')
+
+#             NEW_INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
+#               --auto-scaling-group-names ${GREEN_ASG} \
+#               --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`].InstanceId' \
+#               --output json)
+
+#             HEALTHY_TARGETS=0
+#             for instance_id in $(echo "$NEW_INSTANCE_IDS" | jq -r '.[]'); do
+#               STATE=$(aws elbv2 describe-target-health \
+#                 --target-group-arn ${GREEN_TG_ARN} \
+#                 --targets Id=${instance_id} \
+#                 --query 'TargetHealthDescriptions[0].TargetHealth.State' \
+#                 --output text 2>/dev/null || echo "unknown")
+#               if [ "$STATE" = "healthy" ]; then
+#                 HEALTHY_TARGETS=$((HEALTHY_TARGETS + 1))
+#               fi
+#             done
+
+#             echo "[$((RETRY_COUNT + 1))/$MAX_RETRIES] Healthy: ${HEALTHY_INSTANCES} instances, ${HEALTHY_TARGETS} targets (expected: ${EXPECTED})"
+
+#             if [ "$HEALTHY_INSTANCES" -ge "$EXPECTED" ] && [ "$HEALTHY_TARGETS" -ge "$EXPECTED" ]; then
+#               echo "✅ Green ASG is ready!"
+#               exit 0
+#             fi
+
+#             sleep 10
+#             RETRY_COUNT=$((RETRY_COUNT + 1))
+#           done
+
+#           echo "❌ Green ASG failed to become healthy"
+#           exit 1
+
+#       # === CANARY DEPLOYMENT (API) ===
+#       # 아래 카나리 배포 스텝을 활성화하려면:
+#       # 1. 이 섹션의 주석(#)을 해제
+#       # 2. Rollback 스텝의 "CANARY ROLLBACK" 섹션도 함께 주석 해제
+#       # 3. 기존 "Switch traffic Blue → Green" 스텝은 그대로 유지 (100% 전환은 카나리 통과 후 실행)
+#       #
+
+#       # # ------------------------------------------------------
+#       # # 10. 단계적 트래픽 전환 시작
+#       # # ------------------------------------------------------
+#       # - name: "Canary: Traffic Shift - 10% to Green"
+#       #   id: canary-shift-10
+#       #   run: |
+#       #     API_RULE_ARN="${{ steps.blue-check.outputs.api_rule_arn }}"
+#       #     BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
+#       #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+#       #
+#       #     aws elbv2 modify-rule \
+#       #       --rule-arn ${API_RULE_ARN} \
+#       #       --actions "[{
+#       #         \"Type\": \"forward\",
+#       #         \"ForwardConfig\": {
+#       #           \"TargetGroups\": [
+#       #             {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 90},
+#       #             {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 10}
+#       #           ]
+#       #         }
+#       #       }]"
+#       #
+#       #     echo "✅ Canary: 10% traffic on Green"
+#       #     echo "### 🔄 Traffic: Blue 90% / Green 10%" >> $GITHUB_STEP_SUMMARY
+#       #
+#       # - name: "Canary: Monitor 10% traffic (10 min)"
+#       #   run: |
+#       #     echo "=== Monitoring Green with 10% traffic ==="
+#       #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+#       #     FAIL_COUNT=0
+#       #
+#       #     for i in {1..10}; do
+#       #       echo "Monitoring... $i/10 minutes"
+#       #
+#       #       # Green TG health 체크
+#       #       UNHEALTHY=$(aws elbv2 describe-target-health \
+#       #         --target-group-arn ${GREEN_TG_ARN} \
+#       #         --query 'TargetHealthDescriptions[?TargetHealth.State==`unhealthy`]' \
+#       #         --output json | jq 'length')
+#       #
+#       #       if [ "$UNHEALTHY" -gt 0 ]; then
+#       #         FAIL_COUNT=$((FAIL_COUNT + 1))
+#       #         echo "⚠️ Unhealthy detected ($FAIL_COUNT times)"
+#       #       else
+#       #         FAIL_COUNT=0
+#       #       fi
+#       #
+#       #       if [ "$FAIL_COUNT" -ge 3 ]; then
+#       #         echo "❌ 3 consecutive unhealthy checks. Failing deployment."
+#       #         exit 1
+#       #       fi
+#       #
+#       #       sleep 60
+#       #     done
+#       #
+#       #     echo "✅ 10% traffic monitoring passed"
+#       #
+#       # - name: "Canary: Traffic Shift - 50% to Green"
+#       #   id: canary-shift-50
+#       #   run: |
+#       #     API_RULE_ARN="${{ steps.blue-check.outputs.api_rule_arn }}"
+#       #     BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
+#       #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+#       #
+#       #     aws elbv2 modify-rule \
+#       #       --rule-arn ${API_RULE_ARN} \
+#       #       --actions "[{
+#       #         \"Type\": \"forward\",
+#       #         \"ForwardConfig\": {
+#       #           \"TargetGroups\": [
+#       #             {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 50},
+#       #             {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 50}
+#       #           ]
+#       #         }
+#       #       }]"
+#       #
+#       #     echo "✅ Canary: 50% traffic on Green"
+#       #     echo "### 🔄 Traffic: Blue 50% / Green 50%" >> $GITHUB_STEP_SUMMARY
+#       #
+#       # - name: "Canary: Monitor 50% traffic (15 min)"
+#       #   run: |
+#       #     echo "=== Monitoring Green with 50% traffic ==="
+#       #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+#       #     FAIL_COUNT=0
+#       #
+#       #     for i in {1..15}; do
+#       #       echo "Monitoring... $i/15 minutes"
+#       #
+#       #       UNHEALTHY=$(aws elbv2 describe-target-health \
+#       #         --target-group-arn ${GREEN_TG_ARN} \
+#       #         --query 'TargetHealthDescriptions[?TargetHealth.State==`unhealthy`]' \
+#       #         --output json | jq 'length')
+#       #
+#       #       if [ "$UNHEALTHY" -gt 0 ]; then
+#       #         FAIL_COUNT=$((FAIL_COUNT + 1))
+#       #         echo "⚠️ Unhealthy detected ($FAIL_COUNT times)"
+#       #       else
+#       #         FAIL_COUNT=0
+#       #       fi
+#       #
+#       #       if [ "$FAIL_COUNT" -ge 3 ]; then
+#       #         echo "❌ 3 consecutive unhealthy checks. Failing deployment."
+#       #         exit 1
+#       #       fi
+#       #
+#       #       sleep 60
+#       #     done
+#       #
+#       #     echo "✅ 50% traffic monitoring passed"
+
+#       - name: Switch traffic Blue → Green
+#         id: traffic-switch
+#         run: |
+#           API_RULE_ARN="${{ steps.blue-check.outputs.api_rule_arn }}"
+#           BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
+#           GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+
+#           aws elbv2 modify-rule \
+#             --rule-arn ${API_RULE_ARN} \
+#             --actions "[{
+#               \"Type\": \"forward\",
+#               \"ForwardConfig\": {
+#                 \"TargetGroups\": [
+#                   {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 0},
+#                   {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 100}
+#                 ]
+#               }
+#             }]"
+
+#           echo "✅ Traffic switched: Blue(0%) → Green(100%)"
+#           echo "### ✅ Traffic: Green 100%" >> $GITHUB_STEP_SUMMARY
+
+#       # - name: "Canary: Final monitoring after 100% switch (10 min)"
+#       #   run: |
+#       #     echo "=== Final monitoring on Green ==="
+#       #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+#       #
+#       #     for i in {1..10}; do
+#       #       echo "Final check... $i/10 minutes"
+#       #
+#       #       UNHEALTHY=$(aws elbv2 describe-target-health \
+#       #         --target-group-arn ${GREEN_TG_ARN} \
+#       #         --query 'TargetHealthDescriptions[?TargetHealth.State==`unhealthy`]' \
+#       #         --output json | jq 'length')
+#       #
+#       #       if [ "$UNHEALTHY" -gt 0 ]; then
+#       #         echo "❌ Unhealthy target detected in final monitoring!"
+#       #         exit 1
+#       #       fi
+#       #
+#       #       sleep 60
+#       #     done
+#       #
+#       #     echo "✅ Final monitoring passed"
+
+#       # -------------------------------------------------------
+#       # 11. Promote Green → Blue
+#       # -------------------------------------------------------
+#       - name: Promote Green to Blue
+#         id: promote
+#         run: |
+#           GREEN_ASG="${{ steps.green-asg.outputs.green_asg_name }}"
+#           BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
+#           GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+#           API_RULE_ARN="${{ steps.blue-check.outputs.api_rule_arn }}"
+#           EXPECTED=${{ steps.blue-check.outputs.desired }}
+
+#           echo "=== Promoting Green to Blue ==="
+
+#           # 1. Green ASG를 Blue TG에 연결
+#           aws autoscaling attach-load-balancer-target-groups \
+#             --auto-scaling-group-name ${GREEN_ASG} \
+#             --target-group-arns ${BLUE_TG_ARN}
+
+#           echo "Waiting for Green instances to register in Blue TG..."
+#           sleep 30
+
+#           # 2. Blue TG에서 healthy 확인
+#           for i in {1..20}; do
+#             HEALTHY_IN_BLUE=$(aws elbv2 describe-target-health \
+#               --target-group-arn ${BLUE_TG_ARN} \
+#               --query 'TargetHealthDescriptions[?TargetHealth.State==`healthy`]' \
+#               --output json | jq 'length')
+
+#             echo "[$i/20] Healthy in Blue TG: ${HEALTHY_IN_BLUE}/${EXPECTED}"
+
+#             if [ "$HEALTHY_IN_BLUE" -ge "$EXPECTED" ]; then
+#               echo "✅ Green instances healthy in Blue TG"
+#               break
+#             fi
+
+#             if [ "$i" -eq 20 ]; then
+#               echo "❌ Green instances not healthy in Blue TG"
+#               exit 1
+#             fi
+
+#             sleep 10
+#           done
+
+#           # 3. Listener를 Blue TG로 복구
+#           aws elbv2 modify-rule \
+#             --rule-arn "$API_RULE_ARN" \
+#             --actions "[
+#               {
+#                 \"Type\": \"forward\",
+#                 \"ForwardConfig\": {
+#                   \"TargetGroups\": [
+#                     {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100},
+#                     {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 0}
+#                   ]
+#                 }
+#               }
+#             ]"
+
+#           # 4. Green TG에서 연결 해제
+#           aws autoscaling detach-load-balancer-target-groups \
+#             --auto-scaling-group-name ${GREEN_ASG} \
+#             --target-group-arns ${GREEN_TG_ARN} || true
+
+#           echo "✅ Promote complete"
+#           echo "### 🔵 Green → Blue 승격 완료" >> $GITHUB_STEP_SUMMARY
+#           echo "- **New Blue ASG:** \`${GREEN_ASG}\`" >> $GITHUB_STEP_SUMMARY
+#           echo "- **Listener:** → Blue TG" >> $GITHUB_STEP_SUMMARY
+
+#       # -------------------------------------------------------
+#       # 12. Blue ASG 삭제
+#       # -------------------------------------------------------
+#       - name: Remove Blue ASG
+#         if: success() && steps.blue-check.outputs.blue_asg != 'none'
+#         run: |
+#           BLUE_ASG="${{ steps.blue-check.outputs.blue_asg }}"
+
+#           aws autoscaling update-auto-scaling-group \
+#             --auto-scaling-group-name ${BLUE_ASG} \
+#             --min-size 0 --max-size 0 --desired-capacity 0
+
+#           sleep 30
+
+#           aws autoscaling delete-auto-scaling-group \
+#             --auto-scaling-group-name ${BLUE_ASG} \
+#             --force-delete
+
+#           echo "✅ Blue ASG removed: ${BLUE_ASG}"
+
+#       # ------------------------------------------------------
+#       # 13. 배포 정보 기록
+#       # ------------------------------------------------------
+#       - name: Record deployment info
+#         if: success()
+#         run: |
+#           cat > deployment-info.json <<EOF
+#           {
+#             "environment": "production",
+#             "service": "api",
+#             "deployment_strategy": "weighted-blue-green",
+#             "deployed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+#             "image_uri": "${{ steps.image.outputs.image_uri }}",
+#             "image_tag": "${{ steps.image.outputs.image_tag }}",
+#             "new_asg": "${{ steps.green-asg.outputs.green_asg_name }}",
+#             "old_blue_asg": "${{ steps.blue-check.outputs.blue_asg }}",
+#             "traffic_shift": "10% → 50% → 100%",
+#             "listener_state": "Blue TG (promoted from Green)"
+#           }
+#           EOF
+#           cat deployment-info.json
+
+#       # ------------------------------------------------------
+#       # 14. 롤백 (실패 시 즉시 Blue로)
+#       # ------------------------------------------------------
+#       - name: Rollback on failure
+#         if: failure()
+#         run: |
+#           API_RULE_ARN="${{ steps.blue-check.outputs.api_rule_arn }}"
+#           BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
+#           GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+
+#           # === CANARY ROLLBACK (API) ===
+#           # 카나리 단계에서 실패 시 Blue 100%로 원복
+#           # if [ "${{ steps.canary-shift-10.outputs.canary_shifted }}" = "true" ]; then
+#           #   aws elbv2 modify-rule \
+#           #     --rule-arn ${API_RULE_ARN} \
+#           #     --actions "[{
+#           #       \"Type\": \"forward\",
+#           #       \"ForwardConfig\": {
+#           #         \"TargetGroups\": [
+#           #           {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100},
+#           #           {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 0}
+#           #         ]
+#           #       }
+#           #     }]" || true
+#           #   echo "⚠️ Canary rollback: Traffic reverted to Blue 100%"
+#           # fi
+#           # === END CANARY ROLLBACK (API) ===
+
+#           # 트래픽이 이미 전환된 경우 원복
+#           if [ "${{ steps.traffic-switch.outputs.traffic_switched }}" = "true" ]; then
+#             aws elbv2 modify-rule \
+#               --rule-arn ${API_RULE_ARN} \
+#               --actions "[{
+#                 \"Type\": \"forward\",
+#                 \"ForwardConfig\": {
+#                   \"TargetGroups\": [
+#                     {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100},
+#                     {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 0}
+#                   ]
+#                 }
+#               }]" || true
+#             echo "⚠️ Traffic reverted to Blue"
+#           fi
+
+#           # Green ASG 삭제
+#           GREEN_ASG="${{ steps.green-asg.outputs.green_asg_name }}"
+#           if [ -n "$GREEN_ASG" ]; then
+#             aws autoscaling update-auto-scaling-group \
+#               --auto-scaling-group-name ${GREEN_ASG} \
+#               --min-size 0 --max-size 0 --desired-capacity 0 || true
+
+#             sleep 10
+
+#             aws autoscaling delete-auto-scaling-group \
+#               --auto-scaling-group-name ${GREEN_ASG} \
+#               --force-delete || true
+#           fi
+
+#           echo "⚠️ API Prod Rollback completed"
+
+#       # ------------------------------------------------------
+#       # 15. Discord 알림
+#       # ------------------------------------------------------
+#       - name: Send Discord notification on success
+#         if: success()
+#         uses: tsickert/discord-webhook@v5.3.0
+#         with:
+#           webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+#           username: "Backend CD Bot"
+#           avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
+#           embed-title: "✅ [API] Production 배포 성공 (Blue → Green)"
+#           embed-description: |
+#             **환경:** Production 🔴
+#             **전략:** Weighted Blue-Green
+#             **이미지:** `${{ steps.image.outputs.image_tag }}`
+#             **New ASG:** `${{ steps.green-asg.outputs.green_asg_name }}`
+#             **Old Blue ASG:** `${{ steps.blue-check.outputs.blue_asg }}`
+
+#             ✅ 트래픽 전환 → Blue 승격 → Old Blue 삭제 완료!
+
+#             [📋 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+#           embed-color: 3066993
+
+#       - name: Send Discord notification on failure
+#         if: failure()
+#         uses: tsickert/discord-webhook@v5.3.0
+#         with:
+#           webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+#           username: "Backend CD Bot"
+#           avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
+#           embed-title: "❌ [API] Production 배포 실패 - 롤백됨"
+#           embed-description: |
+#             **환경:** Production 🔴
+#             **전략:** Weighted Blue-Green
+#             **이미지:** `${{ steps.image.outputs.image_tag }}`
+#             ❌ 배포 실패 - Blue로 즉시 롤백됨
+
+#             [📋 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+#           embed-color: 15158332
+
+#   # ============================================================
+#   # Production Chat 배포 (main 브랜치)
+#   # Blue/Green 방식
+#   # ============================================================
+#   deploy-prod-chat:
+#     name: Deploy Chat to Production
+#     if: |
+#       github.event.workflow_run.conclusion == 'success' &&
+#       github.event.workflow_run.head_branch == 'main' &&
+#       github.event.workflow_run.event == 'push'
+#     runs-on: ubuntu-latest
+#     environment:
+#       name: production
+#       url: https://klosetlab.site
+#     timeout-minutes: 60
+
+#     permissions:
+#       id-token: write
+#       contents: read
+#       actions: read
+
+#     steps:
+#       # ------------------------------------------------------
+#       # 1. Checkout (스크립트 사용을 위해)
+#       # ------------------------------------------------------
+#       - name: Checkout repository
+#         uses: actions/checkout@v4
+
+#       # ------------------------------------------------------
+#       # 2. Chat Docker 메타데이터 다운로드
+#       # ------------------------------------------------------
+#       - name: Download Chat Docker metadata
+#         uses: actions/download-artifact@v4
+#         with:
+#           name: docker-metadata-chat-${{ github.event.workflow_run.head_sha }}
+#           github-token: ${{ secrets.GITHUB_TOKEN }}
+#           run-id: ${{ github.event.workflow_run.id }}
+
+#       # ------------------------------------------------------
+#       # 3. 이미지 정보 추출
+#       # ------------------------------------------------------
+#       - name: Extract image info
+#         id: image
+#         run: |
+#           if [ -f docker-metadata-chat.json ]; then
+#             IMAGE_URI=$(cat docker-metadata-chat.json | jq -r '.imageUri')
+#             IMAGE_TAG=$(cat docker-metadata-chat.json | jq -r '.imageTag')
+#             VERSION=$(cat docker-metadata-chat.json | jq -r '.version')
+
+#             echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+#             echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+#             echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+#             echo "### Chat Docker Image Info" >> $GITHUB_STEP_SUMMARY
+#             echo "- **Chat Image URI:** \`${IMAGE_URI}\`" >> $GITHUB_STEP_SUMMARY
+#             echo "- **Chat Image Tag:** \`${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+
+#             cat docker-metadata-chat.json | jq '.'
+#           else
+#             echo "::error::Chat Docker metadata not found!"
+#             exit 1
+#           fi
+
+#       # ------------------------------------------------------
+#       # 4. AWS OIDC 인증
+#       # ------------------------------------------------------
+#       - name: Configure AWS credentials via OIDC
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           role-to-assume: ${{ secrets.AWS_PROD_ROLE_ARN }}
+#           aws-region: ${{ env.AWS_REGION }}
+#           role-session-name: GitHubActions-ProdChat-${{ github.run_id }}
+
+#       # ------------------------------------------------------
+#       # 5. 현재 Blue 환경 확인
+#       # ------------------------------------------------------
+#       - name: Check Blue environment
+#         id: blue-check
+#         run: |
+#           LISTENER_ARN="${{ secrets.PROD_ALB_LISTENER_ARN }}"
+#           BLUE_TG_ARN="${{ secrets.PROD_CHAT_BLUE_TARGET_GROUP_ARN }}"
+#           GREEN_TG_ARN="${{ secrets.PROD_CHAT_GREEN_TARGET_GROUP_ARN }}"
+
+#           # WebSocket 규칙 (/ws*)
+#           CHAT_RULE_ARN=$(aws elbv2 describe-rules \
+#             --listener-arn ${LISTENER_ARN} \
+#             --query "Rules[?contains(Conditions[].Values[], '/ws*')].RuleArn" \
+#             --output text)
+
+#           # Chat API 규칙 (/api/v2/chat/*)
+#           CHAT_API_RULE_ARN=$(aws elbv2 describe-rules \
+#             --listener-arn ${LISTENER_ARN} \
+#             --query "Rules[?contains(Conditions[].Values[], '/api/v2/chat/*')].RuleArn" \
+#             --output text)
+
+#           echo "chat_rule_arn=${CHAT_RULE_ARN}" >> $GITHUB_OUTPUT
+#           echo "chat_api_rule_arn=${CHAT_API_RULE_ARN}" >> $GITHUB_OUTPUT
+#           echo "blue_tg_arn=${BLUE_TG_ARN}" >> $GITHUB_OUTPUT
+#           echo "green_tg_arn=${GREEN_TG_ARN}" >> $GITHUB_OUTPUT
+
+#           # WebSocket 규칙이 Blue TG를 가리키는지 확인
+#           CURRENT_TG_ARN=$(aws elbv2 describe-rules \
+#             --rule-arns ${CHAT_RULE_ARN} \
+#             --query 'Rules[0].Actions[0].ForwardConfig.TargetGroups | sort_by(@, &Weight) | [-1].TargetGroupArn' \
+#             --output text)
+
+#           # Chat API 규칙이 Blue TG를 가리키는지 확인
+#           API_CURRENT_TG_ARN=$(aws elbv2 describe-rules \
+#             --rule-arns ${CHAT_API_RULE_ARN} \
+#             --query 'Rules[0].Actions[0].ForwardConfig.TargetGroups | sort_by(@, &Weight) | [-1].TargetGroupArn' \
+#             --output text)
+
+#           echo "=== Debug Info ==="
+#           echo "CHAT_RULE_ARN: ${CHAT_RULE_ARN}"
+#           echo "BLUE_TG_ARN:   ${BLUE_TG_ARN}"
+#           echo "CURRENT_TG (ws):        ${CURRENT_TG_ARN}"
+#           echo "CURRENT_TG (chat api):  ${API_CURRENT_TG_ARN}"
+
+#           if [ "$CURRENT_TG_ARN" != "$BLUE_TG_ARN" ]; then
+#             echo "❌ /ws* rule is not pointing to Blue TG!"
+#             echo "Expected: ${BLUE_TG_ARN}"
+#             echo "Current:  ${CURRENT_TG_ARN}"
+#             echo "이전 배포가 정상 완료되지 않은 상태입니다. 확인 후 재시도하세요."
+#             exit 1
+#           fi
+#           if [ "$API_CURRENT_TG_ARN" != "$BLUE_TG_ARN" ]; then
+#             echo "❌ /api/v2/chat/* rule is not pointing to Blue TG!"
+#             echo "Expected: ${BLUE_TG_ARN}"
+#             echo "Current:  ${API_CURRENT_TG_ARN}"
+#             echo "이전 배포가 정상 완료되지 않은 상태입니다. 확인 후 재시도하세요."
+#             exit 1
+#           fi
+#           echo "✅ Both Chat rules → Blue TG confirmed"
+
+#           ALL_ASGS=$(aws autoscaling describe-auto-scaling-groups \
+#             --query 'AutoScalingGroups[?starts_with(AutoScalingGroupName, `klosetlab-chat-`)].AutoScalingGroupName' \
+#             --output json)
+
+#           BLUE_ASG="none"
+#           for asg in $(echo "$ALL_ASGS" | jq -r '.[]'); do
+#             TG_ARNS=$(aws autoscaling describe-auto-scaling-groups \
+#               --auto-scaling-group-names "$asg" \
+#               --query 'AutoScalingGroups[0].TargetGroupARNs' \
+#               --output json)
+
+#             if echo "$TG_ARNS" | jq -e --arg tg "$BLUE_TG_ARN" 'index($tg)' > /dev/null; then
+#               BLUE_ASG="$asg"
+#               break
+#             fi
+#           done
+
+#           echo "blue_asg=${BLUE_ASG}" >> $GITHUB_OUTPUT
+
+#           if [ "$BLUE_ASG" != "none" ]; then
+#             DESIRED=$(aws autoscaling describe-auto-scaling-groups \
+#               --auto-scaling-group-names ${BLUE_ASG} \
+#               --query 'AutoScalingGroups[0].DesiredCapacity' --output text)
+#             MIN=$(aws autoscaling describe-auto-scaling-groups \
+#               --auto-scaling-group-names ${BLUE_ASG} \
+#               --query 'AutoScalingGroups[0].MinSize' --output text)
+#             MAX=$(aws autoscaling describe-auto-scaling-groups \
+#               --auto-scaling-group-names ${BLUE_ASG} \
+#               --query 'AutoScalingGroups[0].MaxSize' --output text)
+
+#             echo "desired=${DESIRED}" >> $GITHUB_OUTPUT
+#             echo "min=${MIN}" >> $GITHUB_OUTPUT
+#             echo "max=${MAX}" >> $GITHUB_OUTPUT
+
+#             echo "### 🔵 Blue Environment" >> $GITHUB_STEP_SUMMARY
+#             echo "- **ASG:** \`${BLUE_ASG}\`" >> $GITHUB_STEP_SUMMARY
+#             echo "- **Capacity:** ${DESIRED} (min: ${MIN}, max: ${MAX})" >> $GITHUB_STEP_SUMMARY
+#           else
+#             echo "desired=1" >> $GITHUB_OUTPUT
+#             echo "min=1" >> $GITHUB_OUTPUT
+#             echo "max=2" >> $GITHUB_OUTPUT
+#           fi
+
+#       # ------------------------------------------------------
+#       # 6. Chat User Data 생성
+#       # ------------------------------------------------------
+#       - name: Generate Chat User Data script
+#         id: userdata
+#         run: |
+#           chmod +x .github/scripts/generate-userdata-chat.sh
+#           .github/scripts/generate-userdata-chat.sh \
+#             "prod" \
+#             "${{ steps.image.outputs.image_uri }}" \
+#             "${{ env.AWS_REGION }}"
+
+#       # ------------------------------------------------------
+#       # 7. Green Launch Template 버전 생성
+#       # ------------------------------------------------------
+#       - name: Create new Green Chat Launch Template version
+#         id: new-lt
+#         run: |
+#           LT_ID="${{ secrets.PROD_CHAT_LAUNCH_TEMPLATE_ID }}"
+#           USER_DATA="${{ steps.userdata.outputs.user_data_base64 }}"
+#           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+
+#           NEW_LT_VERSION=$(aws ec2 create-launch-template-version \
+#             --launch-template-id ${LT_ID} \
+#             --source-version '$Latest' \
+#             --launch-template-data "{
+#               \"UserData\": \"${USER_DATA}\",
+#               \"TagSpecifications\": [{
+#                 \"ResourceType\": \"instance\",
+#                 \"Tags\": [
+#                   {\"Key\": \"Name\", \"Value\": \"klosetlab-chat-${TIMESTAMP}\"},
+#                   {\"Key\": \"Environment\", \"Value\": \"production\"},
+#                   {\"Key\": \"Service\", \"Value\": \"chat\"},
+#                   {\"Key\": \"ImageTag\", \"Value\": \"${{ steps.image.outputs.image_tag }}\"}
+#                 ]
+#               }]
+#             }" \
+#             --query 'LaunchTemplateVersion.VersionNumber' \
+#             --output text)
+
+#           echo "new_lt_version=${NEW_LT_VERSION}" >> $GITHUB_OUTPUT
+
+#       # ------------------------------------------------------
+#       # 8. Green ASG 생성
+#       # ------------------------------------------------------
+#       - name: Create Green Chat ASG
+#         id: green-asg
+#         run: |
+#           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+#           GREEN_ASG_NAME="klosetlab-chat-asg-${TIMESTAMP}"
+#           GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+
+#           aws autoscaling create-auto-scaling-group \
+#             --auto-scaling-group-name ${GREEN_ASG_NAME} \
+#             --launch-template "LaunchTemplateId=${{ secrets.PROD_CHAT_LAUNCH_TEMPLATE_ID }},Version=${{ steps.new-lt.outputs.new_lt_version }}" \
+#             --min-size ${{ steps.blue-check.outputs.min }} \
+#             --max-size ${{ steps.blue-check.outputs.max }} \
+#             --desired-capacity ${{ steps.blue-check.outputs.desired }} \
+#             --target-group-arns ${GREEN_TG_ARN} \
+#             --vpc-zone-identifier "${{ secrets.PROD_SUBNET_IDS }}" \
+#             --health-check-type ELB \
+#             --health-check-grace-period 300 \
+#             --tags "Key=Name,Value=klosetlab-chat,PropagateAtLaunch=true" \
+#                    "Key=Environment,Value=production,PropagateAtLaunch=true" \
+#                    "Key=Service,Value=chat,PropagateAtLaunch=true" \
+#                    "Key=ImageTag,Value=${{ steps.image.outputs.image_tag }},PropagateAtLaunch=true"
+
+#           echo "green_asg_name=${GREEN_ASG_NAME}" >> $GITHUB_OUTPUT
+
+#           echo "### 🟢 Green ASG" >> $GITHUB_STEP_SUMMARY
+#           echo "- **ASG:** \`${GREEN_ASG_NAME}\`" >> $GITHUB_STEP_SUMMARY
+
+#       # ------------------------------------------------------
+#       # 9. Green 환경 준비 대기 (EC2 및 Target Group 헬스체크)
+#       # ------------------------------------------------------
+#       - name: Wait for Green Chat ASG to be ready
+#         timeout-minutes: 20
+#         run: |
+#           GREEN_ASG="${{ steps.green-asg.outputs.green_asg_name }}"
+#           GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+#           EXPECTED=${{ steps.blue-check.outputs.desired }}
+
+#           MAX_RETRIES=120
+#           RETRY_COUNT=0
+
+#           while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+#             HEALTHY_INSTANCES=$(aws autoscaling describe-auto-scaling-groups \
+#               --auto-scaling-group-names ${GREEN_ASG} \
+#               --query 'AutoScalingGroups[0].Instances[?HealthStatus==`Healthy` && LifecycleState==`InService`]' \
+#               --output json | jq 'length')
+
+#             NEW_INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
+#               --auto-scaling-group-names ${GREEN_ASG} \
+#               --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`].InstanceId' \
+#               --output json)
+
+#             HEALTHY_TARGETS=0
+#             for instance_id in $(echo "$NEW_INSTANCE_IDS" | jq -r '.[]'); do
+#               STATE=$(aws elbv2 describe-target-health \
+#                 --target-group-arn ${GREEN_TG_ARN} \
+#                 --targets Id=${instance_id} \
+#                 --query 'TargetHealthDescriptions[0].TargetHealth.State' \
+#                 --output text 2>/dev/null || echo "unknown")
+#               if [ "$STATE" = "healthy" ]; then
+#                 HEALTHY_TARGETS=$((HEALTHY_TARGETS + 1))
+#               fi
+#             done
+
+#             echo "[$((RETRY_COUNT + 1))/$MAX_RETRIES] Healthy: ${HEALTHY_INSTANCES} instances, ${HEALTHY_TARGETS} targets (expected: ${EXPECTED})"
+
+#             if [ "$HEALTHY_INSTANCES" -ge "$EXPECTED" ] && [ "$HEALTHY_TARGETS" -ge "$EXPECTED" ]; then
+#               echo "✅ Green Chat ASG is ready!"
+#               exit 0
+#             fi
+
+#             sleep 10
+#             RETRY_COUNT=$((RETRY_COUNT + 1))
+#           done
+
+#           echo "❌ Green Chat ASG failed to become healthy"
+#           exit 1
+
+#       # === CANARY DEPLOYMENT (Chat) ===
+#       # 아래 카나리 배포 스텝을 활성화하려면:
+#       # 1. 이 섹션의 주석(#)을 해제
+#       # 2. Rollback 스텝의 "CANARY ROLLBACK" 섹션도 함께 주석 해제
+#       # 3. 기존 "Switch traffic Blue → Green" 스텝은 그대로 유지 (100% 전환은 카나리 통과 후 실행)
+#       # 4. Chat은 /ws* 와 /api/v2/chat/* 두 규칙을 모두 전환해야 함
+#       #
+
+#       # # ------------------------------------------------------
+#       # # 10. 단계적 트래픽 전환 시작
+#       # # ------------------------------------------------------
+#       # - name: "Canary: Traffic Shift - 10% to Green"
+#       #   id: canary-shift-10
+#       #   run: |
+#       #     CHAT_RULE_ARN="${{ steps.blue-check.outputs.chat_rule_arn }}"
+#       #     CHAT_API_RULE_ARN="${{ steps.blue-check.outputs.chat_api_rule_arn }}"
+#       #     BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
+#       #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+#       #
+#       #     # /ws* 규칙 10% 전환
+#       #     aws elbv2 modify-rule \
+#       #       --rule-arn ${CHAT_RULE_ARN} \
+#       #       --actions "[{
+#       #         \"Type\": \"forward\",
+#       #         \"ForwardConfig\": {
+#       #           \"TargetGroups\": [
+#       #             {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 90},
+#       #             {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 10}
+#       #           ]
+#       #         }
+#       #       }]"
+#       #
+#       #     # /api/v2/chat/* 규칙 10% 전환
+#       #     aws elbv2 modify-rule \
+#       #       --rule-arn ${CHAT_API_RULE_ARN} \
+#       #       --actions "[{
+#       #         \"Type\": \"forward\",
+#       #         \"ForwardConfig\": {
+#       #           \"TargetGroups\": [
+#       #             {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 90},
+#       #             {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 10}
+#       #           ]
+#       #         }
+#       #       }]"
+#       #
+#       #     echo "✅ Canary: 10% traffic on Green (both /ws* and /api/v2/chat/*)"
+#       #     echo "### 🔄 Traffic: Blue 90% / Green 10%" >> $GITHUB_STEP_SUMMARY
+#       #
+#       # - name: "Canary: Monitor 10% traffic (10 min)"
+#       #   run: |
+#       #     echo "=== Monitoring Green with 10% traffic ==="
+#       #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+#       #     FAIL_COUNT=0
+#       #
+#       #     for i in {1..10}; do
+#       #       echo "Monitoring... $i/10 minutes"
+#       #
+#       #       # Green TG health 체크
+#       #       UNHEALTHY=$(aws elbv2 describe-target-health \
+#       #         --target-group-arn ${GREEN_TG_ARN} \
+#       #         --query 'TargetHealthDescriptions[?TargetHealth.State==`unhealthy`]' \
+#       #         --output json | jq 'length')
+#       #
+#       #       if [ "$UNHEALTHY" -gt 0 ]; then
+#       #         FAIL_COUNT=$((FAIL_COUNT + 1))
+#       #         echo "⚠️ Unhealthy detected ($FAIL_COUNT times)"
+#       #       else
+#       #         FAIL_COUNT=0
+#       #       fi
+#       #
+#       #       if [ "$FAIL_COUNT" -ge 3 ]; then
+#       #         echo "❌ 3 consecutive unhealthy checks. Failing deployment."
+#       #         exit 1
+#       #       fi
+#       #
+#       #       sleep 60
+#       #     done
+#       #
+#       #     echo "✅ 10% traffic monitoring passed"
+#       #
+#       # - name: "Canary: Traffic Shift - 50% to Green"
+#       #   id: canary-shift-50
+#       #   run: |
+#       #     CHAT_RULE_ARN="${{ steps.blue-check.outputs.chat_rule_arn }}"
+#       #     CHAT_API_RULE_ARN="${{ steps.blue-check.outputs.chat_api_rule_arn }}"
+#       #     BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
+#       #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+#       #
+#       #     # /ws* 규칙 50% 전환
+#       #     aws elbv2 modify-rule \
+#       #       --rule-arn ${CHAT_RULE_ARN} \
+#       #       --actions "[{
+#       #         \"Type\": \"forward\",
+#       #         \"ForwardConfig\": {
+#       #           \"TargetGroups\": [
+#       #             {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 50},
+#       #             {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 50}
+#       #           ]
+#       #         }
+#       #       }]"
+#       #
+#       #     # /api/v2/chat/* 규칙 50% 전환
+#       #     aws elbv2 modify-rule \
+#       #       --rule-arn ${CHAT_API_RULE_ARN} \
+#       #       --actions "[{
+#       #         \"Type\": \"forward\",
+#       #         \"ForwardConfig\": {
+#       #           \"TargetGroups\": [
+#       #             {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 50},
+#       #             {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 50}
+#       #           ]
+#       #         }
+#       #       }]"
+#       #
+#       #     echo "✅ Canary: 50% traffic on Green (both /ws* and /api/v2/chat/*)"
+#       #     echo "### 🔄 Traffic: Blue 50% / Green 50%" >> $GITHUB_STEP_SUMMARY
+#       #
+#       # - name: "Canary: Monitor 50% traffic (15 min)"
+#       #   run: |
+#       #     echo "=== Monitoring Green with 50% traffic ==="
+#       #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+#       #     FAIL_COUNT=0
+#       #
+#       #     for i in {1..15}; do
+#       #       echo "Monitoring... $i/15 minutes"
+#       #
+#       #       UNHEALTHY=$(aws elbv2 describe-target-health \
+#       #         --target-group-arn ${GREEN_TG_ARN} \
+#       #         --query 'TargetHealthDescriptions[?TargetHealth.State==`unhealthy`]' \
+#       #         --output json | jq 'length')
+#       #
+#       #       if [ "$UNHEALTHY" -gt 0 ]; then
+#       #         FAIL_COUNT=$((FAIL_COUNT + 1))
+#       #         echo "⚠️ Unhealthy detected ($FAIL_COUNT times)"
+#       #       else
+#       #         FAIL_COUNT=0
+#       #       fi
+#       #
+#       #       if [ "$FAIL_COUNT" -ge 3 ]; then
+#       #         echo "❌ 3 consecutive unhealthy checks. Failing deployment."
+#       #         exit 1
+#       #       fi
+#       #
+#       #       sleep 60
+#       #     done
+#       #
+#       #     echo "✅ 50% traffic monitoring passed"
+
+#       - name: Switch traffic Blue → Green
+#         id: traffic-switch
+#         run: |
+#           CHAT_RULE_ARN="${{ steps.blue-check.outputs.chat_rule_arn }}"
+#           CHAT_API_RULE_ARN="${{ steps.blue-check.outputs.chat_api_rule_arn }}"
+#           BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
+#           GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+
+#           # /ws* 규칙 전환
+#           aws elbv2 modify-rule \
+#             --rule-arn ${CHAT_RULE_ARN} \
+#             --actions "[{
+#               \"Type\": \"forward\",
+#               \"ForwardConfig\": {
+#                 \"TargetGroups\": [
+#                   {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 0},
+#                   {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 100}
+#                 ]
+#               }
+#             }]"
+
+#           # /api/v2/chat/* 규칙 전환
+#           aws elbv2 modify-rule \
+#             --rule-arn ${CHAT_API_RULE_ARN} \
+#             --actions "[{
+#               \"Type\": \"forward\",
+#               \"ForwardConfig\": {
+#                 \"TargetGroups\": [
+#                   {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 0},
+#                   {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 100}
+#                 ]
+#               }
+#             }]"
+
+#           echo "✅ Traffic switched: Blue(0%) → Green(100%) for both /ws* and /api/v2/chat/*"
+#           echo "### ✅ Traffic: Green 100%" >> $GITHUB_STEP_SUMMARY
+
+#       # === CANARY FINAL MONITORING (Chat) ===
+#       # - name: "Canary: Final monitoring after 100% switch (10 min)"
+#       #   run: |
+#       #     echo "=== Final monitoring on Green (zero tolerance) ==="
+#       #     GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+#       #
+#       #     for i in {1..10}; do
+#       #       echo "Final check... $i/10 minutes"
+#       #
+#       #       UNHEALTHY=$(aws elbv2 describe-target-health \
+#       #         --target-group-arn ${GREEN_TG_ARN} \
+#       #         --query 'TargetHealthDescriptions[?TargetHealth.State==`unhealthy`]' \
+#       #         --output json | jq 'length')
+#       #
+#       #       if [ "$UNHEALTHY" -gt 0 ]; then
+#       #         echo "❌ Unhealthy target detected in final monitoring!"
+#       #         exit 1
+#       #       fi
+#       #
+#       #       sleep 60
+#       #     done
+#       #
+#       #     echo "✅ Final monitoring passed"
+
+#       # -------------------------------------------------------
+#       # 11. Promote Green → Blue
+#       # -------------------------------------------------------
+#       - name: Promote Green to Blue
+#         id: promote
+#         run: |
+#           GREEN_ASG="${{ steps.green-asg.outputs.green_asg_name }}"
+#           BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
+#           GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+#           CHAT_RULE_ARN="${{ steps.blue-check.outputs.chat_rule_arn }}"
+#           CHAT_API_RULE_ARN="${{ steps.blue-check.outputs.chat_api_rule_arn }}"
+#           EXPECTED=${{ steps.blue-check.outputs.desired }}
+
+#           echo "=== Promoting Green to Blue ==="
+
+#           # 1. Green ASG를 Blue TG에 연결
+#           aws autoscaling attach-load-balancer-target-groups \
+#             --auto-scaling-group-name ${GREEN_ASG} \
+#             --target-group-arns ${BLUE_TG_ARN}
+
+#           echo "Waiting for Green instances to register in Blue TG..."
+#           sleep 30
+
+#           # 2. Blue TG에서 healthy 확인
+#           for i in {1..20}; do
+#             HEALTHY_IN_BLUE=$(aws elbv2 describe-target-health \
+#               --target-group-arn ${BLUE_TG_ARN} \
+#               --query 'TargetHealthDescriptions[?TargetHealth.State==`healthy`]' \
+#               --output json | jq 'length')
+
+#             echo "[$i/20] Healthy in Blue TG: ${HEALTHY_IN_BLUE}/${EXPECTED}"
+
+#             if [ "$HEALTHY_IN_BLUE" -ge "$EXPECTED" ]; then
+#               echo "✅ Green instances healthy in Blue TG"
+#               break
+#             fi
+
+#             if [ "$i" -eq 20 ]; then
+#               echo "❌ Green instances not healthy in Blue TG"
+#               exit 1
+#             fi
+
+#             sleep 10
+#           done
+
+#           # 3. Listener를 Blue TG로 복구
+#           aws elbv2 modify-rule \
+#             --rule-arn "$CHAT_RULE_ARN" \
+#             --actions "[
+#               {
+#                 \"Type\": \"forward\",
+#                 \"ForwardConfig\": {
+#                   \"TargetGroups\": [
+#                     {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100},
+#                     {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 0}
+#                   ]
+#                 }
+#               }
+#             ]"
+
+#             aws elbv2 modify-rule \
+#             --rule-arn "$CHAT_API_RULE_ARN" \
+#             --actions "[
+#               {
+#                 \"Type\": \"forward\",
+#                 \"ForwardConfig\": {
+#                   \"TargetGroups\": [
+#                     {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100},
+#                     {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 0}
+#                   ]
+#                 }
+#               }
+#             ]"
+
+#           # 4. Green TG에서 연결 해제
+#           aws autoscaling detach-load-balancer-target-groups \
+#             --auto-scaling-group-name ${GREEN_ASG} \
+#             --target-group-arns ${GREEN_TG_ARN} || true
+
+#           echo "✅ Promote complete"
+#           echo "### 🔵 Green → Blue 승격 완료" >> $GITHUB_STEP_SUMMARY
+#           echo "- **New Blue ASG:** \`${GREEN_ASG}\`" >> $GITHUB_STEP_SUMMARY
+#           echo "- **Listener:** → Blue TG" >> $GITHUB_STEP_SUMMARY
+
+#       # -------------------------------------------------------
+#       # 12. Old Blue ASG 삭제
+#       # -------------------------------------------------------
+#       - name: Remove Blue Chat ASG
+#         if: success() && steps.blue-check.outputs.blue_asg != 'none'
+#         run: |
+#           BLUE_ASG="${{ steps.blue-check.outputs.blue_asg }}"
+
+#           aws autoscaling update-auto-scaling-group \
+#             --auto-scaling-group-name ${BLUE_ASG} \
+#             --min-size 0 --max-size 0 --desired-capacity 0
+
+#           sleep 30
+
+#           aws autoscaling delete-auto-scaling-group \
+#             --auto-scaling-group-name ${BLUE_ASG} \
+#             --force-delete
+
+#           echo "✅ Blue Chat ASG removed: ${BLUE_ASG}"
+
+#       # ------------------------------------------------------
+#       # 13. 배포 정보 기록
+#       # ------------------------------------------------------
+#       - name: Record deployment info
+#         if: success()
+#         run: |
+#           cat > deployment-info.json <<EOF
+#           {
+#             "environment": "production",
+#             "service": "chat",
+#             "deployment_strategy": "weighted-blue-green",
+#             "deployed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+#             "image_uri": "${{ steps.image.outputs.image_uri }}",
+#             "image_tag": "${{ steps.image.outputs.image_tag }}",
+#             "new_asg": "${{ steps.green-asg.outputs.green_asg_name }}",
+#             "old_blue_asg": "${{ steps.blue-check.outputs.blue_asg }}",
+#             "traffic_shift": "10% → 50% → 100%",
+#             "listener_state": "Blue TG (promoted from Green)"
+#           }
+#           EOF
+#           cat deployment-info.json
+
+#       # ------------------------------------------------------
+#       # 14. 롤백 (실패 시 즉시 Blue로)
+#       # ------------------------------------------------------
+#       - name: Rollback on failure
+#         if: failure()
+#         run: |
+#           CHAT_RULE_ARN="${{ steps.blue-check.outputs.chat_rule_arn }}"
+#           CHAT_API_RULE_ARN="${{ steps.blue-check.outputs.chat_api_rule_arn }}"
+#           BLUE_TG_ARN="${{ steps.blue-check.outputs.blue_tg_arn }}"
+#           GREEN_TG_ARN="${{ steps.blue-check.outputs.green_tg_arn }}"
+
+#           # === CANARY ROLLBACK (Chat) ===
+#           # 카나리 단계에서 실패 시 Blue 100%로 원복 (두 규칙 모두)
+#           # if [ "${{ steps.canary-shift-10.outputs.canary_shifted }}" = "true" ]; then
+#           #   # /ws* 원복
+#           #   aws elbv2 modify-rule \
+#           #     --rule-arn ${CHAT_RULE_ARN} \
+#           #     --actions "[{
+#           #       \"Type\": \"forward\",
+#           #       \"ForwardConfig\": {
+#           #         \"TargetGroups\": [
+#           #           {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100},
+#           #           {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 0}
+#           #         ]
+#           #       }
+#           #     }]" || true
+#           #   # /api/v2/chat/* 원복
+#           #   aws elbv2 modify-rule \
+#           #     --rule-arn ${CHAT_API_RULE_ARN} \
+#           #     --actions "[{
+#           #       \"Type\": \"forward\",
+#           #       \"ForwardConfig\": {
+#           #         \"TargetGroups\": [
+#           #           {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100},
+#           #           {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 0}
+#           #         ]
+#           #       }
+#           #     }]" || true
+#           #   echo "⚠️ Canary rollback: Traffic reverted to Blue 100%"
+#           # fi
+#           # === END CANARY ROLLBACK (Chat) ===
+
+#           # 트래픽이 이미 전환된 경우 원복 (두 규칙 모두)
+#           if [ "${{ steps.traffic-switch.outputs.traffic_switched }}" = "true" ]; then
+#             # /ws* 원복
+#             aws elbv2 modify-rule \
+#               --rule-arn ${CHAT_RULE_ARN} \
+#               --actions "[{
+#                 \"Type\": \"forward\",
+#                 \"ForwardConfig\": {
+#                   \"TargetGroups\": [
+#                     {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100},
+#                     {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 0}
+#                   ]
+#                 }
+#               }]" || true
+#             # /api/v2/chat/* 원복
+#             aws elbv2 modify-rule \
+#               --rule-arn ${CHAT_API_RULE_ARN} \
+#               --actions "[{
+#                 \"Type\": \"forward\",
+#                 \"ForwardConfig\": {
+#                   \"TargetGroups\": [
+#                     {\"TargetGroupArn\": \"${BLUE_TG_ARN}\", \"Weight\": 100},
+#                     {\"TargetGroupArn\": \"${GREEN_TG_ARN}\", \"Weight\": 0}
+#                   ]
+#                 }
+#               }]" || true
+#             echo "⚠️ Traffic reverted to Blue"
+#           fi
+
+#           # Green ASG 삭제
+#           GREEN_ASG="${{ steps.green-asg.outputs.green_asg_name }}"
+#           if [ -n "$GREEN_ASG" ]; then
+#             aws autoscaling update-auto-scaling-group \
+#               --auto-scaling-group-name ${GREEN_ASG} \
+#               --min-size 0 --max-size 0 --desired-capacity 0 || true
+
+#             sleep 10
+
+#             aws autoscaling delete-auto-scaling-group \
+#               --auto-scaling-group-name ${GREEN_ASG} \
+#               --force-delete || true
+#           fi
+
+#           echo "⚠️ Chat Prod Rollback completed"
+
+#       # ------------------------------------------------------
+#       # 15. Discord 알림
+#       # ------------------------------------------------------
+#       - name: Send Discord notification on success
+#         if: success()
+#         uses: tsickert/discord-webhook@v5.3.0
+#         with:
+#           webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+#           username: "Backend CD Bot"
+#           avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
+#           embed-title: "✅ [Chat] Production 배포 성공 (Blue → Green)"
+#           embed-description: |
+#             **환경:** Production 🔴
+#             **전략:** Weighted Blue-Green
+#             **이미지:** `${{ steps.image.outputs.image_tag }}`
+#             **New ASG:** `${{ steps.green-asg.outputs.green_asg_name }}`
+#             **Old Blue ASG:** `${{ steps.blue-check.outputs.blue_asg }}`
+
+#             ✅ 트래픽 전환 → Blue 승격 → Old Blue 삭제 완료!
+
+#             [📋 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+#           embed-color: 3066993
+
+#       - name: Send Discord notification on failure
+#         if: failure()
+#         uses: tsickert/discord-webhook@v5.3.0
+#         with:
+#           webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+#           username: "Backend CD Bot"
+#           avatar-url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
+#           embed-title: "❌ [Chat] Production 배포 실패 - 롤백됨"
+#           embed-description: |
+#             **환경:** Production 🔴
+#             **전략:** Weighted Blue-Green
+#             **이미지:** `${{ steps.image.outputs.image_tag }}`
+#             ❌ 배포 실패 - Blue로 즉시 롤백됨
+
+#             [📋 로그](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+#           embed-color: 15158332
