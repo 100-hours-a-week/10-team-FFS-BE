@@ -1,3 +1,71 @@
+# FROM eclipse-temurin:21-jre
+
+# LABEL description="Chat Server"
+
+# WORKDIR /app
+
+# RUN groupadd -r spring && useradd -r -g spring spring
+
+# RUN mkdir -p /app/logs
+
+# COPY module-chat/build/libs/chat.jar app.jar
+
+# RUN chown -R spring:spring /app
+
+# USER spring
+
+# ENV TZ=Asia/Seoul \
+#     JAVA_OPTS="-XX:+UseContainerSupport \
+#                -XX:MaxRAMPercentage=70.0 \
+#                -XX:+UseG1GC \
+#                -XX:+UseStringDeduplication \
+#                -Djava.security.egd=file:/dev/./urandom"
+
+# EXPOSE 8081
+
+# ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar chat.jar"]
+
+# ==============================
+# Stage 1: Build
+# ==============================
+FROM eclipse-temurin:21-jdk AS builder
+
+WORKDIR /workspace
+
+# Gradle wrapper
+COPY gradlew gradlew.bat ./
+COPY gradle gradle/
+RUN chmod +x gradlew
+
+# 루트 빌드 설정
+COPY build.gradle settings.gradle ./
+
+# Checkstyle 설정
+COPY config config/
+
+# 각 모듈 build.gradle (의존성 레이어 캐시용)
+COPY module-chat/build.gradle module-chat/
+COPY module-common/build.gradle module-common/
+COPY module-domain/build.gradle module-domain/
+
+# 의존성 캐시 워밍
+RUN ./gradlew :module-chat:dependencies --no-daemon || true
+
+# 소스 코드 복사
+COPY module-chat/src module-chat/src
+COPY module-common/src module-common/src
+COPY module-domain/src module-domain/src
+
+# 빌드
+RUN ./gradlew :module-chat:bootJar \
+    -x test \
+    -x spotlessCheck \
+    -x checkstyleMain \
+    --no-daemon
+
+# ==============================
+# Stage 2: Runtime
+# ==============================
 FROM eclipse-temurin:21-jre
 
 LABEL description="Chat Server"
@@ -5,10 +73,9 @@ LABEL description="Chat Server"
 WORKDIR /app
 
 RUN groupadd -r spring && useradd -r -g spring spring
-
 RUN mkdir -p /app/logs
 
-COPY module-chat/build/libs/chat.jar app.jar
+COPY --from=builder /workspace/module-chat/build/libs/chat.jar app.jar
 
 RUN chown -R spring:spring /app
 
@@ -23,4 +90,4 @@ ENV TZ=Asia/Seoul \
 
 EXPOSE 8081
 
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar chat.jar"]
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
