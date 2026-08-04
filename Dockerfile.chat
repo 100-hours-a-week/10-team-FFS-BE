@@ -1,3 +1,25 @@
+# ---- Build stage: JDK로 소스에서 직접 컴파일 ----
+FROM eclipse-temurin:21-jdk AS build
+
+WORKDIR /workspace
+
+# 의존성 정의 파일만 먼저 복사한다.
+# build.gradle/settings.gradle이 바뀌지 않는 한 이 레이어(의존성 다운로드)는 캐시된다.
+COPY gradlew settings.gradle build.gradle ./
+COPY gradle gradle
+COPY module-common/build.gradle module-common/build.gradle
+COPY module-domain/build.gradle module-domain/build.gradle
+COPY module-chat/build.gradle module-chat/build.gradle
+RUN ./gradlew :module-chat:dependencies --no-daemon || true
+
+# 소스 코드는 의존성 레이어 이후에 복사한다.
+# 소스만 바뀌는 일반적인 커밋에서는 위 의존성 레이어가 캐시 히트된다.
+COPY module-common/src module-common/src
+COPY module-domain/src module-domain/src
+COPY module-chat/src module-chat/src
+RUN ./gradlew :module-chat:bootJar -x test --no-daemon
+
+# ---- Runtime stage: JRE만 포함한 경량 이미지 ----
 FROM eclipse-temurin:21-jre
 
 LABEL description="Chat Server"
@@ -8,9 +30,7 @@ RUN groupadd -r spring && useradd -r -g spring spring
 
 RUN mkdir -p /app/logs
 
-COPY module-chat/build/libs/chat.jar app.jar
-
-RUN chown -R spring:spring /app
+COPY --from=build --chown=spring:spring /workspace/module-chat/build/libs/chat.jar app.jar
 
 USER spring
 
@@ -23,4 +43,4 @@ ENV TZ=Asia/Seoul \
 
 EXPOSE 8081
 
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar chat.jar"]
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
