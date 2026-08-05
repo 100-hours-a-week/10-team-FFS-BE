@@ -382,8 +382,9 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./Dockerfile.api
+          file: ./Dockerfile.api-jdk-single-stage
           push: false
+          load: true
           tags: test-api:${{ needs.test-and-build.outputs.image_tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -395,6 +396,7 @@ jobs:
       # ------------------------------------------------------
       - name: API Docker validation success
         run: |
+          docker images test-api:${{ needs.test-and-build.outputs.image_tag }}
           echo "### ✅ API Docker Build Validation Passed" >> $GITHUB_STEP_SUMMARY
           echo "API Dockerfile이 정상적으로 빌드됩니다." >> $GITHUB_STEP_SUMMARY
           echo "- **API Image Tag:** \`test:${{ needs.test-and-build.outputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
@@ -470,8 +472,9 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./Dockerfile.chat
+          file: ./Dockerfile.chat-jdk-single-stage
           push: false
+          load: true
           tags: test-chat:${{ needs.test-and-build.outputs.image_tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -483,6 +486,7 @@ jobs:
       # ------------------------------------------------------
       - name: Chat Docker validation success
         run: |
+          docker images test-chat:${{ needs.test-and-build.outputs.image_tag }}
           echo "### ✅ Chat Docker Build Validation Passed" >> $GITHUB_STEP_SUMMARY
           echo "Chat Dockerfile이 정상적으로 빌드됩니다." >> $GITHUB_STEP_SUMMARY
           echo "- **Chat Image Tag:** \`test:${{ needs.test-and-build.outputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
